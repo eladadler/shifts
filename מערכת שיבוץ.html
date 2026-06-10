@@ -1253,9 +1253,11 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, isCont
   const required = shift.required || 1;
   const stateCls = hasConflict ? 'slot-conflict' : emps.length === 0 ? 'slot-empty' : emps.length < required ? 'slot-partial' : 'slot-ok';
 
+  const atCapacity = emps.length >= required;
+
   const handleDrop = (e) => {
     e.preventDefault(); e.stopPropagation(); setOver(false);
-    if (!editable) return;
+    if (!editable || atCapacity) return;
     let payload;
     try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
     if (!payload) return;
@@ -1266,7 +1268,7 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, isCont
   return (
     <div
       className={`slot ${stateCls}` + (over && editable ? ' slot-over' : '') + (isContinuation ? ' slot-continuation' : '')}
-      onDragOver={(e) => { if (editable) { e.preventDefault(); e.dataTransfer.dropEffect = e.shiftKey ? 'copy' : 'move'; setOver(true); } }}
+      onDragOver={(e) => { if (editable && !atCapacity) { e.preventDefault(); e.dataTransfer.dropEffect = e.shiftKey ? 'copy' : 'move'; setOver(true); } }}
       onDragLeave={() => setOver(false)}
       onDrop={handleDrop}
     >
@@ -2437,6 +2439,8 @@ function App() {
       const day = { ...(d.schedule[dStr] || {}) };
       const cur = day[shiftId] || [];
       if (cur.includes(empId)) return {};
+      const capacity = AD.shiftDef(dStr, shiftId, shiftSettings)?.required ?? Infinity;
+      if (cur.length >= capacity) return {};
       day[shiftId] = [...cur, empId];
       return { schedule: { ...d.schedule, [dStr]: day } };
     });
@@ -2455,16 +2459,20 @@ function App() {
     if (from.dStr === to.dStr && from.shiftId === to.shiftId) return;
     if (!activeDraftId) return;
     updateDraft(activeDraftId, d => {
+      const toDay = d.schedule[to.dStr] || {};
+      const toCur = toDay[to.shiftId] || [];
+      if (toCur.includes(empId)) return {};
+      const capacity = AD.shiftDef(to.dStr, to.shiftId, shiftSettings)?.required ?? Infinity;
+      if (toCur.length >= capacity) return {};
       const next = { ...d.schedule };
       if (!copy) {
         const fromDay = { ...(next[from.dStr] || {}) };
         fromDay[from.shiftId] = (fromDay[from.shiftId] || []).filter(id => id !== empId);
         next[from.dStr] = fromDay;
       }
-      const toDay = { ...(next[to.dStr] || {}) };
-      const cur = toDay[to.shiftId] || [];
-      if (!cur.includes(empId)) toDay[to.shiftId] = [...cur, empId];
-      next[to.dStr] = toDay;
+      const newToDay = { ...(next[to.dStr] || {}) };
+      newToDay[to.shiftId] = [...toCur, empId];
+      next[to.dStr] = newToDay;
       return { schedule: next };
     });
   };

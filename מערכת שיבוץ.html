@@ -1916,14 +1916,112 @@ function ShiftRowEditorWithSpan({ shift, onChange, onDelete }) {
   );
 }
 
+function ShiftFormRow({ sh, onChange, onDelete, showDate, onDateChange }) {
+  const upd = (f, v) => onChange({ ...sh, [f]: v });
+  return (
+    <div style={{background:'var(--surface-2)',border:'1px solid var(--line-soft)',borderRadius:8,padding:'8px 10px',display:'flex',flexDirection:'column',gap:6}}>
+      <div style={{display:'flex',gap:6,alignItems:'center'}}>
+        {showDate && (
+          <input type="date" style={{width:130,padding:'3px 6px',border:'1px solid var(--line)',borderRadius:5,background:'var(--surface)',color:'var(--ink)',font:'inherit',fontSize:'11.5px',outline:'none'}}
+            value={sh.date || ''} onChange={e => onDateChange && onDateChange(e.target.value)} />
+        )}
+        <input className="shift-row-name" value={sh.name}
+          style={{flex:1,border:'1px solid var(--line)',borderRadius:5,padding:'3px 8px'}}
+          onChange={e => upd('name', e.target.value)} placeholder="שם משמרת" />
+        <button className="shift-del-btn" onClick={onDelete} title="מחיקה">×</button>
+      </div>
+      <div style={{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap'}}>
+        <span style={{fontSize:'11px',color:'var(--ink-3)',flexShrink:0}}>מ־</span>
+        <input className="shift-time-inp" type="time" dir="ltr" value={sh.start} onChange={e => upd('start', e.target.value)} />
+        <span style={{fontSize:'11px',color:'var(--ink-3)',flexShrink:0}}>עד</span>
+        <input className="shift-time-inp" type="time" dir="ltr" value={sh.end} onChange={e => upd('end', e.target.value)} />
+        <span style={{fontSize:'11px',color:'var(--ink-3)',marginInlineStart:'auto',flexShrink:0}}>עובדים:</span>
+        <button className="shift-req-btn" onClick={() => upd('required', Math.max(1, (sh.required||1)-1))}>−</button>
+        <span className="shift-req-num">{sh.required||1}</span>
+        <button className="shift-req-btn" onClick={() => upd('required', (sh.required||1)+1)}>+</button>
+        <span style={{fontSize:'11px',color:'var(--ink-3)',marginInlineStart:4,flexShrink:0}}>ימים:</span>
+        <button className="shift-req-btn" onClick={() => upd('daysSpan', Math.max(1, (sh.daysSpan||1)-1))}>−</button>
+        <span className="shift-req-num">{sh.daysSpan||1}</span>
+        <button className="shift-req-btn" onClick={() => upd('daysSpan', Math.min(4, (sh.daysSpan||1)+1))}>+</button>
+      </div>
+    </div>
+  );
+}
+
+function ApplySetDialog({ set, special, onConfirm, onCancel }) {
+  const [date, setDate] = React.useState('');
+  const [toDelete, setToDelete] = React.useState([]);
+
+  const conflicts = React.useMemo(
+    () => (special || []).filter(sp => sp.date === date),
+    [date, special]
+  );
+
+  React.useEffect(() => {
+    setToDelete(conflicts.map(c => c.id));
+  }, [date]);
+
+  const toggle = (id) => setToDelete(prev =>
+    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+  );
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal" style={{maxWidth:400}} onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2 className="modal-title">החלת סט "{set.name}"</h2>
+          <button className="icon-btn" onClick={onCancel}>×</button>
+        </div>
+        <div className="modal-body" style={{display:'flex',flexDirection:'column',gap:14}}>
+          <div>
+            <label style={{fontSize:'12px',color:'var(--ink-3)',display:'block',marginBottom:5}}>תאריך להחלה</label>
+            <input type="date" style={{width:'100%',padding:'6px 10px',border:'1px solid var(--line)',borderRadius:7,background:'var(--surface)',color:'var(--ink)',font:'inherit',fontSize:'13px',outline:'none'}}
+              value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+
+          <div style={{fontSize:'12.5px',color:'var(--ink-2)'}}>
+            {set.shifts.length} משמרות יתווספו: {set.shifts.map(s => s.name).join(', ')}
+          </div>
+
+          {conflicts.length > 0 && (
+            <div>
+              <div style={{fontSize:'12px',color:'var(--ink-3)',marginBottom:6}}>
+                נמצאו משמרות מיוחדות קיימות לתאריך זה — סמן אילו למחוק:
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                {conflicts.map(sp => (
+                  <label key={sp.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:'12.5px',cursor:'pointer',padding:'4px 0'}}>
+                    <input type="checkbox" checked={toDelete.includes(sp.id)} onChange={() => toggle(sp.id)}
+                      style={{width:14,height:14,accentColor:'var(--accent)',flexShrink:0}} />
+                    <span style={{flex:1}}>{sp.name}</span>
+                    <span style={{color:'var(--ink-3)',fontSize:'11px'}}>{sp.start}–{sp.end}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="modal-footer" style={{display:'flex',gap:8,justifyContent:'flex-end',padding:'12px 20px',borderTop:'1px solid var(--line)'}}>
+          <button className="btn" onClick={onCancel}>ביטול</button>
+          <button className="btn btn-primary" disabled={!date} onClick={() => onConfirm(date, toDelete)}>
+            החל סט
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ShiftsDrawer({ open, onClose, settings, onChange }) {
   const [tab, setTab] = React.useState('regular');
-  const EMPTY_SP = { date: '', name: 'משמרת מיוחדת', start: '08:00', end: '16:00', required: 1, daysSpan: 1 };
-  const [newSp, setNewSp] = React.useState(EMPTY_SP);
+  const [applyingSet, setApplyingSet] = React.useState(null);
+  const [expandedSet, setExpandedSet] = React.useState(null);
 
   if (!open) return null;
 
+  const sets = settings.sets || [];
   const updGroup = (group, fn) => onChange({ ...settings, [group]: fn(settings[group]) });
+  const updSets = (fn) => onChange({ ...settings, sets: fn(sets) });
 
   const moveShift = (group, i, dir) => updGroup(group, (arr) => {
     const j = i + dir;
@@ -1933,19 +2031,32 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
     return next;
   });
 
-  const addShift = (group) => {
-    const newId = 'shift-' + Date.now();
-    updGroup(group, (arr) => [...arr, { id: newId, name: 'משמרת חדשה', start: '08:00', end: '16:00', required: 1, daysSpan: 1 }]);
-  };
+  const addShift = (group) => updGroup(group, arr => [...arr,
+    { id: 'shift-' + Date.now(), name: 'משמרת חדשה', start: '08:00', end: '16:00', required: 1, daysSpan: 1 }]);
 
-  const addSpecial = () => {
-    if (!newSp.date) return;
-    const sp = { ...newSp, id: 'sp-' + Date.now() };
+  const addSpecialDirect = (sh) => {
+    const sp = { ...sh, id: 'sp-' + Date.now() };
     onChange({ ...settings, special: [...(settings.special || []), sp] });
-    setNewSp(EMPTY_SP);
   };
 
   const removeSpecial = (id) => onChange({ ...settings, special: (settings.special || []).filter(s => s.id !== id) });
+
+  const addSet = () => {
+    const id = 'set-' + Date.now();
+    updSets(arr => [...arr, { id, name: 'סט חדש', shifts: [] }]);
+    setExpandedSet(id);
+  };
+
+  const updateSet = (id, fn) => updSets(arr => arr.map(s => s.id === id ? fn(s) : s));
+
+  const applySet = (date, toDelete) => {
+    const newSpecial = (settings.special || []).filter(sp => !toDelete.includes(sp.id));
+    const newShifts = applyingSet.shifts.map((sh, i) => ({
+      ...sh, id: 'sp-' + Date.now() + i, date,
+    }));
+    onChange({ ...settings, special: [...newSpecial, ...newShifts] });
+    setApplyingSet(null);
+  };
 
   const renderGroup = (group, label) => (
     <div>
@@ -1954,14 +2065,14 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
         {settings[group].map((shift, i) => (
           <div key={shift.id || i} style={{display:'flex',alignItems:'center',gap:3}}>
             <div style={{display:'flex',flexDirection:'column',gap:1,flexShrink:0}}>
-              <button className="shift-req-btn" style={{fontSize:'10px',height:16,width:18}} title="העלה"
+              <button className="shift-req-btn" style={{fontSize:'10px',height:16,width:18}}
                 onClick={() => moveShift(group, i, -1)} disabled={i === 0}>↑</button>
-              <button className="shift-req-btn" style={{fontSize:'10px',height:16,width:18}} title="הורד"
+              <button className="shift-req-btn" style={{fontSize:'10px',height:16,width:18}}
                 onClick={() => moveShift(group, i, 1)} disabled={i === settings[group].length - 1}>↓</button>
             </div>
-            <ShiftRowEditorWithSpan shift={shift} style={{flex:1}}
-              onChange={(s) => updGroup(group, (arr) => arr.map((x, j) => j === i ? s : x))}
-              onDelete={() => updGroup(group, (arr) => arr.filter((_, j) => j !== i))} />
+            <ShiftRowEditorWithSpan shift={shift}
+              onChange={(s) => updGroup(group, arr => arr.map((x, j) => j === i ? s : x))}
+              onDelete={() => updGroup(group, arr => arr.filter((_, j) => j !== i))} />
           </div>
         ))}
       </div>
@@ -1969,7 +2080,56 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
     </div>
   );
 
+  // Special tab - new shift form state (local to this render via a sub-component)
+  const SpecialTab = () => {
+    const EMPTY = { name: 'משמרת מיוחדת', date: '', start: '08:00', end: '16:00', required: 1, daysSpan: 1 };
+    const [form, setForm] = React.useState(EMPTY);
+    const grouped = React.useMemo(() => {
+      const m = {};
+      (settings.special || []).forEach(sp => { (m[sp.date] = m[sp.date] || []).push(sp); });
+      return Object.entries(m).sort(([a],[b]) => a.localeCompare(b));
+    }, [settings.special]);
+    return (
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div className="settings-sec-title">הוספת משמרת מיוחדת</div>
+        <ShiftFormRow sh={form} showDate onChange={setForm}
+          onDateChange={v => setForm(f => ({...f, date: v}))}
+          onDelete={() => setForm(EMPTY)} />
+        <button className="btn btn-primary" style={{fontSize:'12px'}} disabled={!form.date}
+          onClick={() => { addSpecialDirect(form); setForm(EMPTY); }}>
+          + הוספה
+        </button>
+
+        <div className="settings-sec-title">משמרות מיוחדות שהוגדרו</div>
+        {!grouped.length ? (
+          <div style={{color:'var(--ink-3)',fontSize:'13px',textAlign:'center',padding:'12px 0'}}>לא הוגדרו משמרות מיוחדות</div>
+        ) : grouped.map(([date, sps]) => (
+          <div key={date}>
+            <div style={{fontSize:'11.5px',fontWeight:600,color:'var(--ink-2)',marginBottom:4}}>
+              {SD.shortDate(date)} — {SD.dayLabel(date)}
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:3,paddingInlineStart:8}}>
+              {sps.map(sp => (
+                <div key={sp.id} className="shift-row">
+                  <span style={{flex:1,fontWeight:600,fontSize:'12.5px'}}>{sp.name}</span>
+                  <span style={{fontSize:'11px',color:'var(--ink-3)'}}>מ־{sp.start} עד {sp.end}</span>
+                  {(sp.daysSpan||1) > 1 && <span style={{fontSize:'10px',color:'var(--accent)',marginInlineStart:4}}>{sp.daysSpan}י׳</span>}
+                  <button className="shift-del-btn" onClick={() => removeSpecial(sp.id)}>×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
+    <>
+    {applyingSet && (
+      <ApplySetDialog set={applyingSet} special={settings.special}
+        onConfirm={applySet} onCancel={() => setApplyingSet(null)} />
+    )}
     <div className="right-drawer-backdrop" onClick={onClose}>
       <aside className="right-drawer" onClick={(e) => e.stopPropagation()}>
         <div className="right-drawer-head">
@@ -1978,12 +2138,11 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
         </div>
         <div className="right-drawer-tabs">
           <button className={'right-drawer-tab' + (tab === 'regular' ? ' on' : '')} onClick={() => setTab('regular')}>קבועות</button>
+          <button className={'right-drawer-tab' + (tab === 'sets' ? ' on' : '')} onClick={() => setTab('sets')}>סטים</button>
           <button className={'right-drawer-tab' + (tab === 'special' ? ' on' : '')} onClick={() => setTab('special')}>מיוחדות</button>
         </div>
         <div className="right-drawer-body">
-          <div className="settings-warning" style={{marginBottom:14}}>
-            שינויים יחולו על טיוטות חדשות בלבד
-          </div>
+          <div className="settings-warning" style={{marginBottom:14}}>שינויים יחולו על טיוטות חדשות בלבד</div>
 
           {tab === 'regular' && (
             <div style={{display:'flex',flexDirection:'column',gap:18}}>
@@ -1991,62 +2150,57 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
               {renderGroup('friday',  'יום שישי (ו׳)')}
               {renderGroup('saturday','יום שבת (ש׳)')}
               <button className="btn" style={{width:'100%',fontSize:'12px'}}
-                onClick={() => onChange(window.DEFAULT_SHIFT_SETTINGS)}>
-                איפוס לברירות מחדל
-              </button>
+                onClick={() => onChange(window.DEFAULT_SHIFT_SETTINGS)}>איפוס לברירות מחדל</button>
             </div>
           )}
 
-          {tab === 'special' && (
-            <div style={{display:'flex',flexDirection:'column',gap:14}}>
-              <div className="settings-sec-title">הוספת משמרת מיוחדת</div>
-              <div style={{background:'var(--surface-2)',border:'1px solid var(--line)',borderRadius:10,padding:'12px',display:'flex',flexDirection:'column',gap:8}}>
-                <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <label style={{fontSize:'12px',color:'var(--ink-3)',flexShrink:0,width:40}}>תאריך</label>
-                  <input type="date" style={{flex:1,padding:'4px 8px',border:'1px solid var(--line)',borderRadius:6,background:'var(--surface)',color:'var(--ink)',font:'inherit',fontSize:'12px',outline:'none'}}
-                    value={newSp.date} onChange={(e) => setNewSp(s => ({...s, date: e.target.value}))} />
-                </div>
-                <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <label style={{fontSize:'12px',color:'var(--ink-3)',flexShrink:0,width:40}}>שם</label>
-                  <input className="shift-row-name" style={{flex:1,border:'1px solid var(--line)',borderRadius:6,padding:'3px 7px'}}
-                    value={newSp.name} onChange={(e) => setNewSp(s => ({...s, name: e.target.value}))} />
-                </div>
-                <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-                  <input className="shift-time-inp" type="time" dir="ltr" value={newSp.start} onChange={(e) => setNewSp(s => ({...s, start: e.target.value}))} />
-                  <span style={{fontSize:'10px',color:'var(--ink-3)'}}>–</span>
-                  <input className="shift-time-inp" type="time" dir="ltr" value={newSp.end} onChange={(e) => setNewSp(s => ({...s, end: e.target.value}))} />
-                  <span style={{fontSize:'11px',color:'var(--ink-3)',marginInlineStart:'auto'}}>נדרש:</span>
-                  <button className="shift-req-btn" onClick={() => setNewSp(s => ({...s, required: Math.max(1, s.required - 1)}))}>−</button>
-                  <span style={{fontSize:'12px',fontWeight:700,minWidth:16,textAlign:'center'}}>{newSp.required}</span>
-                  <button className="shift-req-btn" onClick={() => setNewSp(s => ({...s, required: s.required + 1}))}>+</button>
-                </div>
-                <button className="btn btn-primary" style={{fontSize:'12px'}} onClick={addSpecial}>
-                  + הוספה
-                </button>
+          {tab === 'sets' && (
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <div style={{fontSize:'12px',color:'var(--ink-3)',lineHeight:1.5}}>
+                סטים הם תבניות של משמרות ללא תאריך. אפשר להחיל אותם על כל תאריך שתבחר — שימושי לחגים שמשתנים מדי שנה.
               </div>
-
-              <div className="settings-sec-title">משמרות מיוחדות שהוגדרו</div>
-              {!(settings.special || []).length ? (
-                <div style={{color:'var(--ink-3)',fontSize:'13px',textAlign:'center',padding:'16px 0'}}>
-                  לא הוגדרו משמרות מיוחדות
-                </div>
-              ) : (
-                <div style={{display:'flex',flexDirection:'column',gap:5}}>
-                  {(settings.special || []).map((sp) => (
-                    <div key={sp.id} className="shift-row">
-                      <span style={{fontSize:'11px',color:'var(--ink-3)',flexShrink:0,minWidth:44}}>{(sp.date || '').slice(5)}</span>
-                      <span style={{flex:1,fontWeight:600,fontSize:'12.5px'}}>{sp.name}</span>
-                      <span style={{fontSize:'11px',color:'var(--ink-3)'}}>{sp.start}–{sp.end}</span>
-                      <button className="shift-del-btn" onClick={() => removeSpecial(sp.id)}>×</button>
-                    </div>
-                  ))}
-                </div>
+              {!sets.length && (
+                <div style={{color:'var(--ink-3)',fontSize:'13px',textAlign:'center',padding:'12px 0'}}>אין סטים שמורים</div>
               )}
+              {sets.map(set => (
+                <div key={set.id} style={{border:'1px solid var(--line)',borderRadius:10,overflow:'hidden'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:'var(--surface-2)',cursor:'pointer'}}
+                    onClick={() => setExpandedSet(expandedSet === set.id ? null : set.id)}>
+                    <input value={set.name} style={{flex:1,background:'none',border:'none',font:'inherit',fontWeight:600,fontSize:'13px',color:'var(--ink)',outline:'none'}}
+                      onChange={e => updateSet(set.id, s => ({...s, name: e.target.value}))}
+                      onClick={e => e.stopPropagation()} />
+                    <span style={{fontSize:'11px',color:'var(--ink-3)'}}>{set.shifts.length} משמרות</span>
+                    <button className="btn" style={{padding:'3px 10px',fontSize:'11.5px'}}
+                      onClick={e => { e.stopPropagation(); setApplyingSet(set); }}>
+                      החל על תאריך
+                    </button>
+                    <button className="shift-del-btn" title="מחיקת סט"
+                      onClick={e => { e.stopPropagation(); if(window.confirm(`למחוק את הסט "${set.name}"?`)) updSets(arr => arr.filter(s => s.id !== set.id)); }}>×</button>
+                    <span style={{fontSize:'12px',color:'var(--ink-3)'}}>{expandedSet === set.id ? '▴' : '▾'}</span>
+                  </div>
+                  {expandedSet === set.id && (
+                    <div style={{padding:'10px 12px',display:'flex',flexDirection:'column',gap:8}}>
+                      {set.shifts.map((sh, i) => (
+                        <ShiftFormRow key={sh.id || i} sh={sh}
+                          onChange={v => updateSet(set.id, s => ({...s, shifts: s.shifts.map((x,j) => j===i?v:x)}))}
+                          onDelete={() => updateSet(set.id, s => ({...s, shifts: s.shifts.filter((_,j) => j!==i)}))} />
+                      ))}
+                      <button className="add-shift-btn" onClick={() => updateSet(set.id, s => ({
+                        ...s, shifts: [...s.shifts, {id:'ssh-'+Date.now(), name:'משמרת', start:'08:00', end:'16:00', required:1, daysSpan:1}]
+                      }))}>+ הוספת משמרת לסט</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <button className="btn btn-primary" style={{fontSize:'12px'}} onClick={addSet}>+ סט חדש</button>
             </div>
           )}
+
+          {tab === 'special' && <SpecialTab />}
         </div>
       </aside>
     </div>
+    </>
   );
 }
 
@@ -2504,12 +2658,13 @@ function applyState(setter, state) {
 
 function mergeSettings(saved) {
   if (!saved) return DEFAULT_SHIFT_SETTINGS;
-  const oldWeekend = saved.weekend; // backward compat — old data had a single "weekend" group
+  const oldWeekend = saved.weekend;
   return {
     weekday:  saved.weekday  || DEFAULT_SHIFT_SETTINGS.weekday,
     friday:   saved.friday   || oldWeekend || DEFAULT_SHIFT_SETTINGS.friday,
     saturday: saved.saturday || oldWeekend || DEFAULT_SHIFT_SETTINGS.saturday,
     special:  saved.special  || [],
+    sets:     saved.sets     || [],
   };
 }
 

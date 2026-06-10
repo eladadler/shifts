@@ -2024,11 +2024,18 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
   const [editingSp, setEditingSp] = React.useState(null);
   const [showTmplPicker, setShowTmplPicker] = React.useState(false);
 
-  if (!open) return null;
-
   const sets = settings.sets || [];
   const templates = settings.templates || [];
   const special = settings.special || [];
+
+  // Group special shifts by date — must be before early return (hooks rule)
+  const groupedSpecial = React.useMemo(() => {
+    const m = {};
+    special.forEach(sp => { (m[sp.date] = m[sp.date] || []).push(sp); });
+    return Object.entries(m).sort(([a],[b]) => a.localeCompare(b));
+  }, [special]);
+
+  if (!open) return null;
 
   const updGroup = (group, fn) => onChange({ ...settings, [group]: fn(settings[group]) });
   const updSets = (fn) => onChange({ ...settings, sets: fn(sets) });
@@ -2098,13 +2105,6 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
       <button className="add-shift-btn" onClick={() => addShift(group)}>+ הוספת משמרת</button>
     </div>
   );
-
-  // Group special shifts by date
-  const groupedSpecial = React.useMemo(() => {
-    const m = {};
-    special.forEach(sp => { (m[sp.date] = m[sp.date] || []).push(sp); });
-    return Object.entries(m).sort(([a],[b]) => a.localeCompare(b));
-  }, [special]);
 
   return (
     <>

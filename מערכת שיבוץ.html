@@ -115,6 +115,8 @@
   .btn-primary:hover:not(:disabled) { background: color-mix(in oklab, var(--accent) 88%, black); border-color: color-mix(in oklab, var(--accent) 88%, black); }
   .btn-final { background: var(--ok); border-color: var(--ok); color: white; font-weight: 600; }
   .btn-final:hover:not(:disabled) { background: color-mix(in oklab, var(--ok) 88%, black); border-color: transparent; }
+  .btn-ai { background: #7B1E2B; border-color: #7B1E2B; color: white; font-weight: 600; }
+  .btn-ai:hover:not(:disabled) { background: #641722; border-color: #641722; }
   .btn-lg { padding: 11px 22px; font-size: 15px; }
   .btn-badge { background: var(--danger); color: white; font-size: 10.5px; font-weight: 700; border-radius: 999px; min-width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; }
   .icon-btn { background: none; border: none; font-size: 20px; color: var(--ink-3); padding: 2px 8px; border-radius: 6px; }
@@ -754,7 +756,7 @@
 
   // קורא מהרשימה החיה (window.ShiftData.EMPLOYEES) שמסונכרנת מה-state, לא מהקבוע המקורי
   const empById = (id) => (window.ShiftData?.EMPLOYEES || EMPLOYEES).find((e) => e.id === id);
-  const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('');
+  const initials = (name) => (name || '').split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('');
 
   // ---- משמרות קבועות (weekday: 0=ראשון … 6=שבת) ----
   const FIXED_SHIFTS = [];
@@ -1704,17 +1706,17 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
   const TOOLS = [
     {
       name: 'add_employee',
-      description: 'הוסף עובד חדש לרשימת הצוות',
+      description: 'הוסף עובד חדש לרשימת הצוות. רק שם פרטי הוא חובה — אל תבקש מהמשתמש פרטים נוספים אם לא סיפק אותם.',
       input_schema: {
         type: 'object',
         properties: {
-          name:   { type: 'string',  description: 'שם מלא' },
-          role:   { type: 'string',  description: 'תפקיד' },
-          max:    { type: 'number',  description: 'מכסת משמרות מקסימלית לחודש' },
-          nights: { type: 'boolean', description: 'יכול לעבוד לילות' },
-          anchor: { type: 'boolean', description: 'עובד עוגן' },
+          name:   { type: 'string',  description: 'שם העובד (שם פרטי מספיק)' },
+          role:   { type: 'string',  description: 'תפקיד (רשות)' },
+          max:    { type: 'number',  description: 'מכסת משמרות מקסימלית לחודש (רשות, ברירת מחדל 16)' },
+          nights: { type: 'boolean', description: 'יכול לעבוד לילות (רשות, ברירת מחדל לא)' },
+          anchor: { type: 'boolean', description: 'עובד עוגן (רשות)' },
         },
-        required: ['name', 'role', 'max', 'nights'],
+        required: ['name'],
       },
     },
     {
@@ -1774,8 +1776,9 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
     const EMP_COLORS = ['oklch(0.62 0.14 250)','oklch(0.62 0.14 330)','oklch(0.62 0.14 160)','oklch(0.62 0.14 50)','oklch(0.62 0.14 210)','oklch(0.62 0.14 10)','oklch(0.62 0.14 290)'];
     switch (name) {
       case 'add_employee': {
+        if (!input.name || !String(input.name).trim()) return 'חסר שם — זהו השדה היחיד שחובה להזין';
         const id = 'emp-' + Date.now();
-        const newEmp = { id, name: input.name, role: input.role, max: input.max,
+        const newEmp = { id, name: String(input.name).trim(), role: input.role || '', max: input.max ?? 16,
           nights: !!input.nights, anchor: !!input.anchor, nightOwl: false,
           color: EMP_COLORS[Math.floor(Math.random() * EMP_COLORS.length)] };
         onEmployeesChange(prev => [...prev, newEmp]);
@@ -2623,17 +2626,18 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
             </div>
             <div className="modal-body">
               <div className="field">
-                <label className="field-label">שם מלא</label>
+                <label className="field-label">שם פרטי <span style={{color:'var(--danger)'}}>*</span></label>
                 <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
-                  value={editEmp.name} onChange={(e) => setEditEmp(p => ({...p, name: e.target.value}))} autoFocus />
+                  value={editEmp.name} onChange={(e) => setEditEmp(p => ({...p, name: e.target.value}))} autoFocus
+                  placeholder="שדה חובה יחיד — אפשר להוסיף שם משפחה אם רוצים" />
               </div>
               <div className="field">
-                <label className="field-label">תפקיד</label>
+                <label className="field-label">תפקיד <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
                 <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
                   value={editEmp.role} onChange={(e) => setEditEmp(p => ({...p, role: e.target.value}))} />
               </div>
               <div className="field">
-                <label className="field-label">מכסה חודשית</label>
+                <label className="field-label">מכסה חודשית <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
                 <div className="stepper">
                   <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, max: Math.max(1, p.max - 1)}))}>−</button>
                   <span className="stepper-val">{editEmp.max}</span>
@@ -3325,7 +3329,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
                 ייצוא
               </button>
               {status === 'draft' && (
-                <button className="btn btn-primary" onClick={runAI}>✦ שבץ אוטומטי</button>
+                <button className="btn btn-ai" onClick={runAI}>✦ שבץ אוטומטי</button>
               )}
               {status === 'draft' && (
                 <button className="btn btn-final" onClick={() => setDraftStatus(activeDraftId, 'final')}>אישור ופרסום</button>

@@ -593,8 +593,17 @@
     { id: 'short', name: 'קצר', start: '15:00', end: '19:00' },
     { id: 'night', name: 'לילה', start: '19:00', end: '07:00' },
   ];
+  const getBase = (dayStr, settings) => {
+    const wd = weekdayOf(dayStr);
+    if (settings) {
+      if (wd === 6) return settings.saturday || settings.weekend || WEEKEND_SHIFTS;
+      if (wd === 5) return settings.friday  || settings.weekend || WEEKEND_SHIFTS;
+      return settings.weekday;
+    }
+    return (wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS;
+  };
+
   const shiftTypesFor = (s, settings) => {
-    const wd = weekdayOf(s);
     const special = settings?.special || [];
 
     // special shifts: direct or continuation
@@ -610,20 +619,13 @@
     });
     if (directSpecial.length || contSpecial.length) return [...directSpecial, ...contSpecial];
 
-    // regular shifts base
-    const base = settings
-      ? ((wd === 5 || wd === 6) ? settings.weekend : settings.weekday)
-      : ((wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS);
+    const base = getBase(s, settings);
 
     // multi-day continuation from previous days
     const contRegular = [];
     for (let i = 1; i <= 2; i++) {
       const prev = addDays(s, -i);
-      const prevWd = weekdayOf(prev);
-      const prevBase = settings
-        ? ((prevWd === 5 || prevWd === 6) ? settings.weekend : settings.weekday)
-        : ((prevWd === 5 || prevWd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS);
-      prevBase.filter(sh => (sh.daysSpan || 1) > i).forEach(sh => {
+      getBase(prev, settings).filter(sh => (sh.daysSpan || 1) > i).forEach(sh => {
         if (!contRegular.find(c => c.id === sh.id && c.originDate === prev)) {
           contRegular.push({ ...sh, continuation: true, originDate: prev });
         }
@@ -694,7 +696,7 @@
   window.ShiftData = {
     MONTH, HEB_DAYS, HEB_DAYS_SHORT, EMPLOYEES, REQUESTS, FIXED_SHIFTS,
     pad, parseDate, dateStr, addDays, weekdayOf, dayLabel, shortDate, monthLabel,
-    shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, empById, initials,
+    getBase, shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, empById, initials,
   };
 })();
 </script>
@@ -897,7 +899,12 @@ window.DEFAULT_SHIFT_SETTINGS = {
     { id: 'evening', name: 'ערב',   start: '15:00', end: '23:00', required: 2, daysSpan: 1 },
     { id: 'night',   name: 'לילה',  start: '23:00', end: '07:00', required: 1, daysSpan: 1 },
   ],
-  weekend: [
+  friday: [
+    { id: 'morning', name: 'בוקר',  start: '07:00', end: '15:00', required: 2, daysSpan: 1 },
+    { id: 'short',   name: 'קצר',   start: '15:00', end: '19:00', required: 1, daysSpan: 1 },
+    { id: 'night',   name: 'לילה',  start: '19:00', end: '07:00', required: 1, daysSpan: 1 },
+  ],
+  saturday: [
     { id: 'morning', name: 'בוקר',  start: '07:00', end: '15:00', required: 2, daysSpan: 1 },
     { id: 'short',   name: 'קצר',   start: '15:00', end: '19:00', required: 1, daysSpan: 1 },
     { id: 'night',   name: 'לילה',  start: '19:00', end: '07:00', required: 1, daysSpan: 1 },
@@ -1863,7 +1870,8 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
           {tab === 'regular' && (
             <div style={{display:'flex',flexDirection:'column',gap:18}}>
               {renderGroup('weekday', 'ימי חול (א׳–ה׳)')}
-              {renderGroup('weekend', 'סוף שבוע (ו׳–ש׳)')}
+              {renderGroup('friday',  'יום שישי (ו׳)')}
+              {renderGroup('saturday','יום שבת (ש׳)')}
               <button className="btn" style={{width:'100%',fontSize:'12px'}}
                 onClick={() => onChange(window.DEFAULT_SHIFT_SETTINGS)}>
                 איפוס לברירות מחדל
@@ -2322,7 +2330,7 @@ Object.assign(window, { GenerateDraftModal, LogDrawer });
 const AD = window.ShiftData;
 const AE = window.ShiftEngine;
 
-const STORAGE_KEY = 'mishmarot-state-v5';
+const STORAGE_KEY = 'mishmarot-state-v6';
 const ShiftSettingsCtx = window.ShiftSettingsCtx;
 const DEFAULT_SHIFT_SETTINGS = window.DEFAULT_SHIFT_SETTINGS;
 
@@ -2345,10 +2353,12 @@ function loadState() {
 
 function mergeSettings(saved) {
   if (!saved) return DEFAULT_SHIFT_SETTINGS;
+  const oldWeekend = saved.weekend; // backward compat — old data had a single "weekend" group
   return {
-    weekday: saved.weekday || DEFAULT_SHIFT_SETTINGS.weekday,
-    weekend: saved.weekend || DEFAULT_SHIFT_SETTINGS.weekend,
-    special: saved.special || [],
+    weekday:  saved.weekday  || DEFAULT_SHIFT_SETTINGS.weekday,
+    friday:   saved.friday   || oldWeekend || DEFAULT_SHIFT_SETTINGS.friday,
+    saturday: saved.saturday || oldWeekend || DEFAULT_SHIFT_SETTINGS.saturday,
+    special:  saved.special  || [],
   };
 }
 

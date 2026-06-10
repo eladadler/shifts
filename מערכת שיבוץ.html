@@ -309,18 +309,20 @@
   .stepper-btn:hover { background: var(--surface-2); }
   .stepper-val { min-width: 22px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
 
-  .exclude-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; }
+  .exclude-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  .exclude-cal-head { text-align: center; font-size: 10.5px; font-weight: 600; color: var(--ink-3); padding: 2px 0 4px; }
   .exclude-pill {
-    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--line); border-radius: 7px;
-    background: var(--surface); padding: 4px 2px;
+    background: var(--surface); padding: 5px 2px;
     transition: background 0.1s, opacity 0.1s;
+    aspect-ratio: 1;
   }
   .exclude-pill.wknd { background: var(--surface-2); }
   .exclude-pill:hover { border-color: var(--ink-3); }
   .exclude-pill.off { opacity: 0.45; background: repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 4px, var(--surface) 4px, var(--surface) 8px); text-decoration: line-through; }
-  .exclude-pill-day { font-size: 10px; color: var(--ink-3); }
   .exclude-pill-num { font-size: 13px; font-weight: 700; }
+  .exclude-pill.out-of-month { opacity: 0.4; border-style: dashed; }
 
   /* ---------- לוג ---------- */
   .drawer-backdrop { justify-content: flex-start; }
@@ -1238,16 +1240,24 @@ function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialEx
 
           <div className="field">
             <label className="field-label">הוצאת ימים מהסידור <span className="field-sub">לחצו על יום כדי להחריג (חגים, ימי סגירה)</span></label>
-            <div className="exclude-grid" dir="rtl">
-              {dates.map((d) => (
-                <button key={d}
-                  className={'exclude-pill' + (excluded.includes(d) ? ' off' : '') + (MD.weekdayOf(d) >= 5 ? ' wknd' : '')}
-                  onClick={() => toggleExcluded(d)}
-                  title={`${MD.dayLabel(d)} ${MD.shortDate(d)}`}>
-                  <span className="exclude-pill-day">{MD.HEB_DAYS_SHORT[MD.weekdayOf(d)]}</span>
-                  <span className="exclude-pill-num">{MD.parseDate(d).getDate()}</span>
-                </button>
+            <div className="exclude-cal">
+              {MD.HEB_DAYS.map((d) => (
+                <div key={d} className="exclude-cal-head">{d}</div>
               ))}
+              {Array.from({ length: MD.weekdayOf(dates[0]) }).map((_, i) => (
+                <div key={'pad-' + i} />
+              ))}
+              {dates.map((d) => {
+                const isMain = d >= base.start && d <= base.end;
+                return (
+                  <button key={d}
+                    className={'exclude-pill' + (excluded.includes(d) ? ' off' : '') + (MD.weekdayOf(d) >= 5 ? ' wknd' : '') + (!isMain ? ' out-of-month' : '')}
+                    onClick={() => toggleExcluded(d)}
+                    title={`${MD.dayLabel(d)} ${MD.shortDate(d)}`}>
+                    <span className="exclude-pill-num">{MD.parseDate(d).getDate()}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

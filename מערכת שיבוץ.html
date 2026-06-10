@@ -353,6 +353,54 @@
   .month-nav-btn { background: none; border: none; font-size: 20px; color: var(--ink-3); padding: 0 5px; border-radius: 6px; line-height: 1.2; }
   .month-nav-btn:hover { background: var(--surface-2); color: var(--ink); }
 
+  /* ---------- ניווט אייקונים בפאנל ---------- */
+  .side-icon-nav { display: flex; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+  .side-icon-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 4px 7px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--ink-3); font-size: 10.5px; font-weight: 500; font-family: inherit; cursor: pointer; transition: color 0.12s; }
+  .side-icon-btn .sib-icon { font-size: 17px; }
+  .side-icon-btn:hover { color: var(--ink); }
+  .side-icon-btn.on { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ---------- הגדרות משמרות ---------- */
+  .settings-panel { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 18px; }
+  .settings-sec-title { font-size: 11px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 6px; border-bottom: 1px solid var(--line-soft); }
+  .shift-rows { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+  .shift-row { display: flex; align-items: center; gap: 5px; padding: 6px 8px; background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 8px; }
+  .shift-row-name { font-size: 12.5px; font-weight: 600; flex: 1; min-width: 0; background: none; border: none; color: var(--ink); font-family: inherit; outline: none; }
+  .shift-row-name:focus { background: var(--surface); border-radius: 3px; padding: 0 3px; }
+  .shift-time-inp { width: 52px; font-size: 11px; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 2px 2px; color: var(--ink); font-family: inherit; outline: none; }
+  .shift-time-inp:focus { border-color: var(--accent); }
+  .shift-req { display: flex; align-items: center; gap: 3px; }
+  .shift-req-btn { width: 19px; height: 19px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; display: flex; align-items: center; justify-content: center; color: var(--ink); cursor: pointer; }
+  .shift-req-num { min-width: 16px; text-align: center; font-weight: 700; font-size: 12.5px; }
+  .shift-del-btn { background: none; border: none; color: var(--ink-3); font-size: 16px; padding: 0 2px; cursor: pointer; line-height: 1; }
+  .shift-del-btn:hover { color: var(--danger); }
+  .add-shift-btn { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; background: none; border: 1px dashed var(--line); border-radius: 8px; color: var(--ink-3); font-size: 12.5px; font-family: inherit; cursor: pointer; margin-top: 4px; }
+  .add-shift-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .slot-partial .slot-dot { background: var(--warn); }
+
+  /* ---------- בקשות עובדים ---------- */
+  .req-panel { flex: 1; overflow-y: auto; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .req-card { background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
+  .req-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .req-card-name { font-weight: 600; font-size: 13px; }
+  .req-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .req-tag { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
+  .req-note { font-size: 11px; color: var(--ink-3); margin-top: 5px; line-height: 1.5; }
+
+  /* ---------- צ'אט AI ---------- */
+  .ai-chat-toggle { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line-soft); background: none; border-inline: none; border-bottom: none; width: 100%; color: var(--accent); font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer; }
+  .ai-chat-toggle:hover { background: var(--surface-2); }
+  .ai-chat-panel { border-top: 1px solid var(--line); display: flex; flex-direction: column; background: var(--surface); }
+  .ai-chat-messages { max-height: 180px; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+  .ai-msg { font-size: 12.5px; line-height: 1.5; padding: 6px 10px; border-radius: 8px; max-width: 88%; }
+  .ai-msg-user { background: color-mix(in oklab, var(--accent) 13%, transparent); color: var(--ink); align-self: flex-start; border-radius: 8px 8px 2px 8px; }
+  .ai-msg-ai { background: var(--surface-2); color: var(--ink); align-self: flex-end; border-radius: 8px 8px 8px 2px; }
+  .ai-chat-input-row { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line-soft); }
+  .ai-chat-input { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; outline: none; }
+  .ai-chat-input:focus { border-color: var(--accent); }
+  .ai-send-btn { padding: 0 10px; height: 30px; border-radius: 7px; background: var(--accent); border: none; color: white; font-size: 14px; cursor: pointer; }
+
+
   /* ---------- סרגל טיוטות ---------- */
   .drafts-bar { display: flex; align-items: stretch; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--line); flex-shrink: 0; overflow-x: auto; }
   .draft-tab { display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 13px; color: var(--ink-2); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; transition: color 0.12s; }
@@ -403,11 +451,12 @@
     { id: 'short', name: 'קצר', start: '15:00', end: '19:00' },
     { id: 'night', name: 'לילה', start: '19:00', end: '07:00' },
   ];
-  const shiftTypesFor = (s) => {
+  const shiftTypesFor = (s, settings) => {
     const wd = weekdayOf(s);
+    if (settings) return (wd === 5 || wd === 6) ? settings.weekend : settings.weekday;
     return (wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS;
   };
-  const shiftDef = (s, shiftId) => shiftTypesFor(s).find((x) => x.id === shiftId);
+  const shiftDef = (s, shiftId, settings) => shiftTypesFor(s, settings).find((x) => x.id === shiftId);
 
   const shiftTimes = (s, shift) => {
     const mk = (dStr, hm) => { const d = parseDate(dStr); const [h, m] = hm.split(':').map(Number); d.setHours(h, m, 0, 0); return d; };
@@ -499,12 +548,12 @@
   const gapHours = (prevEnd, nextStart) => (nextStart - prevEnd) / 36e5;
 
   // מייצר סידור ראשוני עם משמרות קבועות בלבד
-  function applyFixed(dates, fixed) {
+  function applyFixed(dates, fixed, shiftSettings = null) {
     const schedule = {};
     dates.forEach((dStr) => {
       const wd = D.weekdayOf(dStr);
       schedule[dStr] = {};
-      D.shiftTypesFor(dStr).forEach((shift) => {
+      D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
         const emps = fixed
           .filter((f) => f.weekday === wd && f.shiftId === shift.id && D.availabilityOn(f.empId, dStr) !== 'unavailable')
           .map((f) => f.empId);
@@ -515,7 +564,7 @@
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {} }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null }) {
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
     const schedule = {};
     const log = [];
@@ -527,7 +576,7 @@
     // העתק שיבוצים קיימים וספור אותם
     dates.forEach((dStr) => {
       schedule[dStr] = { ...(existingSchedule[dStr] || {}) };
-      D.shiftTypesFor(dStr).forEach((shift) => {
+      D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
         (schedule[dStr][shift.id] || []).forEach((empId) => {
           counts[empId] = (counts[empId] || 0) + 1;
           lastEnd[empId] = D.shiftTimes(dStr, shift).end;
@@ -539,7 +588,7 @@
     excluded.forEach((d) => addLog('info', `יום ${D.shortDate(d)} הוחרג מהסידור`));
 
     dates.forEach((dStr) => {
-      D.shiftTypesFor(dStr).forEach((shift) => {
+      D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
         // דלג על משבצות שכבר מאוישות
         if ((schedule[dStr][shift.id] || []).length > 0) return;
 
@@ -589,7 +638,7 @@
     return { schedule, log };
   }
 
-  function detectConflicts(schedule) {
+  function detectConflicts(schedule, shiftSettings = null) {
     const issues = {};
     const add = (d, sh, emp, msg) => {
       const k = `${d}|${sh}|${emp}`;
@@ -599,7 +648,7 @@
     const byEmp = {};
     Object.keys(schedule).sort().forEach((dStr) => {
       Object.entries(schedule[dStr]).forEach(([shiftId, emps]) => {
-        const shift = D.shiftDef(dStr, shiftId);
+        const shift = D.shiftDef(dStr, shiftId, shiftSettings);
         if (!shift) return;
         const t = D.shiftTimes(dStr, shift);
         emps.forEach((empId) => {
@@ -632,10 +681,10 @@
     return n;
   };
 
-  function exportCsv(schedule, conflicts, month) {
+  function exportCsv(schedule, conflicts, month, shiftSettings = null) {
     const rows = [['תאריך', 'יום בשבוע', 'סוג משמרת', 'שם עובד', 'שעת התחלה', 'שעת סיום', 'חריגות']];
     Object.keys(schedule).sort().forEach((dStr) => {
-      D.shiftTypesFor(dStr).forEach((shift) => {
+      D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
         const emps = schedule[dStr][shift.id] || [];
         if (!emps.length) {
           rows.push([dStr, D.dayLabel(dStr), shift.name, '— לא מאויש —', shift.start, shift.end, '']);
@@ -658,7 +707,25 @@
   }
 
   window.ShiftEngine = { listDates, defaultRange, applyFixed, generate, detectConflicts, countShifts, exportCsv, MIN_REST_H, gapHours };
+
 })();
+</script>
+
+<!-- ============ הגדרות ברירת מחדל למשמרות + Context ============ -->
+<script>
+window.DEFAULT_SHIFT_SETTINGS = {
+  weekday: [
+    { id: 'morning', name: 'בוקר',  start: '07:00', end: '15:00', required: 2 },
+    { id: 'evening', name: 'ערב',   start: '15:00', end: '23:00', required: 2 },
+    { id: 'night',   name: 'לילה',  start: '23:00', end: '07:00', required: 1 },
+  ],
+  weekend: [
+    { id: 'morning', name: 'בוקר',  start: '07:00', end: '15:00', required: 2 },
+    { id: 'short',   name: 'קצר',   start: '15:00', end: '19:00', required: 1 },
+    { id: 'night',   name: 'לילה',  start: '19:00', end: '07:00', required: 1 },
+  ],
+};
+window.ShiftSettingsCtx = React.createContext(null);
 </script>
 
 <!-- ============ Tweaks Panel ============ -->
@@ -1029,7 +1096,8 @@ function ShiftChip({ emp, dStr, shiftId, conflicts, editable, onRemove, onDragCh
 function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, onAssign, onRemove, onMoveChip, onDragChipStart, onDragEnd }) {
   const [over, setOver] = React.useState(false);
   const hasConflict = emps.some((id) => (conflicts[`${dStr}|${shift.id}|${id}`] || []).length);
-  const stateCls = hasConflict ? 'slot-conflict' : (emps.length ? 'slot-ok' : 'slot-empty');
+  const required = shift.required || 1;
+  const stateCls = hasConflict ? 'slot-conflict' : emps.length === 0 ? 'slot-empty' : emps.length < required ? 'slot-partial' : 'slot-ok';
 
   const handleDrop = (e) => {
     e.preventDefault(); e.stopPropagation(); setOver(false);
@@ -1074,6 +1142,7 @@ function DayCard({ dStr, inMonth, excluded, schedule, conflicts, editable, dragg
   const wd = D.weekdayOf(dStr);
   const isWeekend = wd === 5 || wd === 6;
   const day = schedule[dStr] || {};
+  const shiftSettings = React.useContext(window.ShiftSettingsCtx);
 
   let availCls = '';
   if (draggingEmp) {
@@ -1104,7 +1173,7 @@ function DayCard({ dStr, inMonth, excluded, schedule, conflicts, editable, dragg
         <span className="day-name">{D.dayLabel(dStr)}</span>
       </div>
       <div className="day-slots">
-        {D.shiftTypesFor(dStr).map((shift) => (
+        {D.shiftTypesFor(dStr, shiftSettings).map((shift) => (
           <ShiftSlot key={shift.id} dStr={dStr} shift={shift} emps={day[shift.id] || []}
             conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} {...slotProps} />
         ))}
@@ -1191,42 +1260,238 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
   );
 }
 
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable }) {
+// ---- בקשות עובדים ----
+function RequestsPanel() {
+  const empsWithReqs = PD.EMPLOYEES.filter((e) => PD.reqOf(e.id));
+  const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can' };
+  const tagLabel = { unavailable: 'לא יכול', high: 'עדיפות', can: 'יכול' };
+
+  if (!empsWithReqs.length) {
+    return <div style={{padding:'24px 16px',color:'var(--ink-3)',fontSize:'13px',textAlign:'center'}}>אין בקשות לחודש זה</div>;
+  }
+
+  return (
+    <div className="req-panel">
+      {empsWithReqs.map((emp) => {
+        const req = PD.reqOf(emp.id);
+        const tags = [
+          ...(req.unavailable || []).map((d) => ({ d, type: 'unavailable' })),
+          ...(req.high || []).map((d) => ({ d, type: 'high' })),
+          ...(req.can || []).map((d) => ({ d, type: 'can' })),
+        ].sort((a, b) => a.d.localeCompare(b.d));
+
+        return (
+          <div key={emp.id} className="req-card">
+            <div className="req-card-head">
+              <Avatar emp={emp} size={26} />
+              <span className="req-card-name">{emp.name}</span>
+            </div>
+            <div className="req-tags">
+              {tags.map(({ d, type }) => (
+                <span key={d + type} className={'req-tag av-tag ' + tagCls[type]} title={tagLabel[type]}>
+                  {PD.shortDate(d)}
+                </span>
+              ))}
+            </div>
+            {req.note && <div className="req-note">{req.note}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---- עורך שורת משמרת ----
+function ShiftRowEditor({ shift, onChange, onDelete }) {
+  const upd = (field, val) => onChange({ ...shift, [field]: val });
+  return (
+    <div className="shift-row">
+      <input className="shift-row-name" value={shift.name} onChange={(e) => upd('name', e.target.value)} />
+      <input className="shift-time-inp" type="time" value={shift.start} onChange={(e) => upd('start', e.target.value)} />
+      <span style={{fontSize:'10px',color:'var(--ink-3)',flexShrink:0}}>–</span>
+      <input className="shift-time-inp" type="time" value={shift.end} onChange={(e) => upd('end', e.target.value)} />
+      <div className="shift-req">
+        <button className="shift-req-btn" onClick={() => upd('required', Math.max(1, (shift.required || 1) - 1))}>−</button>
+        <span className="shift-req-num">{shift.required || 1}</span>
+        <button className="shift-req-btn" onClick={() => upd('required', (shift.required || 1) + 1)}>+</button>
+      </div>
+      <button className="shift-del-btn" onClick={onDelete} title="מחיקת משמרת">×</button>
+    </div>
+  );
+}
+
+// ---- הגדרות משמרות ----
+function SettingsPanel({ settings, onChange }) {
+  const updGroup = (group, fn) => onChange({ ...settings, [group]: fn(settings[group]) });
+
+  const addShift = (group) => {
+    const newId = 'shift-' + Date.now();
+    updGroup(group, (arr) => [...arr, { id: newId, name: 'משמרת חדשה', start: '08:00', end: '16:00', required: 1 }]);
+  };
+
+  const renderGroup = (group, label) => (
+    <div>
+      <div className="settings-sec-title">{label}</div>
+      <div className="shift-rows">
+        {settings[group].map((shift, i) => (
+          <ShiftRowEditor key={shift.id || i} shift={shift}
+            onChange={(s) => updGroup(group, (arr) => arr.map((x, j) => j === i ? s : x))}
+            onDelete={() => updGroup(group, (arr) => arr.filter((_, j) => j !== i))} />
+        ))}
+      </div>
+      <button className="add-shift-btn" onClick={() => addShift(group)}>+ הוספת משמרת</button>
+    </div>
+  );
+
+  return (
+    <div className="settings-panel">
+      {renderGroup('weekday', 'ימי חול (א׳–ה׳)')}
+      {renderGroup('weekend', 'סוף שבוע (ו׳–ש׳)')}
+      <div style={{paddingTop:'4px'}}>
+        <button className="btn" style={{width:'100%',fontSize:'12px'}}
+          onClick={() => onChange(window.DEFAULT_SHIFT_SETTINGS)}>
+          איפוס לברירות מחדל
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- צ׳אט AI ----
+function AIChat({ schedule, selectedDate }) {
+  const [open, setOpen] = React.useState(false);
+  const [msgs, setMsgs] = React.useState([{ from: 'ai', text: 'שלום! אני יכול לענות על שאלות לגבי הסידור.' }]);
+  const [input, setInput] = React.useState('');
+  const msgsRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight;
+  }, [msgs, open]);
+
+  const send = () => {
+    const q = input.trim();
+    if (!q) return;
+    setInput('');
+    let reply = '';
+    const low = q;
+
+    if (low.includes('כמה') || low.includes('משמרות')) {
+      const emp = PD.EMPLOYEES.find((e) => q.includes(e.name.split(' ')[0]));
+      if (emp && schedule) {
+        const count = PE.countShifts(schedule, emp.id);
+        reply = `ל${emp.name} יש ${count} משמרות בסידור הנוכחי (מכסה: ${emp.max}).`;
+      } else {
+        reply = 'ציינו שם עובד ואספר כמה משמרות יש לו.';
+      }
+    } else if (low.includes('קונפליקט') || low.includes('בעיה') || low.includes('חריג')) {
+      const c = schedule ? Object.keys(PE.detectConflicts(schedule)).length : 0;
+      reply = c ? `יש ${c} קונפליקטים בסידור הנוכחי.` : 'אין קונפליקטים בסידור הנוכחי.';
+    } else if (low.includes('פנוי') || low.includes('זמין')) {
+      if (selectedDate) {
+        const free = PD.EMPLOYEES.filter((e) => PD.availabilityOn(e.id, selectedDate) !== 'unavailable');
+        reply = `ב${PD.shortDate(selectedDate)}: ${free.map((e) => e.name).join(', ')} זמינים.`;
+      } else {
+        reply = 'בחרו יום בלוח כדי שאוכל לבדוק מי זמין.';
+      }
+    } else if (low.includes('בקשה') || low.includes('העדפה')) {
+      const wr = PD.EMPLOYEES.filter((e) => PD.reqOf(e.id));
+      reply = `${wr.length} עובדים הגישו בקשות: ${wr.map((e) => e.name).join(', ')}.`;
+    } else if (low.includes('עובד') || low.includes('צוות')) {
+      reply = `יש ${PD.EMPLOYEES.length} עובדים בצוות.`;
+    } else {
+      const opts = [
+        'נסו "כמה משמרות יש ל[שם]?" או "מי זמין?"',
+        'אני יכול לבדוק קונפליקטים, זמינות ובקשות עובדים.',
+        'בחרו יום בלוח ואז שאלו "מי זמין?" לרשימת הזמינים.',
+      ];
+      reply = opts[Math.floor(Math.random() * opts.length)];
+    }
+
+    setMsgs((prev) => [...prev, { from: 'user', text: q }, { from: 'ai', text: reply }]);
+  };
+
+  return (
+    <>
+      <button className="ai-chat-toggle" onClick={() => setOpen((o) => !o)}>
+        <span>✦ צ׳אט AI</span>
+        <span style={{marginInlineStart:'auto',fontSize:'11px',opacity:0.55}}>{open ? '▾' : '▴'}</span>
+      </button>
+      {open && (
+        <div className="ai-chat-panel">
+          <div className="ai-chat-messages" ref={msgsRef}>
+            {msgs.map((m, i) => (
+              <div key={i} className={'ai-msg ' + (m.from === 'user' ? 'ai-msg-user' : 'ai-msg-ai')}>{m.text}</div>
+            ))}
+          </div>
+          <div className="ai-chat-input-row">
+            <input className="ai-chat-input" value={input} placeholder="שאלו שאלה…"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') send(); }} />
+            <button className="ai-send-btn" onClick={send}>→</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---- חלונית צד ראשית ----
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, shiftSettings, onShiftSettingsChange }) {
+  const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
+
+  const NAV = [
+    { id: 'employees', icon: '👥', label: 'עובדים' },
+    { id: 'requests',  icon: '📋', label: 'בקשות'  },
+    { id: 'settings',  icon: '⚙',  label: 'הגדרות' },
+  ];
 
   const list = React.useMemo(() => {
     let emps = PD.EMPLOYEES;
-    if (tab === 'available') {
-      emps = emps.filter((e) => !selectedDate || PD.availabilityOn(e.id, selectedDate) !== 'unavailable');
-    } else if (tab === 'requests') {
-      emps = emps.filter((e) => PD.reqOf(e.id));
-    }
+    if (tab === 'available') emps = emps.filter((e) => !selectedDate || PD.availabilityOn(e.id, selectedDate) !== 'unavailable');
     return emps;
   }, [tab, selectedDate, schedule]);
 
   return (
     <aside className="side-panel">
-      <div className="side-head">
-        <h2 className="side-title">עובדים</h2>
-        <span className="side-count">{list.length}</span>
-      </div>
-      <div className="side-tabs" role="tablist">
-        <button role="tab" aria-selected={tab === 'all'} className={'side-tab' + (tab === 'all' ? ' on' : '')} onClick={() => setTab('all')}>כל העובדים</button>
-        <button role="tab" aria-selected={tab === 'available'} className={'side-tab' + (tab === 'available' ? ' on' : '')} onClick={() => setTab('available')}>זמינים ליום</button>
-        <button role="tab" aria-selected={tab === 'requests'} className={'side-tab' + (tab === 'requests' ? ' on' : '')} onClick={() => setTab('requests')}>עם בקשות</button>
-      </div>
-      {tab === 'available' && (
-        <div className="side-note">
-          {selectedDate ? <span>זמינים ל־<b>{PD.dayLabel(selectedDate)} {PD.shortDate(selectedDate)}</b></span> : 'בחרו יום בלוח לסינון'}
-        </div>
-      )}
-      <div className="emp-list">
-        {list.map((emp) => (
-          <EmployeeCard key={emp.id} emp={emp} schedule={schedule} selectedDate={selectedDate}
-            onDragEmpStart={onDragEmpStart} onDragEnd={onDragEnd} editable={editable} />
+      <div className="side-icon-nav">
+        {NAV.map((item) => (
+          <button key={item.id} className={'side-icon-btn' + (nav === item.id ? ' on' : '')} onClick={() => setNav(item.id)}>
+            <span className="sib-icon">{item.icon}</span>
+            <span>{item.label}</span>
+          </button>
         ))}
       </div>
-      <div className="side-hint">גררו עובד אל משמרת בלוח · גרירת משמרת קיימת = העברה · עם <kbd>Shift</kbd> = שכפול</div>
+
+      {nav === 'employees' && (
+        <>
+          <div className="side-tabs" role="tablist" style={{paddingTop:'10px'}}>
+            <button role="tab" aria-selected={tab === 'all'} className={'side-tab' + (tab === 'all' ? ' on' : '')} onClick={() => setTab('all')}>כל העובדים</button>
+            <button role="tab" aria-selected={tab === 'available'} className={'side-tab' + (tab === 'available' ? ' on' : '')} onClick={() => setTab('available')}>זמינים ליום</button>
+          </div>
+          {tab === 'available' && (
+            <div className="side-note">
+              {selectedDate ? <span>זמינים ל־<b>{PD.dayLabel(selectedDate)} {PD.shortDate(selectedDate)}</b></span> : 'בחרו יום בלוח לסינון'}
+            </div>
+          )}
+          <div className="emp-list">
+            {list.map((emp) => (
+              <EmployeeCard key={emp.id} emp={emp} schedule={schedule}
+                selectedDate={tab === 'available' ? selectedDate : null}
+                onDragEmpStart={onDragEmpStart} onDragEnd={onDragEnd} editable={editable} />
+            ))}
+          </div>
+          <div className="side-hint">גררו עובד אל משמרת בלוח · גרירת משמרת קיימת = העברה · עם <kbd>Shift</kbd> = שכפול</div>
+        </>
+      )}
+
+      {nav === 'requests' && <RequestsPanel />}
+
+      {nav === 'settings' && shiftSettings && (
+        <SettingsPanel settings={shiftSettings} onChange={onShiftSettingsChange} />
+      )}
+
+      <AIChat schedule={schedule} selectedDate={selectedDate} />
     </aside>
   );
 }
@@ -1374,7 +1639,9 @@ Object.assign(window, { GenerateDraftModal, LogDrawer });
 const AD = window.ShiftData;
 const AE = window.ShiftEngine;
 
-const STORAGE_KEY = 'mishmarot-state-v3';
+const STORAGE_KEY = 'mishmarot-state-v4';
+const ShiftSettingsCtx = window.ShiftSettingsCtx;
+const DEFAULT_SHIFT_SETTINGS = window.DEFAULT_SHIFT_SETTINGS;
 
 const STATUS_META = {
   preview:    { label: 'טרם נוצרה טיוטה', cls: 'st-preview' },
@@ -1391,6 +1658,14 @@ function loadState() {
     if (s && Array.isArray(s.drafts)) return s;
   } catch (e) {}
   return null;
+}
+
+function mergeSettings(saved) {
+  if (!saved) return DEFAULT_SHIFT_SETTINGS;
+  return {
+    weekday: saved.weekday || DEFAULT_SHIFT_SETTINGS.weekday,
+    weekend: saved.weekend || DEFAULT_SHIFT_SETTINGS.weekend,
+  };
 }
 
 function DraftTab({ draft, isActive, onSelect, onRename }) {
@@ -1434,6 +1709,7 @@ function App() {
   const [currentMonth, setCurrentMonth] = React.useState(saved?.currentMonth || AD.MONTH);
   const [drafts, setDrafts] = React.useState(saved?.drafts || []);
   const [activeDraftId, setActiveDraftId] = React.useState(saved?.activeDraftId || null);
+  const [shiftSettings, setShiftSettings] = React.useState(() => mergeSettings(saved?.shiftSettings));
   const [generatingId, setGeneratingId] = React.useState(null);
   const [selectedDate, setSelectedDate] = React.useState(null);
   const [draggingEmp, setDraggingEmp] = React.useState(null);
@@ -1443,8 +1719,8 @@ function App() {
   // התמדה
   React.useEffect(() => {
     if (generatingId) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentMonth, drafts, activeDraftId }));
-  }, [currentMonth, drafts, activeDraftId, generatingId]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentMonth, drafts, activeDraftId, shiftSettings }));
+  }, [currentMonth, drafts, activeDraftId, shiftSettings, generatingId]);
 
   // ערכת נושא
   React.useEffect(() => {
@@ -1470,7 +1746,7 @@ function App() {
 
   const updateDraft = (id, fn) => setDrafts(ds => ds.map(d => d.id === id ? { ...d, ...fn(d) } : d));
 
-  const conflicts = React.useMemo(() => currentDraft ? AE.detectConflicts(currentDraft.schedule) : {}, [currentDraft]);
+  const conflicts = React.useMemo(() => currentDraft ? AE.detectConflicts(currentDraft.schedule, shiftSettings) : {}, [currentDraft, shiftSettings]);
   const conflictCount = Object.keys(conflicts).length;
   const dilemmaCount = (currentDraft?.log || []).filter(l => l.type !== 'info').length;
 
@@ -1487,7 +1763,7 @@ function App() {
     const id = String(Date.now());
     const num = drafts.filter(d => d.month === currentMonth).length + 1;
     const dates = AE.listDates(opts.startDate, opts.endDate).filter(d => !opts.excluded.includes(d));
-    const schedule = AE.applyFixed(dates, AD.FIXED_SHIFTS);
+    const schedule = AE.applyFixed(dates, AD.FIXED_SHIFTS, shiftSettings);
     setDrafts(ds => [...ds, {
       id, name: `טיוטה ${num}`,
       month: currentMonth,
@@ -1507,7 +1783,7 @@ function App() {
     const snap = { ...currentDraft };
     setGeneratingId(id);
     setTimeout(() => {
-      const res = AE.generate({ startDate: snap.range.start, endDate: snap.range.end, excluded: snap.excluded, existingSchedule: snap.schedule });
+      const res = AE.generate({ startDate: snap.range.start, endDate: snap.range.end, excluded: snap.excluded, existingSchedule: snap.schedule, shiftSettings });
       setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: res.schedule, log: res.log } : d));
       setGeneratingId(null);
     }, 1600);
@@ -1583,7 +1859,7 @@ function App() {
           <button className="btn" onClick={() => setLogOpen(true)} disabled={!currentDraft}>
             לוג AI{dilemmaCount > 0 && <span className="btn-badge">{dilemmaCount}</span>}
           </button>
-          <button className="btn" onClick={() => AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth)} disabled={!currentDraft || isGenerating}>
+          <button className="btn" onClick={() => AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth, shiftSettings)} disabled={!currentDraft || isGenerating}>
             ייצוא לאקסל
           </button>
           {status === 'draft' && (
@@ -1614,40 +1890,44 @@ function App() {
         <div className="final-banner">הסידור פורסם לעובדים והוא נעול לעריכה. לחצו ״חזרה לעריכה״ כדי לבצע שינויים.</div>
       )}
 
-      <main className="layout">
-        <section className="board">
-          {!currentDraft ? (
-            <div className="empty-state">
-              <div className="empty-card">
-                <div className="empty-mark" aria-hidden="true">⧉</div>
-                <h2 className="empty-title">אין עדיין סידור ל{AD.monthLabel(currentMonth)}</h2>
-                <p className="empty-sub">צרו טיוטה חדשה וה־AI ישבץ את העובדים לפי בקשות, מכסות וזמני מנוחה. לאחר מכן תוכלו לדייק את התוצאה בגרירה.</p>
-                <button className="btn btn-primary btn-lg" onClick={() => setModalOpen(true)}>✦ צור טיוטה חדשה</button>
+      <ShiftSettingsCtx.Provider value={shiftSettings}>
+        <main className="layout">
+          <section className="board">
+            {!currentDraft ? (
+              <div className="empty-state">
+                <div className="empty-card">
+                  <div className="empty-mark" aria-hidden="true">⧉</div>
+                  <h2 className="empty-title">אין עדיין סידור ל{AD.monthLabel(currentMonth)}</h2>
+                  <p className="empty-sub">צרו טיוטה חדשה וה־AI ישבץ את העובדים לפי בקשות, מכסות וזמני מנוחה. לאחר מכן תוכלו לדייק את התוצאה בגרירה.</p>
+                  <button className="btn btn-primary btn-lg" onClick={() => setModalOpen(true)}>✦ צור טיוטה חדשה</button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="board-inner">
-              <MonthView range={currentDraft.range} excluded={currentDraft.excluded} schedule={currentDraft.schedule}
-                conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} selectedDate={selectedDate}
-                onSelectDate={d => setSelectedDate(cur => cur === d ? null : d)} slotProps={slotProps} />
-              {isGenerating && (
-                <div className="generating-overlay">
-                  <div className="generating-card">
-                    <span className="spinner" aria-hidden="true"></span>
-                    <div>
-                      <div className="generating-title">ה־AI מרכיב את הסידור…</div>
-                      <div className="generating-sub">עוגנים ← זמינות ← מכסות ← זמני מנוחה ← העדפות</div>
+            ) : (
+              <div className="board-inner">
+                <MonthView range={currentDraft.range} excluded={currentDraft.excluded} schedule={currentDraft.schedule}
+                  conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} selectedDate={selectedDate}
+                  onSelectDate={d => setSelectedDate(cur => cur === d ? null : d)} slotProps={slotProps} />
+                {isGenerating && (
+                  <div className="generating-overlay">
+                    <div className="generating-card">
+                      <span className="spinner" aria-hidden="true"></span>
+                      <div>
+                        <div className="generating-title">ה־AI מרכיב את הסידור…</div>
+                        <div className="generating-sub">עוגנים ← זמינות ← מכסות ← זמני מנוחה ← העדפות</div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
+                )}
+              </div>
+            )}
+          </section>
 
-        <EmployeesSidePanel schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
-          onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable} />
-      </main>
+          <EmployeesSidePanel
+            schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
+            onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
+            shiftSettings={shiftSettings} onShiftSettingsChange={setShiftSettings} />
+        </main>
+      </ShiftSettingsCtx.Provider>
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         month={currentMonth}

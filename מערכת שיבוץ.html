@@ -844,48 +844,53 @@
 
     dates.forEach((dStr) => {
       D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
-        if (shift.continuation) return; // data lives at originDate
-        // דלג על משבצות שכבר מאוישות
-        if ((schedule[dStr][shift.id] || []).length > 0) return;
+        if (shift.continuation) return;
+        const required = shift.required || 1;
+        const needed = required - (schedule[dStr][shift.id] || []).length;
+        if (needed <= 0) return;
 
         const t = D.shiftTimes(dStr, shift);
-        const cands = D.EMPLOYEES.filter((e) => {
-          if (D.availabilityOn(e.id, dStr) === 'unavailable') return false;
-          if (counts[e.id] >= e.max) return false;
-          if (shift.id === 'night' && !e.nights) return false;
-          return true;
-        });
-        const clean = cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H);
-        const pool = clean.length ? clean : cands;
 
-        if (!pool.length) {
-          schedule[dStr][shift.id] = [];
-          addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
-          return;
+        for (let slot = 0; slot < needed; slot++) {
+          const alreadyIn = schedule[dStr][shift.id] || [];
+          const cands = D.EMPLOYEES.filter((e) => {
+            if (alreadyIn.includes(e.id)) return false;
+            if (D.availabilityOn(e.id, dStr) === 'unavailable') return false;
+            if (counts[e.id] >= e.max) return false;
+            if (shift.id === 'night' && !e.nights) return false;
+            return true;
+          });
+          const clean = cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H);
+          const pool = clean.length ? clean : cands;
+
+          if (!pool.length) {
+            if (slot === 0) addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
+            else addLog('dilemma', `אין עובד נוסף זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)} (שובץ ${slot}/${required})`);
+            break;
+          }
+
+          const score = (e) => {
+            const av = D.availabilityOn(e.id, dStr);
+            let s = 0;
+            if (av === 'high') s += 6;
+            if (av === 'can') s += 2;
+            if (e.anchor) s += 3;
+            if (e.nightOwl && shift.id === 'night') s += 5;
+            s -= counts[e.id] * 0.9;
+            s += hash(e.id + dStr + shift.id + slot) * 0.5;
+            return s;
+          };
+          const best = pool.slice().sort((a, b) => score(b) - score(a))[0];
+          const restViolation = !clean.includes(best);
+
+          schedule[dStr][shift.id] = [...alreadyIn, best.id];
+          counts[best.id] += 1;
+          lastEnd[best.id] = t.end;
+
+          const av = D.availabilityOn(best.id, dStr);
+          if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
+          else if (av === 'high') addLog('info', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} לפי בקשה בעדיפות גבוהה`);
         }
-
-        const score = (e) => {
-          const av = D.availabilityOn(e.id, dStr);
-          let s = 0;
-          if (av === 'high') s += 6;
-          if (av === 'can') s += 2;
-          if (e.anchor) s += 3;
-          if (e.nightOwl && shift.id === 'night') s += 5;
-          s -= counts[e.id] * 0.9;
-          s += hash(e.id + dStr + shift.id) * 0.5;
-          return s;
-        };
-        const best = pool.slice().sort((a, b) => score(b) - score(a))[0];
-        const restViolation = !clean.includes(best);
-
-        schedule[dStr][shift.id] = [best.id];
-        counts[best.id] += 1;
-        lastEnd[best.id] = t.end;
-
-        const av = D.availabilityOn(best.id, dStr);
-        if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
-        else if (av === 'high') addLog('info', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} לפי בקשה בעדיפות גבוהה`);
-        else if (best.anchor && D.parseDate(dStr).getDate() <= 2) addLog('info', `${best.name} (עוגן) שובץ ראשון ל${shift.name} ב־${D.shortDate(dStr)}`);
       });
     });
 
@@ -2675,15 +2680,16 @@ ${JSON.stringify(shiftReqs, null, 2)}
 ## שיבוצים קיימים (לא לשנות)
 ${JSON.stringify(snap.schedule, null, 2)}
 
-## כללים
-- מלא כל שיבוץ ריק עם בדיוק "required" עובדים (מערך של מזהי עובדים)
-- אסור לשבץ עובד שביום זה יש לו unavailable בבקשות
-- עובד עם canDoNights:false — אסור בשיבוץ לילה (isNight:true)
-- שמור 8 שעות מנוחה בין משמרות לאותו עובד
-- אל תחרוג ממכסת maxShifts לעובד
-- העדף עובדים שסימנו "high" ביום זה
-- פזר שוויונית בין כל העובדים
-- nightOwl:true — עדיפות גבוהה לשיבוץ לילה
+## כללים — חובה לעמוד בכולם
+1. כל משמרת עם required:N חייבת לקבל בדיוק N עובדים שונים — לא פחות, לא יותר.
+   דוגמה: required:2 → ["empId1","empId2"], required:1 → ["empId3"]
+2. אסור לשבץ עובד שביום זה יש לו unavailable בבקשות
+3. עובד עם canDoNights:false — אסור בשיבוץ לילה (isNight:true)
+4. שמור 8 שעות מנוחה בין משמרות לאותו עובד באותו יום
+5. אל תחרוג ממכסת maxShifts לעובד בסך כל הסידור
+6. העדף עובדים שסימנו "high" ביום זה
+7. פזר שוויונית — אל תשבץ עובד אחד יותר מדי
+8. nightOwl:true — עדיפות גבוהה לשיבוץ לילה
 
 ## פורמט תגובה — JSON בלבד, ללא הסברים נוספים
 {
@@ -2716,12 +2722,20 @@ ${JSON.stringify(snap.schedule, null, 2)}
       if (!jsonMatch) throw new Error('לא נמצא JSON בתגובה');
       const result = JSON.parse(jsonMatch[0]);
       if (!result.schedule) throw new Error('פורמט תגובה שגוי');
+
+      // השלמה: כל משמרת שקיבלה פחות עובדים מהנדרש — תמולא ע"י האלגוריתם
+      const topUp = AE.generate({
+        startDate: snap.range.start, endDate: snap.range.end,
+        excluded: snap.excluded, existingSchedule: result.schedule, shiftSettings,
+      });
+
       const ts = new Date().toISOString();
       const finalLog = [
         { timestamp: ts, type: 'info', message: 'שיבוץ AI בוצע על ידי Claude Sonnet 4.6' },
         ...(result.log || []).map(l => ({ timestamp: ts, ...l })),
+        ...topUp.log.filter(l => l.type !== 'info').map(l => ({ ...l, timestamp: ts, message: '[השלמה] ' + l.message })),
       ];
-      setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: result.schedule, log: finalLog } : d));
+      setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: topUp.schedule, log: finalLog } : d));
     } catch (err) {
       console.error('Claude API error:', err);
       const ts = new Date().toISOString();

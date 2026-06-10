@@ -348,6 +348,20 @@
   .log-decision .log-type { background: var(--danger-bg); color: var(--danger); }
   .log-msg { color: var(--ink); }
 
+  /* ---------- ניווט חודשים ---------- */
+  .month-nav { display: flex; align-items: center; gap: 2px; }
+  .month-nav-btn { background: none; border: none; font-size: 20px; color: var(--ink-3); padding: 0 5px; border-radius: 6px; line-height: 1.2; }
+  .month-nav-btn:hover { background: var(--surface-2); color: var(--ink); }
+
+  /* ---------- סרגל טיוטות ---------- */
+  .drafts-bar { display: flex; align-items: stretch; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--line); flex-shrink: 0; overflow-x: auto; }
+  .draft-tab { display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 13px; color: var(--ink-2); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; transition: color 0.12s; }
+  .draft-tab:hover { color: var(--ink); }
+  .draft-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .draft-tab-name { font-weight: 500; }
+  .draft-tab.active .draft-tab-name { font-weight: 600; }
+  .draft-tab-input { font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--surface-2); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 6px; outline: none; width: 110px; }
+
   @media (max-width: 900px) {
     .side-panel { display: none; }
     .topbar { flex-wrap: wrap; }
@@ -618,7 +632,7 @@
     return n;
   };
 
-  function exportCsv(schedule, conflicts) {
+  function exportCsv(schedule, conflicts, month) {
     const rows = [['תאריך', 'יום בשבוע', 'סוג משמרת', 'שם עובד', 'שעת התחלה', 'שעת סיום', 'חריגות']];
     Object.keys(schedule).sort().forEach((dStr) => {
       D.shiftTypesFor(dStr).forEach((shift) => {
@@ -638,7 +652,7 @@
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `סידור-עבודה-${D.MONTH}.csv`;
+    a.download = `סידור-עבודה-${month || D.MONTH}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
@@ -1225,8 +1239,9 @@ Object.assign(window, { EmployeesSidePanel, EmployeeCard });
 const MD = window.ShiftData;
 const ME = window.ShiftEngine;
 
-function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialExcluded }) {
-  const base = ME.defaultRange(MD.MONTH);
+function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialExcluded, month }) {
+  const activeMonth = month || MD.MONTH;
+  const base = ME.defaultRange(activeMonth);
   const [daysBefore, setDaysBefore] = React.useState(0);
   const [daysAfter, setDaysAfter] = React.useState(0);
   const [excluded, setExcluded] = React.useState(initialExcluded || []);
@@ -1270,7 +1285,7 @@ function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialEx
         <div className="modal-body">
           <div className="field">
             <label className="field-label">חודש ראשי</label>
-            <div className="month-pill">{MD.monthLabel(MD.MONTH)}</div>
+            <div className="month-pill">{MD.monthLabel(activeMonth)}</div>
           </div>
 
           <div className="field-row">
@@ -1359,47 +1374,79 @@ Object.assign(window, { GenerateDraftModal, LogDrawer });
 const AD = window.ShiftData;
 const AE = window.ShiftEngine;
 
-const STORAGE_KEY = 'mishmarot-state-v2';
+const STORAGE_KEY = 'mishmarot-state-v3';
 
 const STATUS_META = {
-  preview: { label: 'טרם נוצרה טיוטה', cls: 'st-preview' },
-  generating: { label: 'ה־AI משבץ…', cls: 'st-generating' },
-  draft: { label: 'טיוטה', cls: 'st-draft' },
-  final: { label: 'סידור סופי', cls: 'st-final' },
+  preview:    { label: 'טרם נוצרה טיוטה', cls: 'st-preview' },
+  generating: { label: 'ה־AI משבץ…',      cls: 'st-generating' },
+  draft:      { label: 'טיוטה',            cls: 'st-draft' },
+  final:      { label: 'סידור סופי',       cls: 'st-final' },
 };
 
-const TWEAK_DEFAULTS = {
-  accent: '#3D63C9',
-  density: 'רגילה',
-  dark: false,
-};
+const TWEAK_DEFAULTS = { accent: '#3D63C9', density: 'רגילה', dark: false };
 
 function loadState() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (s && s.status) return s;
+    if (s && Array.isArray(s.drafts)) return s;
   } catch (e) {}
   return null;
+}
+
+function DraftTab({ draft, isActive, onSelect, onRename }) {
+  const [editName, setEditName] = React.useState(null);
+  const inputRef = React.useRef(null);
+
+  const startEdit = (e) => {
+    e.stopPropagation();
+    setEditName(draft.name);
+    setTimeout(() => inputRef.current?.select(), 0);
+  };
+
+  const finishEdit = () => {
+    const trimmed = (editName || '').trim() || draft.name;
+    onRename(draft.id, trimmed);
+    setEditName(null);
+  };
+
+  return (
+    <div className={'draft-tab' + (isActive ? ' active' : '')} onClick={() => onSelect(draft.id)}>
+      {editName !== null ? (
+        <input ref={inputRef} className="draft-tab-input" value={editName}
+          onChange={(e) => setEditName(e.target.value)}
+          onBlur={finishEdit}
+          onKeyDown={(e) => { if (e.key === 'Enter') finishEdit(); if (e.key === 'Escape') setEditName(null); }}
+          onClick={(e) => e.stopPropagation()} />
+      ) : (
+        <span className="draft-tab-name" title="לחצו פעמיים לשינוי שם" onDoubleClick={startEdit}>{draft.name}</span>
+      )}
+      <span className={'status-chip ' + STATUS_META[draft.status].cls} style={{fontSize:'10px',padding:'1px 7px'}}>
+        {STATUS_META[draft.status].label}
+      </span>
+    </div>
+  );
 }
 
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const saved = React.useMemo(loadState, []);
-  const [status, setStatus] = React.useState(saved ? saved.status : 'preview');
-  const [range, setRange] = React.useState(saved && saved.range ? saved.range : AE.defaultRange(AD.MONTH));
-  const [excluded, setExcluded] = React.useState(saved ? saved.excluded || [] : []);
-  const [schedule, setSchedule] = React.useState(saved ? saved.schedule || {} : {});
-  const [log, setLog] = React.useState(saved ? saved.log || [] : []);
+
+  const [currentMonth, setCurrentMonth] = React.useState(saved?.currentMonth || AD.MONTH);
+  const [drafts, setDrafts] = React.useState(saved?.drafts || []);
+  const [activeDraftId, setActiveDraftId] = React.useState(saved?.activeDraftId || null);
+  const [generatingId, setGeneratingId] = React.useState(null);
   const [selectedDate, setSelectedDate] = React.useState(null);
   const [draggingEmp, setDraggingEmp] = React.useState(null);
   const [modalOpen, setModalOpen] = React.useState(false);
   const [logOpen, setLogOpen] = React.useState(false);
 
+  // התמדה
   React.useEffect(() => {
-    if (status === 'generating') return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ status, range, excluded, schedule, log }));
-  }, [status, range, excluded, schedule, log]);
+    if (generatingId) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentMonth, drafts, activeDraftId }));
+  }, [currentMonth, drafts, activeDraftId, generatingId]);
 
+  // ערכת נושא
   React.useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = t.dark ? 'dark' : 'light';
@@ -1407,75 +1454,109 @@ function App() {
     root.style.setProperty('--accent', t.accent);
   }, [t.dark, t.density, t.accent]);
 
-  const conflicts = React.useMemo(() => AE.detectConflicts(schedule), [schedule]);
-  const conflictCount = Object.keys(conflicts).length;
-  const dilemmaCount = log.filter((l) => l.type !== 'info').length;
+  // בחירת טיוטה אחרונה בעת מעבר חודש
+  React.useEffect(() => {
+    const mds = drafts.filter(d => d.month === currentMonth);
+    if (!mds.find(d => d.id === activeDraftId)) {
+      setActiveDraftId(mds.length ? mds[mds.length - 1].id : null);
+    }
+  }, [currentMonth]);
+
+  const monthDrafts = drafts.filter(d => d.month === currentMonth);
+  const currentDraft = drafts.find(d => d.id === activeDraftId) || null;
+  const isGenerating = generatingId === activeDraftId;
+  const status = isGenerating ? 'generating' : (currentDraft?.status || 'preview');
   const editable = status === 'draft';
 
+  const updateDraft = (id, fn) => setDrafts(ds => ds.map(d => d.id === id ? { ...d, ...fn(d) } : d));
+
+  const conflicts = React.useMemo(() => currentDraft ? AE.detectConflicts(currentDraft.schedule) : {}, [currentDraft]);
+  const conflictCount = Object.keys(conflicts).length;
+  const dilemmaCount = (currentDraft?.log || []).filter(l => l.type !== 'info').length;
+
+  // ניווט חודשים
+  const navigateMonth = (dir) => {
+    const [y, m] = currentMonth.split('-').map(Number);
+    const nd = new Date(y, m - 1 + dir, 1);
+    setCurrentMonth(`${nd.getFullYear()}-${AD.pad(nd.getMonth() + 1)}`);
+  };
+
+  // יצירת טיוטה חדשה (ריקה + משמרות קבועות)
+  const createDraft = (opts) => {
+    setModalOpen(false);
+    const id = String(Date.now());
+    const num = drafts.filter(d => d.month === currentMonth).length + 1;
+    const dates = AE.listDates(opts.startDate, opts.endDate).filter(d => !opts.excluded.includes(d));
+    const schedule = AE.applyFixed(dates, AD.FIXED_SHIFTS);
+    setDrafts(ds => [...ds, {
+      id, name: `טיוטה ${num}`,
+      month: currentMonth,
+      status: 'draft',
+      range: { start: opts.startDate, end: opts.endDate },
+      excluded: opts.excluded,
+      schedule, log: [],
+      createdAt: Date.now(),
+    }]);
+    setActiveDraftId(id);
+  };
+
+  // שיבוץ אוטומטי — ממלא ריקות בלבד
+  const runAI = () => {
+    if (!currentDraft) return;
+    const id = activeDraftId;
+    const snap = { ...currentDraft };
+    setGeneratingId(id);
+    setTimeout(() => {
+      const res = AE.generate({ startDate: snap.range.start, endDate: snap.range.end, excluded: snap.excluded, existingSchedule: snap.schedule });
+      setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: res.schedule, log: res.log } : d));
+      setGeneratingId(null);
+    }, 1600);
+  };
+
+  const renameDraft = (id, name) => updateDraft(id, () => ({ name }));
+  const setDraftStatus = (id, s) => updateDraft(id, () => ({ status: s }));
+
   const assign = (dStr, shiftId, empId) => {
-    setSchedule((s) => {
-      const day = { ...(s[dStr] || {}) };
+    if (!activeDraftId) return;
+    updateDraft(activeDraftId, d => {
+      const day = { ...(d.schedule[dStr] || {}) };
       const cur = day[shiftId] || [];
-      if (cur.includes(empId)) return s;
+      if (cur.includes(empId)) return {};
       day[shiftId] = [...cur, empId];
-      return { ...s, [dStr]: day };
+      return { schedule: { ...d.schedule, [dStr]: day } };
     });
   };
 
   const remove = (dStr, shiftId, empId) => {
-    setSchedule((s) => {
-      const day = { ...(s[dStr] || {}) };
-      day[shiftId] = (day[shiftId] || []).filter((id) => id !== empId);
-      return { ...s, [dStr]: day };
+    if (!activeDraftId) return;
+    updateDraft(activeDraftId, d => {
+      const day = { ...(d.schedule[dStr] || {}) };
+      day[shiftId] = (day[shiftId] || []).filter(id => id !== empId);
+      return { schedule: { ...d.schedule, [dStr]: day } };
     });
   };
 
   const moveChip = (from, to, empId, copy) => {
     if (from.dStr === to.dStr && from.shiftId === to.shiftId) return;
-    setSchedule((s) => {
-      const next = { ...s };
+    if (!activeDraftId) return;
+    updateDraft(activeDraftId, d => {
+      const next = { ...d.schedule };
       if (!copy) {
         const fromDay = { ...(next[from.dStr] || {}) };
-        fromDay[from.shiftId] = (fromDay[from.shiftId] || []).filter((id) => id !== empId);
+        fromDay[from.shiftId] = (fromDay[from.shiftId] || []).filter(id => id !== empId);
         next[from.dStr] = fromDay;
       }
       const toDay = { ...(next[to.dStr] || {}) };
       const cur = toDay[to.shiftId] || [];
       if (!cur.includes(empId)) toDay[to.shiftId] = [...cur, empId];
       next[to.dStr] = toDay;
-      return next;
+      return { schedule: next };
     });
   };
 
-  // יצירת טיוטה ריקה עם משמרות קבועות בלבד
-  const createDraft = (opts) => {
-    setModalOpen(false);
-    const newRange = { start: opts.startDate, end: opts.endDate };
-    setRange(newRange);
-    setExcluded(opts.excluded);
-    setLog([]);
-    const dates = AE.listDates(opts.startDate, opts.endDate).filter((d) => !opts.excluded.includes(d));
-    setSchedule(AE.applyFixed(dates, AD.FIXED_SHIFTS));
-    setStatus('draft');
-  };
-
-  // שיבוץ אוטומטי — ממלא משבצות ריקות בלבד
-  const runAI = () => {
-    setStatus('generating');
-    setTimeout(() => {
-      const res = AE.generate({ startDate: range.start, endDate: range.end, excluded, existingSchedule: schedule });
-      setSchedule(res.schedule);
-      setLog(res.log);
-      setStatus('draft');
-    }, 1600);
-  };
-
   const slotProps = {
-    onAssign: assign,
-    onRemove: remove,
-    onMoveChip: moveChip,
-    onDragChipStart: setDraggingEmp,
-    onDragEnd: () => setDraggingEmp(null),
+    onAssign: assign, onRemove: remove, onMoveChip: moveChip,
+    onDragChipStart: setDraggingEmp, onDragEnd: () => setDraggingEmp(null),
   };
 
   const st = STATUS_META[status];
@@ -1488,33 +1569,46 @@ function App() {
           <span className="brand-name">משמרות</span>
         </div>
         <div className="topbar-center">
-          <h1 className="month-title">{AD.monthLabel(AD.MONTH)}</h1>
+          <div className="month-nav">
+            <button className="month-nav-btn" onClick={() => navigateMonth(-1)} title="חודש קודם">‹</button>
+            <h1 className="month-title">{AD.monthLabel(currentMonth)}</h1>
+            <button className="month-nav-btn" onClick={() => navigateMonth(1)} title="חודש הבא">›</button>
+          </div>
           <span className={'status-chip ' + st.cls}>{st.label}</span>
           {conflictCount > 0 && status !== 'preview' && (
-            <span className="conflict-count" title="שיבוצים עם חריגה מכלל">{conflictCount} קונפליקטים</span>
+            <span className="conflict-count">{conflictCount} קונפליקטים</span>
           )}
         </div>
         <div className="topbar-actions">
-          <button className="btn" onClick={() => setLogOpen(true)} disabled={status === 'preview'}>
+          <button className="btn" onClick={() => setLogOpen(true)} disabled={!currentDraft}>
             לוג AI{dilemmaCount > 0 && <span className="btn-badge">{dilemmaCount}</span>}
           </button>
-          <button className="btn" onClick={() => AE.exportCsv(schedule, conflicts)} disabled={status === 'preview' || status === 'generating'}>
+          <button className="btn" onClick={() => AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth)} disabled={!currentDraft || isGenerating}>
             ייצוא לאקסל
           </button>
           {status === 'draft' && (
             <button className="btn btn-primary" onClick={runAI}>✦ שבץ אוטומטי</button>
           )}
           {status === 'draft' && (
-            <button className="btn btn-final" onClick={() => setStatus('final')}>אישור ופרסום</button>
+            <button className="btn btn-final" onClick={() => setDraftStatus(activeDraftId, 'final')}>אישור ופרסום</button>
           )}
           {status === 'final' && (
-            <button className="btn" onClick={() => setStatus('draft')}>חזרה לעריכה</button>
+            <button className="btn" onClick={() => setDraftStatus(activeDraftId, 'draft')}>חזרה לעריכה</button>
           )}
-          <button className="btn btn-primary" onClick={() => setModalOpen(true)} disabled={status === 'generating'}>
+          <button className="btn btn-primary" onClick={() => setModalOpen(true)} disabled={isGenerating}>
             ✦ צור טיוטה חדשה
           </button>
         </div>
       </header>
+
+      {monthDrafts.length > 0 && (
+        <div className="drafts-bar">
+          {monthDrafts.map(d => (
+            <DraftTab key={d.id} draft={d} isActive={d.id === activeDraftId}
+              onSelect={setActiveDraftId} onRename={renameDraft} />
+          ))}
+        </div>
+      )}
 
       {status === 'final' && (
         <div className="final-banner">הסידור פורסם לעובדים והוא נעול לעריכה. לחצו ״חזרה לעריכה״ כדי לבצע שינויים.</div>
@@ -1522,21 +1616,21 @@ function App() {
 
       <main className="layout">
         <section className="board">
-          {status === 'preview' ? (
+          {!currentDraft ? (
             <div className="empty-state">
               <div className="empty-card">
                 <div className="empty-mark" aria-hidden="true">⧉</div>
-                <h2 className="empty-title">אין עדיין סידור ל{AD.monthLabel(AD.MONTH)}</h2>
+                <h2 className="empty-title">אין עדיין סידור ל{AD.monthLabel(currentMonth)}</h2>
                 <p className="empty-sub">צרו טיוטה חדשה וה־AI ישבץ את העובדים לפי בקשות, מכסות וזמני מנוחה. לאחר מכן תוכלו לדייק את התוצאה בגרירה.</p>
                 <button className="btn btn-primary btn-lg" onClick={() => setModalOpen(true)}>✦ צור טיוטה חדשה</button>
               </div>
             </div>
           ) : (
             <div className="board-inner">
-              <MonthView range={range} excluded={excluded} schedule={schedule} conflicts={conflicts}
-                editable={editable} draggingEmp={draggingEmp} selectedDate={selectedDate}
-                onSelectDate={(d) => setSelectedDate((cur) => cur === d ? null : d)} slotProps={slotProps} />
-              {status === 'generating' && (
+              <MonthView range={currentDraft.range} excluded={currentDraft.excluded} schedule={currentDraft.schedule}
+                conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} selectedDate={selectedDate}
+                onSelectDate={d => setSelectedDate(cur => cur === d ? null : d)} slotProps={slotProps} />
+              {isGenerating && (
                 <div className="generating-overlay">
                   <div className="generating-card">
                     <span className="spinner" aria-hidden="true"></span>
@@ -1551,22 +1645,24 @@ function App() {
           )}
         </section>
 
-        <EmployeesSidePanel schedule={schedule} selectedDate={selectedDate} draggingEmp={draggingEmp}
+        <EmployeesSidePanel schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
           onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable} />
       </main>
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
-        initialRange={range} initialExcluded={excluded} />
-      <LogDrawer open={logOpen} log={log} onClose={() => setLogOpen(false)} />
+        month={currentMonth}
+        initialRange={currentDraft?.range || AE.defaultRange(currentMonth)}
+        initialExcluded={[]} />
+      <LogDrawer open={logOpen} log={currentDraft?.log || []} onClose={() => setLogOpen(false)} />
 
       <TweaksPanel>
         <TweakSection label="צבע" />
         <TweakColor label="צבע ראשי" value={t.accent} options={['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E']}
-          onChange={(v) => setTweak('accent', v)} />
+          onChange={v => setTweak('accent', v)} />
         <TweakSection label="תצוגה" />
         <TweakRadio label="צפיפות הלוח" value={t.density} options={['רגילה', 'קומפקטית']}
-          onChange={(v) => setTweak('density', v)} />
-        <TweakToggle label="מצב כהה" value={t.dark} onChange={(v) => setTweak('dark', v)} />
+          onChange={v => setTweak('density', v)} />
+        <TweakToggle label="מצב כהה" value={t.dark} onChange={v => setTweak('dark', v)} />
       </TweaksPanel>
     </div>
   );

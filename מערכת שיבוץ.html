@@ -1514,8 +1514,9 @@ function ShiftRowEditor({ shift, onChange, onDelete }) {
   return (
     <div className="shift-row">
       <input className="shift-row-name" value={shift.name} onChange={(e) => upd('name', e.target.value)} />
+      <span style={{fontSize:'10px',color:'var(--ink-3)',flexShrink:0}}>מ</span>
       <input className="shift-time-inp" type="time" value={shift.start} onChange={(e) => upd('start', e.target.value)} />
-      <span style={{fontSize:'10px',color:'var(--ink-3)',flexShrink:0}}>–</span>
+      <span style={{fontSize:'10px',color:'var(--ink-3)',flexShrink:0}}>עד</span>
       <input className="shift-time-inp" type="time" value={shift.end} onChange={(e) => upd('end', e.target.value)} />
       <div className="shift-req">
         <button className="shift-req-btn" onClick={() => upd('required', Math.max(1, (shift.required || 1) - 1))}>−</button>
@@ -1787,8 +1788,9 @@ function ShiftRowEditorWithSpan({ shift, onChange, onDelete }) {
   return (
     <div className="shift-row">
       <input className="shift-row-name" value={shift.name} onChange={(e) => upd('name', e.target.value)} />
+      <span style={{fontSize:'10px',color:'var(--ink-3)',flexShrink:0}}>מ</span>
       <input className="shift-time-inp" type="time" value={shift.start} onChange={(e) => upd('start', e.target.value)} />
-      <span style={{fontSize:'10px',color:'var(--ink-3)',flexShrink:0}}>–</span>
+      <span style={{fontSize:'10px',color:'var(--ink-3)',flexShrink:0}}>עד</span>
       <input className="shift-time-inp" type="time" value={shift.end} onChange={(e) => upd('end', e.target.value)} />
       <div className="shift-req" title="כמות נדרשת">
         <button className="shift-req-btn" onClick={() => upd('required', Math.max(1, (shift.required || 1) - 1))}>−</button>

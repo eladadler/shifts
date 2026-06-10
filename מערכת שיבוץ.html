@@ -1,0 +1,1515 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" data-theme="light" data-density="regular">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>משמרות — ניהול סידור עבודה</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #3D63C9;
+    --bg: oklch(0.965 0.006 250);
+    --surface: oklch(0.995 0.002 250);
+    --surface-2: oklch(0.975 0.005 250);
+    --ink: oklch(0.24 0.015 255);
+    --ink-2: oklch(0.48 0.02 255);
+    --ink-3: oklch(0.62 0.015 255);
+    --line: oklch(0.89 0.008 250);
+    --line-soft: oklch(0.93 0.006 250);
+    --ok: oklch(0.6 0.13 155);
+    --warn: oklch(0.68 0.13 65);
+    --danger: oklch(0.56 0.17 27);
+    --ok-bg: oklch(0.96 0.03 155);
+    --warn-bg: oklch(0.96 0.04 80);
+    --danger-bg: oklch(0.95 0.03 27);
+    --shadow: 0 1px 2px oklch(0.2 0.02 255 / 0.06), 0 4px 16px oklch(0.2 0.02 255 / 0.07);
+    --r: 10px;
+    --cell-pad: 8px;
+    --slot-pad: 6px 8px;
+    --chip-font: 12.5px;
+    --day-min-h: 150px;
+  }
+  [data-theme="dark"] {
+    --bg: oklch(0.21 0.012 255);
+    --surface: oklch(0.26 0.012 255);
+    --surface-2: oklch(0.30 0.012 255);
+    --ink: oklch(0.93 0.005 255);
+    --ink-2: oklch(0.72 0.01 255);
+    --ink-3: oklch(0.58 0.01 255);
+    --line: oklch(0.36 0.012 255);
+    --line-soft: oklch(0.32 0.012 255);
+    --ok-bg: oklch(0.32 0.05 155);
+    --warn-bg: oklch(0.33 0.05 80);
+    --danger-bg: oklch(0.32 0.05 27);
+    --shadow: 0 1px 2px oklch(0 0 0 / 0.3), 0 4px 16px oklch(0 0 0 / 0.3);
+  }
+  [data-density="compact"] {
+    --cell-pad: 5px;
+    --slot-pad: 3px 6px;
+    --chip-font: 11.5px;
+    --day-min-h: 116px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'IBM Plex Sans Hebrew', 'Heebo', sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  button { font-family: inherit; cursor: pointer; }
+  kbd { font-family: inherit; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 11px; }
+
+  /* ---------- סרגל עליון ---------- */
+  .topbar {
+    display: flex; align-items: center; gap: 20px;
+    padding: 10px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; }
+  .brand-mark { color: var(--accent); font-size: 20px; line-height: 1; }
+  .brand-name { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
+  .topbar-center { display: flex; align-items: center; gap: 12px; flex: 1; }
+  .month-title { font-size: 17px; font-weight: 600; margin: 0; }
+  .status-chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid transparent; }
+  .st-preview { background: var(--surface-2); color: var(--ink-2); border-color: var(--line); }
+  .st-generating { background: var(--warn-bg); color: var(--warn); }
+  .st-draft { background: color-mix(in oklab, var(--accent) 12%, transparent); color: var(--accent); }
+  .st-final { background: var(--ok-bg); color: var(--ok); }
+  .conflict-count { font-size: 12px; font-weight: 600; color: var(--danger); background: var(--danger-bg); padding: 3px 10px; border-radius: 999px; }
+  .topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    font-size: 13px; font-weight: 500;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .btn:hover:not(:disabled) { background: var(--surface-2); border-color: var(--ink-3); }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+  .btn-primary:hover:not(:disabled) { background: color-mix(in oklab, var(--accent) 88%, black); border-color: color-mix(in oklab, var(--accent) 88%, black); }
+  .btn-final { background: var(--ok); border-color: var(--ok); color: white; font-weight: 600; }
+  .btn-final:hover:not(:disabled) { background: color-mix(in oklab, var(--ok) 88%, black); border-color: transparent; }
+  .btn-lg { padding: 11px 22px; font-size: 15px; }
+  .btn-badge { background: var(--danger); color: white; font-size: 10.5px; font-weight: 700; border-radius: 999px; min-width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; }
+  .icon-btn { background: none; border: none; font-size: 20px; color: var(--ink-3); padding: 2px 8px; border-radius: 6px; }
+  .icon-btn:hover { background: var(--surface-2); color: var(--ink); }
+
+  .final-banner {
+    background: var(--ok-bg); color: var(--ok);
+    font-size: 13px; font-weight: 500; text-align: center;
+    padding: 7px 16px; border-bottom: 1px solid color-mix(in oklab, var(--ok) 25%, transparent);
+  }
+
+  /* ---------- פריסה ---------- */
+  .layout { display: flex; flex: 1; min-height: 0; }
+  .board { flex: 1; min-width: 0; overflow: auto; padding: 16px; position: relative; }
+  .board-inner { position: relative; min-height: 100%; }
+
+  /* ---------- לוח חודשי ---------- */
+  .month-header-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; }
+  .month-header-cell { text-align: center; font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 2px 0; }
+  .month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+
+  .day {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: var(--cell-pad);
+    min-height: var(--day-min-h);
+    min-width: 0;
+    display: flex; flex-direction: column; gap: 6px;
+    transition: opacity 0.15s, box-shadow 0.15s, border-color 0.15s;
+  }
+  .day-out { background: transparent; border-color: var(--line-soft); min-height: 0; opacity: 0.5; }
+  .day-num-out { color: var(--ink-3); }
+  .day-weekend { background: var(--surface-2); }
+  .day-selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 30%, transparent); }
+  .day-dim { opacity: 0.35; }
+  .day-glow { border-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in oklab, var(--ok) 30%, transparent); }
+  .day-excluded { background: repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 6px, var(--surface) 6px, var(--surface) 12px); }
+  .excluded-label { font-size: 11.5px; color: var(--ink-3); text-align: center; margin: auto 0; }
+
+  .day-head { display: flex; align-items: baseline; gap: 6px; }
+  .day-num { font-size: 15px; font-weight: 700; }
+  .day-name { font-size: 11px; color: var(--ink-3); }
+  .day-slots { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+
+  /* ---------- משבצת משמרת ---------- */
+  .slot {
+    border: 1px solid var(--line-soft);
+    border-radius: 7px;
+    padding: var(--slot-pad);
+    background: var(--surface);
+    display: flex; flex-direction: column; gap: 3px;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .slot-over { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 8%, var(--surface)); border-style: dashed; }
+  .slot { min-width: 0; }
+  .slot-head { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .slot-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .slot-ok .slot-dot { background: var(--ok); }
+  .slot-empty .slot-dot { background: var(--warn); }
+  .slot-conflict .slot-dot { background: var(--danger); }
+  .slot-name { font-size: 11.5px; font-weight: 600; color: var(--ink-2); flex-shrink: 0; }
+  .slot-hours { font-size: 10.5px; color: var(--ink-3); margin-inline-start: auto; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; min-width: 0; }
+  .slot-placeholder { font-size: 11px; color: var(--ink-3); padding: 2px 0; }
+  .slot-chips { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+
+  /* ---------- צ'יפ עובד ---------- */
+  .chip {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    padding: 2px 6px 2px 4px;
+    font-size: var(--chip-font);
+    position: relative;
+    min-width: 0;
+    cursor: grab;
+  }
+  .chip:active { cursor: grabbing; }
+  .chip-conflict { border-color: color-mix(in oklab, var(--danger) 50%, transparent); background: var(--danger-bg); }
+  .chip-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .conflict-badge {
+    background: var(--danger); color: white;
+    width: 15px; height: 15px; border-radius: 50%;
+    font-size: 10.5px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .chip-x {
+    background: none; border: none; color: var(--ink-3);
+    font-size: 14px; line-height: 1; padding: 0 2px;
+    opacity: 0; transition: opacity 0.1s; flex-shrink: 0;
+  }
+  .chip:hover .chip-x { opacity: 1; }
+  .chip-x:hover { color: var(--danger); }
+
+  .avatar {
+    border-radius: 50%; color: white; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; letter-spacing: -0.02em;
+  }
+
+  /* ---------- חלונית עובדים ---------- */
+  .side-panel {
+    width: 292px; flex-shrink: 0;
+    background: var(--surface);
+    border-inline-start: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .side-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 8px; }
+  .side-title { font-size: 15px; font-weight: 700; margin: 0; }
+  .side-count { font-size: 11.5px; color: var(--ink-3); background: var(--surface-2); border-radius: 999px; padding: 1px 8px; }
+  .side-tabs { display: flex; gap: 4px; padding: 0 16px 10px; }
+  .side-tab {
+    flex: 1; padding: 5px 4px; font-size: 12px; font-weight: 500;
+    background: none; border: 1px solid var(--line); border-radius: 7px; color: var(--ink-2);
+  }
+  .side-tab.on { background: color-mix(in oklab, var(--accent) 11%, transparent); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .side-note { font-size: 12px; color: var(--ink-2); padding: 0 16px 8px; }
+  .emp-list { flex: 1; overflow-y: auto; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+
+  .emp-card {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r);
+    cursor: grab;
+    transition: border-color 0.12s, box-shadow 0.12s;
+  }
+  .emp-card:hover { border-color: var(--ink-3); box-shadow: var(--shadow); }
+  .emp-card:active { cursor: grabbing; }
+  .emp-info { flex: 1; min-width: 0; }
+  .emp-name-row { display: flex; align-items: center; gap: 5px; }
+  .emp-name { font-weight: 600; font-size: 13px; }
+  .anchor-tag { font-size: 11px; }
+  .emp-meta { display: flex; align-items: center; gap: 6px; margin-top: 1px; }
+  .emp-role { font-size: 11.5px; color: var(--ink-3); }
+  .av-tag { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; }
+  .av-no { background: var(--danger-bg); color: var(--danger); }
+  .av-high { background: var(--ok-bg); color: var(--ok); }
+  .av-can { background: var(--warn-bg); color: var(--warn); }
+  .emp-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .emp-count { font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .emp-count-over { color: var(--danger); font-weight: 700; }
+  .req-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .side-hint { font-size: 11px; color: var(--ink-3); padding: 10px 16px; border-top: 1px solid var(--line-soft); line-height: 1.6; }
+
+  /* ---------- מצב ריק ---------- */
+  .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 60vh; }
+  .empty-card { text-align: center; max-width: 420px; padding: 40px; }
+  .empty-mark { font-size: 40px; color: var(--accent); opacity: 0.5; }
+  .empty-title { font-size: 20px; font-weight: 700; margin: 12px 0 8px; }
+  .empty-sub { color: var(--ink-2); line-height: 1.6; margin: 0 0 20px; }
+
+  /* ---------- Overlay יצירה ---------- */
+  .generating-overlay {
+    position: absolute; inset: 0;
+    background: color-mix(in oklab, var(--bg) 65%, transparent);
+    backdrop-filter: blur(2px);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 18vh; border-radius: var(--r); z-index: 5;
+  }
+  .generating-card {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px 24px; box-shadow: var(--shadow);
+  }
+  .generating-title { font-weight: 700; font-size: 15px; }
+  .generating-sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+  .spinner {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid var(--line); border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- מודל ---------- */
+  .modal-backdrop, .drawer-backdrop {
+    position: fixed; inset: 0; background: oklch(0.15 0.01 255 / 0.45);
+    display: flex; align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal {
+    background: var(--surface); border-radius: 14px; box-shadow: var(--shadow);
+    width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 64px);
+    display: flex; flex-direction: column;
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 0; }
+  .modal-title { font-size: 17px; font-weight: 700; margin: 0; }
+  .modal-body { padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+  .modal-foot { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px 16px; border-top: 1px solid var(--line-soft); }
+  .modal-summary { font-size: 12.5px; color: var(--ink-2); }
+  .modal-actions { display: flex; gap: 8px; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field-row { display: flex; gap: 24px; }
+  .field-label { font-size: 13px; font-weight: 600; }
+  .field-sub { font-weight: 400; color: var(--ink-3); font-size: 12px; }
+  .field-hint { font-size: 12px; color: var(--ink-3); }
+  .month-pill { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 14px; font-weight: 600; }
+  .stepper { display: flex; align-items: center; gap: 8px; }
+  .stepper-btn {
+    width: 28px; height: 28px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--surface);
+    font-size: 16px; color: var(--ink); display: inline-flex; align-items: center; justify-content: center;
+  }
+  .stepper-btn:hover { background: var(--surface-2); }
+  .stepper-val { min-width: 22px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .exclude-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; }
+  .exclude-pill {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    border: 1px solid var(--line); border-radius: 7px;
+    background: var(--surface); padding: 4px 2px;
+    transition: background 0.1s, opacity 0.1s;
+  }
+  .exclude-pill.wknd { background: var(--surface-2); }
+  .exclude-pill:hover { border-color: var(--ink-3); }
+  .exclude-pill.off { opacity: 0.45; background: repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 4px, var(--surface) 4px, var(--surface) 8px); text-decoration: line-through; }
+  .exclude-pill-day { font-size: 10px; color: var(--ink-3); }
+  .exclude-pill-num { font-size: 13px; font-weight: 700; }
+
+  /* ---------- לוג ---------- */
+  .drawer-backdrop { justify-content: flex-start; }
+  .drawer {
+    background: var(--surface); height: 100%; width: min(420px, 90vw);
+    border-inline-end: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    box-shadow: var(--shadow);
+  }
+  .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 10px; border-bottom: 1px solid var(--line-soft); }
+  .drawer-title { font-size: 16px; font-weight: 700; margin: 0; }
+  .drawer-empty { padding: 24px 20px; color: var(--ink-3); }
+  .log-list { list-style: none; margin: 0; padding: 12px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .log-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 10px; border-radius: 8px; background: var(--surface-2);
+    font-size: 13px; line-height: 1.5;
+  }
+  .log-type { font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px; flex-shrink: 0; margin-top: 1px; }
+  .log-info .log-type { background: color-mix(in oklab, var(--accent) 14%, transparent); color: var(--accent); }
+  .log-dilemma .log-type { background: var(--warn-bg); color: var(--warn); }
+  .log-decision .log-type { background: var(--danger-bg); color: var(--danger); }
+  .log-msg { color: var(--ink); }
+
+  @media (max-width: 900px) {
+    .side-panel { display: none; }
+    .topbar { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- ============ נתוני דמו — מוקד שירות 24/7, יולי 2026 ============ -->
+<script>
+(function () {
+  const MONTH = '2026-07';
+
+  const HEB_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+  const HEB_DAYS_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+  const HEB_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+  const dateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const addDays = (s, n) => { const d = parseDate(s); d.setDate(d.getDate() + n); return dateStr(d); };
+  const weekdayOf = (s) => parseDate(s).getDay();
+  const dayLabel = (s) => HEB_DAYS[weekdayOf(s)];
+  const shortDate = (s) => { const d = parseDate(s); return `${d.getDate()}/${d.getMonth() + 1}`; };
+  const monthLabel = (ym) => { const [y, m] = ym.split('-').map(Number); return `${HEB_MONTHS[m - 1]} ${y}`; };
+
+  const WEEKDAY_SHIFTS = [
+    { id: 'morning', name: 'בוקר', start: '07:00', end: '15:00' },
+    { id: 'evening', name: 'ערב', start: '15:00', end: '23:00' },
+    { id: 'night', name: 'לילה', start: '23:00', end: '07:00' },
+  ];
+  const WEEKEND_SHIFTS = [
+    { id: 'morning', name: 'בוקר', start: '07:00', end: '15:00' },
+    { id: 'short', name: 'קצר', start: '15:00', end: '19:00' },
+    { id: 'night', name: 'לילה', start: '19:00', end: '07:00' },
+  ];
+  const shiftTypesFor = (s) => {
+    const wd = weekdayOf(s);
+    return (wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS;
+  };
+  const shiftDef = (s, shiftId) => shiftTypesFor(s).find((x) => x.id === shiftId);
+
+  const shiftTimes = (s, shift) => {
+    const mk = (dStr, hm) => { const d = parseDate(dStr); const [h, m] = hm.split(':').map(Number); d.setHours(h, m, 0, 0); return d; };
+    const start = mk(s, shift.start);
+    let end = mk(s, shift.end);
+    if (end <= start) end = mk(addDays(s, 1), shift.end);
+    return { start, end };
+  };
+
+  const EMPLOYEES = [
+    { id: 'yossi', name: 'יוסי כהן', role: 'אחמ״ש', color: 'oklch(0.62 0.14 250)', max: 20, anchor: true, nights: true },
+    { id: 'dana', name: 'דנה לוי', role: 'אחמ״שית', color: 'oklch(0.62 0.14 330)', max: 20, anchor: true, nights: false },
+    { id: 'danny', name: 'דני אברהם', role: 'מוקדן בכיר', color: 'oklch(0.62 0.14 160)', max: 18, anchor: true, nights: true },
+    { id: 'noa', name: 'נועה פרץ', role: 'מוקדנית', color: 'oklch(0.62 0.14 50)', max: 16, anchor: false, nights: false },
+    { id: 'avi', name: 'אבי מזרחי', role: 'מוקדן', color: 'oklch(0.62 0.14 210)', max: 16, anchor: false, nights: true },
+    { id: 'michal', name: 'מיכל ברק', role: 'מוקדנית', color: 'oklch(0.62 0.14 10)', max: 14, anchor: false, nights: false },
+    { id: 'omer', name: 'עומר שלו', role: 'מוקדן', color: 'oklch(0.62 0.14 130)', max: 16, anchor: false, nights: true },
+    { id: 'tamar', name: 'תמר גולן', role: 'מוקדנית בכירה', color: 'oklch(0.62 0.14 290)', max: 18, anchor: false, nights: false },
+    { id: 'itay', name: 'איתי רוזן', role: 'מוקדן', color: 'oklch(0.62 0.14 80)', max: 12, anchor: false, nights: true },
+    { id: 'shira', name: 'שירה אדלר', role: 'מוקדנית', color: 'oklch(0.62 0.14 350)', max: 14, anchor: false, nights: false },
+    { id: 'roni', name: 'רוני חדד', role: 'מוקדן', color: 'oklch(0.62 0.14 190)', max: 16, anchor: false, nights: true },
+    { id: 'lior', name: 'ליאור נחום', role: 'מוקדן', color: 'oklch(0.62 0.14 110)', max: 14, anchor: false, nights: false },
+    { id: 'hila', name: 'הילה שמש', role: 'מוקדנית', color: 'oklch(0.62 0.14 30)', max: 12, anchor: false, nights: false },
+    { id: 'alon', name: 'אלון דור', role: 'מוקדן לילה', color: 'oklch(0.62 0.14 270)', max: 16, anchor: false, nights: true, nightOwl: true },
+  ];
+
+  const REQUESTS = {
+    noa: { unavailable: ['2026-07-06', '2026-07-07', '2026-07-08'], high: ['2026-07-12', '2026-07-19'], can: ['2026-07-26'], note: 'בחופשה 6–8 ביולי. מעדיפה בקרים בתחילת שבוע.' },
+    avi: { unavailable: ['2026-07-10', '2026-07-24'], high: ['2026-07-15'], can: ['2026-07-17', '2026-07-31'], note: 'לא זמין בימי שישי 10 ו־24 — אירועים משפחתיים.' },
+    michal: { unavailable: ['2026-07-02', '2026-07-16', '2026-07-30'], can: ['2026-07-05', '2026-07-12'], high: [], note: 'לימודים בימי חמישי לסירוגין.' },
+    tamar: { unavailable: ['2026-07-20', '2026-07-21', '2026-07-22', '2026-07-23'], high: ['2026-07-05', '2026-07-27'], can: [], note: 'מילואים 20–23 ביולי.' },
+    itay: { unavailable: ['2026-07-03', '2026-07-04'], can: ['2026-07-08', '2026-07-22'], high: ['2026-07-29'], note: '' },
+    roni: { unavailable: ['2026-07-13'], high: ['2026-07-10', '2026-07-11'], can: ['2026-07-18'], note: 'מעדיף סופי שבוע — תוספת מבורכת.' },
+    hila: { unavailable: ['2026-07-09', '2026-07-10', '2026-07-11', '2026-07-12'], can: ['2026-07-19', '2026-07-26'], high: [], note: 'נסיעה לחו״ל 9–12 ביולי.' },
+    alon: { unavailable: [], high: ['2026-07-01', '2026-07-08', '2026-07-15', '2026-07-22', '2026-07-29'], can: [], note: 'מעדיף לילות בלבד, כמה שיותר.' },
+  };
+
+  const reqOf = (empId) => REQUESTS[empId] || null;
+  const availabilityOn = (empId, dStr) => {
+    const r = REQUESTS[empId];
+    if (!r) return null;
+    if (r.unavailable.includes(dStr)) return 'unavailable';
+    if (r.high.includes(dStr)) return 'high';
+    if (r.can.includes(dStr)) return 'can';
+    return null;
+  };
+
+  const empById = (id) => EMPLOYEES.find((e) => e.id === id);
+  const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('');
+
+  window.ShiftData = {
+    MONTH, HEB_DAYS, HEB_DAYS_SHORT, EMPLOYEES, REQUESTS,
+    pad, parseDate, dateStr, addDays, weekdayOf, dayLabel, shortDate, monthLabel,
+    shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, empById, initials,
+  };
+})();
+</script>
+
+<!-- ============ מנוע שיבוץ + זיהוי קונפליקטים + ייצוא ============ -->
+<script>
+(function () {
+  const D = window.ShiftData;
+  const MIN_REST_H = 8;
+
+  const listDates = (startStr, endStr) => {
+    const out = [];
+    let cur = startStr;
+    while (cur <= endStr) { out.push(cur); cur = D.addDays(cur, 1); }
+    return out;
+  };
+
+  const defaultRange = (ym) => {
+    const [y, m] = ym.split('-').map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return { start: `${ym}-01`, end: `${ym}-${D.pad(last)}` };
+  };
+
+  const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 997; return h / 997; };
+
+  const gapHours = (prevEnd, nextStart) => (nextStart - prevEnd) / 36e5;
+
+  function generate({ startDate, endDate, excluded = [] }) {
+    const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
+    const schedule = {};
+    const log = [];
+    const counts = {}; const lastEnd = {};
+    D.EMPLOYEES.forEach((e) => { counts[e.id] = 0; lastEnd[e.id] = null; });
+    const now = () => new Date().toISOString();
+    const addLog = (type, message) => log.push({ timestamp: now(), type, message });
+
+    addLog('info', `התחלת שיבוץ אוטומטי: ${D.shortDate(startDate)}–${D.shortDate(endDate)}, ${dates.length} ימים`);
+    excluded.forEach((d) => addLog('info', `יום ${D.shortDate(d)} הוחרג מהסידור`));
+
+    dates.forEach((dStr) => {
+      schedule[dStr] = schedule[dStr] || {};
+      D.shiftTypesFor(dStr).forEach((shift) => {
+        const t = D.shiftTimes(dStr, shift);
+        const cands = D.EMPLOYEES.filter((e) => {
+          if (D.availabilityOn(e.id, dStr) === 'unavailable') return false;
+          if (counts[e.id] >= e.max) return false;
+          if (shift.id === 'night' && !e.nights) return false;
+          return true;
+        });
+        const clean = cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H);
+        const pool = clean.length ? clean : cands;
+
+        if (!pool.length) {
+          schedule[dStr][shift.id] = [];
+          addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
+          return;
+        }
+
+        const score = (e) => {
+          const av = D.availabilityOn(e.id, dStr);
+          let s = 0;
+          if (av === 'high') s += 6;
+          if (av === 'can') s += 2;
+          if (e.anchor) s += 3;
+          if (e.nightOwl && shift.id === 'night') s += 5;
+          s -= counts[e.id] * 0.9;
+          s += hash(e.id + dStr + shift.id) * 0.5;
+          return s;
+        };
+        const best = pool.slice().sort((a, b) => score(b) - score(a))[0];
+        const restViolation = !clean.includes(best);
+
+        schedule[dStr][shift.id] = [best.id];
+        counts[best.id] += 1;
+        lastEnd[best.id] = t.end;
+
+        const av = D.availabilityOn(best.id, dStr);
+        if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
+        else if (av === 'high') addLog('info', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} לפי בקשה בעדיפות גבוהה`);
+        else if (best.anchor && D.parseDate(dStr).getDate() <= 2) addLog('info', `${best.name} (עוגן) שובץ ראשון ל${shift.name} ב־${D.shortDate(dStr)}`);
+      });
+    });
+
+    const total = Object.values(schedule).reduce((n, day) => n + Object.values(day).filter((a) => a.length).length, 0);
+    addLog('info', `השיבוץ הושלם: ${total} משמרות אוישו`);
+    return { schedule, log };
+  }
+
+  function detectConflicts(schedule) {
+    const issues = {};
+    const add = (d, sh, emp, msg) => {
+      const k = `${d}|${sh}|${emp}`;
+      (issues[k] = issues[k] || []).push(msg);
+    };
+
+    const byEmp = {};
+    Object.keys(schedule).sort().forEach((dStr) => {
+      Object.entries(schedule[dStr]).forEach(([shiftId, emps]) => {
+        const shift = D.shiftDef(dStr, shiftId);
+        if (!shift) return;
+        const t = D.shiftTimes(dStr, shift);
+        emps.forEach((empId) => {
+          (byEmp[empId] = byEmp[empId] || []).push({ dStr, shiftId, shift, ...t });
+          if (D.availabilityOn(empId, dStr) === 'unavailable') {
+            add(dStr, shiftId, empId, 'שובץ ביום שסומן ״לא יכול״');
+          }
+        });
+      });
+    });
+
+    Object.entries(byEmp).forEach(([empId, list]) => {
+      list.sort((a, b) => a.start - b.start);
+      const emp = D.empById(empId);
+      for (let i = 1; i < list.length; i++) {
+        const g = gapHours(list[i - 1].end, list[i].start);
+        if (g < 0) add(list[i].dStr, list[i].shiftId, empId, 'חפיפת שעות עם משמרת אחרת');
+        else if (g < MIN_REST_H) add(list[i].dStr, list[i].shiftId, empId, `מנוחה של ${Math.round(g)} ש׳ בלבד מהמשמרת הקודמת (מינ׳ ${MIN_REST_H})`);
+      }
+      if (emp && list.length > emp.max) {
+        list.slice(emp.max).forEach((a) => add(a.dStr, a.shiftId, empId, `חריגה ממכסה חודשית (${emp.max} משמרות)`));
+      }
+    });
+    return issues;
+  }
+
+  const countShifts = (schedule, empId) => {
+    let n = 0;
+    Object.values(schedule).forEach((day) => Object.values(day).forEach((emps) => { if (emps.includes(empId)) n++; }));
+    return n;
+  };
+
+  function exportCsv(schedule, conflicts) {
+    const rows = [['תאריך', 'יום בשבוע', 'סוג משמרת', 'שם עובד', 'שעת התחלה', 'שעת סיום', 'חריגות']];
+    Object.keys(schedule).sort().forEach((dStr) => {
+      D.shiftTypesFor(dStr).forEach((shift) => {
+        const emps = schedule[dStr][shift.id] || [];
+        if (!emps.length) {
+          rows.push([dStr, D.dayLabel(dStr), shift.name, '— לא מאויש —', shift.start, shift.end, '']);
+        } else {
+          emps.forEach((empId) => {
+            const emp = D.empById(empId);
+            const c = (conflicts[`${dStr}|${shift.id}|${empId}`] || []).join('; ');
+            rows.push([dStr, D.dayLabel(dStr), shift.name, emp ? emp.name : empId, shift.start, shift.end, c]);
+          });
+        }
+      });
+    });
+    const csv = '﻿' + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `סידור-עבודה-${D.MONTH}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  window.ShiftEngine = { listDates, defaultRange, generate, detectConflicts, countShifts, exportCsv, MIN_REST_H, gapHours };
+})();
+</script>
+
+<!-- ============ Tweaks Panel ============ -->
+<script type="text/babel">
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    transform:scale(var(--dc-inv-zoom,1));transform-origin:bottom right;
+    background:rgba(250,249,247,.78);color:#29261b;
+    -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
+    border:.5px solid rgba(255,255,255,.6);border-radius:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
+    font:11.5px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 8px 10px 14px;cursor:move;user-select:none}
+  .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
+    width:22px;height:22px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.15) transparent}
+  .twk-row{display:flex;flex-direction:column;gap:5px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:rgba(41,38,27,.72)}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:rgba(41,38,27,.5);font-variant-numeric:tabular-nums}
+  .twk-sect{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:rgba(41,38,27,.45);padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+  .twk-field{appearance:none;box-sizing:border-box;width:100%;min-width:0;height:26px;padding:0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;
+    background:rgba(255,255,255,.6);color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:rgba(0,0,0,.25);background:rgba(255,255,255,.85)}
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;overflow-wrap:anywhere}
+  .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
+    background:rgba(0,0,0,.15);transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+  .twk-chips{display:flex;gap:6px}
+  .twk-chip{position:relative;appearance:none;flex:1;min-width:0;height:46px;
+    padding:0;border:0;border-radius:6px;overflow:hidden;cursor:default;
+    box-shadow:0 0 0 .5px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.06);
+    transition:transform .12s cubic-bezier(.3,.7,.4,1),box-shadow .12s}
+  .twk-chip:hover{transform:translateY(-1px);
+    box-shadow:0 0 0 .5px rgba(0,0,0,.18),0 4px 10px rgba(0,0,0,.12)}
+  .twk-chip[data-on="1"]{box-shadow:0 0 0 1.5px rgba(0,0,0,.85),0 2px 6px rgba(0,0,0,.15)}
+  .twk-chip>span{position:absolute;top:0;bottom:0;right:0;width:34%;
+    display:flex;flex-direction:column;box-shadow:-1px 0 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i{flex:1;box-shadow:0 -1px 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i:first-child{box-shadow:none}
+  .twk-chip svg{position:absolute;top:6px;left:6px;width:13px;height:13px;
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}
+`;
+
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
+      ? keyOrEdits : { [keyOrEdits]: val };
+    setValues((prev) => ({ ...prev, ...edits }));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
+    window.dispatchEvent(new CustomEvent('tweakchange', { detail: edits }));
+  }, []);
+  return [values, setTweak];
+}
+
+function TweaksPanel({ title = 'Tweaks', children }) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  const offsetRef = React.useRef({ x: 16, y: 16 });
+  const PAD = 16;
+
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxBottom, Math.max(PAD, offsetRef.current.y)),
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.bottom = offsetRef.current.y + 'px';
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', clampToViewport);
+      return () => window.removeEventListener('resize', clampToViewport);
+    }
+    const ro = new ResizeObserver(clampToViewport);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, [open, clampToViewport]);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const t = e?.data?.type;
+      if (t === '__activate_edit_mode') setOpen(true);
+      else if (t === '__deactivate_edit_mode') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const dismiss = () => {
+    setOpen(false);
+    window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+  };
+
+  const onDragStart = (e) => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startBottom = window.innerHeight - r.bottom;
+    const move = (ev) => {
+      offsetRef.current = {
+        x: startRight - (ev.clientX - sx),
+        y: startBottom - (ev.clientY - sy),
+      };
+      clampToViewport();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  if (!open) return null;
+  return (
+    <>
+      <style>{__TWEAKS_STYLE}</style>
+      <div ref={dragRef} className="twk-panel" style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}>
+        <div className="twk-hd" onMouseDown={onDragStart}>
+          <b>{title}</b>
+          <button className="twk-x" aria-label="Close tweaks"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={dismiss}>✕</button>
+        </div>
+        <div className="twk-body">{children}</div>
+      </div>
+    </>
+  );
+}
+
+function TweakSection({ label, children }) {
+  return (
+    <>
+      <div className="twk-sect">{label}</div>
+      {children}
+    </>
+  );
+}
+
+function TweakRow({ label, value, children, inline = false }) {
+  return (
+    <div className={inline ? 'twk-row twk-row-h' : 'twk-row'}>
+      <div className="twk-lbl">
+        <span>{label}</span>
+        {value != null && <span className="twk-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
+              role="switch" aria-checked={!!value}
+              onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+
+function TweakRadio({ label, value, options, onChange }) {
+  const trackRef = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+
+  const labelLen = (o) => String(typeof o === 'object' ? o.label : o).length;
+  const maxLen = options.reduce((m, o) => Math.max(m, labelLen(o)), 0);
+  const fitsAsSegments = maxLen <= ({ 2: 16, 3: 10 }[options.length] ?? 0);
+
+  if (!fitsAsSegments) {
+    return (
+      <TweakRow label={label}>
+        <select className="twk-field" value={value} onChange={(e) => onChange(e.target.value)}>
+          {options.map((o) => {
+            const v = typeof o === 'object' ? o.value : o;
+            const l = typeof o === 'object' ? o.label : o;
+            return <option key={v} value={v}>{l}</option>;
+          })}
+        </select>
+      </TweakRow>
+    );
+  }
+
+  const opts = options.map((o) => (typeof o === 'object' ? o : { value: o, label: o }));
+  const idx = Math.max(0, opts.findIndex((o) => o.value === value));
+  const n = opts.length;
+
+  const segAt = (clientX) => {
+    const r = trackRef.current.getBoundingClientRect();
+    const inner = r.width - 4;
+    const i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    return opts[Math.max(0, Math.min(n - 1, i))].value;
+  };
+
+  const onPointerDown = (e) => {
+    setDragging(true);
+    const v0 = segAt(e.clientX);
+    if (v0 !== valueRef.current) onChange(v0);
+    const move = (ev) => {
+      if (!trackRef.current) return;
+      const v = segAt(ev.clientX);
+      if (v !== valueRef.current) onChange(v);
+    };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <TweakRow label={label}>
+      <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
+           className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
+        <div className="twk-seg-thumb"
+             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+                      width: `calc((100% - 4px) / ${n})` }} />
+        {opts.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </TweakRow>
+  );
+}
+
+function __twkIsLight(hex) {
+  const h = String(hex).replace('#', '');
+  const x = h.length === 3 ? h.replace(/./g, (c) => c + c) : h.padEnd(6, '0');
+  const n = parseInt(x.slice(0, 6), 16);
+  if (Number.isNaN(n)) return true;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return r * 299 + g * 587 + b * 114 > 148000;
+}
+
+const __TwkCheck = ({ light }) => (
+  <svg viewBox="0 0 14 14" aria-hidden="true">
+    <path d="M3 7.2 5.8 10 11 4.2" fill="none" strokeWidth="2.2"
+          strokeLinecap="round" strokeLinejoin="round"
+          stroke={light ? 'rgba(0,0,0,.78)' : '#fff'} />
+  </svg>
+);
+
+function TweakColor({ label, value, options, onChange }) {
+  if (!options || !options.length) {
+    return (
+      <div className="twk-row twk-row-h">
+        <div className="twk-lbl"><span>{label}</span></div>
+        <input type="color" style={{width:56,height:22,border:'.5px solid rgba(0,0,0,.1)',borderRadius:6,padding:0,cursor:'default',background:'transparent',flexShrink:0}} value={value}
+               onChange={(e) => onChange(e.target.value)} />
+      </div>
+    );
+  }
+  const key = (o) => String(JSON.stringify(o)).toLowerCase();
+  const cur = key(value);
+  return (
+    <TweakRow label={label}>
+      <div className="twk-chips" role="radiogroup">
+        {options.map((o, i) => {
+          const colors = Array.isArray(o) ? o : [o];
+          const [hero, ...rest] = colors;
+          const sup = rest.slice(0, 4);
+          const on = key(o) === cur;
+          return (
+            <button key={i} type="button" className="twk-chip" role="radio"
+                    aria-checked={on} data-on={on ? '1' : '0'}
+                    aria-label={colors.join(', ')} title={colors.join(' · ')}
+                    style={{ background: hero }}
+                    onClick={() => onChange(o)}>
+              {sup.length > 0 && (
+                <span>
+                  {sup.map((c, j) => <i key={j} style={{ background: c }} />)}
+                </span>
+              )}
+              {on && <__TwkCheck light={__twkIsLight(hero)} />}
+            </button>
+          );
+        })}
+      </div>
+    </TweakRow>
+  );
+}
+
+Object.assign(window, { useTweaks, TweaksPanel, TweakSection, TweakRow, TweakToggle, TweakRadio, TweakColor });
+</script>
+
+<!-- ============ MonthView — לוח חודשי עם Drag & Drop ============ -->
+<script type="text/babel">
+const D = window.ShiftData;
+const E = window.ShiftEngine;
+
+function Avatar({ emp, size = 22 }) {
+  return (
+    <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.42, background: emp.color }} title={emp.name}>
+      {D.initials(emp.name)}
+    </span>
+  );
+}
+
+function ShiftChip({ emp, dStr, shiftId, conflicts, editable, onRemove, onDragChipStart, onDragEnd }) {
+  const key = `${dStr}|${shiftId}|${emp.id}`;
+  const issues = conflicts[key] || [];
+  const handleDragStart = (e) => {
+    e.stopPropagation();
+    e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'chip', empId: emp.id, from: { dStr, shiftId } }));
+    e.dataTransfer.effectAllowed = 'copyMove';
+    onDragChipStart(emp.id);
+  };
+  return (
+    <div
+      className={'chip' + (issues.length ? ' chip-conflict' : '')}
+      draggable={editable}
+      onDragStart={editable ? handleDragStart : undefined}
+      onDragEnd={onDragEnd}
+      title={issues.length ? issues.join('\n') : emp.name}
+    >
+      <Avatar emp={emp} size={20} />
+      <span className="chip-name">{emp.name}</span>
+      {issues.length > 0 && <span className="conflict-badge" title={issues.join('\n')}>!</span>}
+      {editable && (
+        <button className="chip-x" title="הסרה מהמשמרת" onClick={(e) => { e.stopPropagation(); onRemove(dStr, shiftId, emp.id); }}>×</button>
+      )}
+    </div>
+  );
+}
+
+function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, onAssign, onRemove, onMoveChip, onDragChipStart, onDragEnd }) {
+  const [over, setOver] = React.useState(false);
+  const hasConflict = emps.some((id) => (conflicts[`${dStr}|${shift.id}|${id}`] || []).length);
+  const stateCls = hasConflict ? 'slot-conflict' : (emps.length ? 'slot-ok' : 'slot-empty');
+
+  const handleDrop = (e) => {
+    e.preventDefault(); e.stopPropagation(); setOver(false);
+    if (!editable) return;
+    let payload;
+    try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
+    if (!payload) return;
+    if (payload.kind === 'emp') onAssign(dStr, shift.id, payload.empId);
+    else if (payload.kind === 'chip') onMoveChip(payload.from, { dStr, shiftId: shift.id }, payload.empId, e.shiftKey);
+  };
+
+  return (
+    <div
+      className={`slot ${stateCls}` + (over && editable ? ' slot-over' : '')}
+      onDragOver={(e) => { if (editable) { e.preventDefault(); e.dataTransfer.dropEffect = e.shiftKey ? 'copy' : 'move'; setOver(true); } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={handleDrop}
+    >
+      <div className="slot-head">
+        <span className="slot-dot" aria-hidden="true"></span>
+        <span className="slot-name">{shift.name}</span>
+        <span className="slot-hours">{shift.start}–{shift.end}</span>
+      </div>
+      {emps.length === 0 ? (
+        <div className="slot-placeholder">{editable ? 'גררו עובד לכאן' : 'לא מאויש'}</div>
+      ) : (
+        <div className="slot-chips">
+          {emps.map((id) => {
+            const emp = D.empById(id);
+            return emp && (
+              <ShiftChip key={id} emp={emp} dStr={dStr} shiftId={shift.id} conflicts={conflicts}
+                editable={editable} onRemove={onRemove} onDragChipStart={onDragChipStart} onDragEnd={onDragEnd} />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DayCard({ dStr, inMonth, excluded, schedule, conflicts, editable, draggingEmp, selected, onSelect, slotProps }) {
+  const wd = D.weekdayOf(dStr);
+  const isWeekend = wd === 5 || wd === 6;
+  const day = schedule[dStr] || {};
+
+  let availCls = '';
+  if (draggingEmp) {
+    const av = D.availabilityOn(draggingEmp, dStr);
+    if (av === 'unavailable') availCls = ' day-dim';
+    else if (av === 'high') availCls = ' day-glow';
+  }
+
+  if (excluded) {
+    return (
+      <div className={'day day-excluded' + (isWeekend ? ' day-weekend' : '')}>
+        <div className="day-head">
+          <span className="day-num">{D.parseDate(dStr).getDate()}</span>
+          <span className="day-name">{D.dayLabel(dStr)}</span>
+        </div>
+        <div className="excluded-label">מוחרג מהסידור</div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={'day' + (isWeekend ? ' day-weekend' : '') + (selected ? ' day-selected' : '') + availCls}
+      onClick={() => onSelect(dStr)}
+    >
+      <div className="day-head">
+        <span className="day-num">{D.parseDate(dStr).getDate()}</span>
+        <span className="day-name">{D.dayLabel(dStr)}</span>
+      </div>
+      <div className="day-slots">
+        {D.shiftTypesFor(dStr).map((shift) => (
+          <ShiftSlot key={shift.id} dStr={dStr} shift={shift} emps={day[shift.id] || []}
+            conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} {...slotProps} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MonthView({ range, excluded, schedule, conflicts, editable, draggingEmp, selectedDate, onSelectDate, slotProps }) {
+  const cells = React.useMemo(() => {
+    let cur = range.start;
+    while (D.weekdayOf(cur) !== 0) cur = D.addDays(cur, -1);
+    let end = range.end;
+    while (D.weekdayOf(end) !== 6) end = D.addDays(end, 1);
+    return E.listDates(cur, end).map((dStr) => ({ dStr, inRange: dStr >= range.start && dStr <= range.end }));
+  }, [range.start, range.end]);
+
+  return (
+    <div className="month-wrap">
+      <div className="month-header-row">
+        {D.HEB_DAYS.map((d) => <div key={d} className="month-header-cell">{d}</div>)}
+      </div>
+      <div className="month-grid">
+        {cells.map(({ dStr, inRange }) =>
+          inRange ? (
+            <DayCard key={dStr} dStr={dStr} inMonth excluded={excluded.includes(dStr)}
+              schedule={schedule} conflicts={conflicts} editable={editable} draggingEmp={draggingEmp}
+              selected={selectedDate === dStr} onSelect={onSelectDate} slotProps={slotProps} />
+          ) : (
+            <div key={dStr} className="day day-out">
+              <div className="day-head"><span className="day-num day-num-out">{D.parseDate(dStr).getDate()}</span></div>
+            </div>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { Avatar, ShiftChip, ShiftSlot, DayCard, MonthView });
+</script>
+
+<!-- ============ EmployeesSidePanel ============ -->
+<script type="text/babel">
+const PD = window.ShiftData;
+const PE = window.ShiftEngine;
+
+function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, editable }) {
+  const count = PE.countShifts(schedule, emp.id);
+  const req = PD.reqOf(emp.id);
+  const overMax = count > emp.max;
+  const av = selectedDate ? PD.availabilityOn(emp.id, selectedDate) : null;
+
+  return (
+    <div
+      className="emp-card"
+      draggable={editable}
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'emp', empId: emp.id }));
+        e.dataTransfer.effectAllowed = 'copy';
+        onDragEmpStart(emp.id);
+      }}
+      onDragEnd={onDragEnd}
+      title={req && req.note ? req.note : emp.name}
+    >
+      <Avatar emp={emp} size={34} />
+      <div className="emp-info">
+        <div className="emp-name-row">
+          <span className="emp-name">{emp.name}</span>
+          {emp.anchor && <span className="anchor-tag" title="עוגן — עובד ותיק">⚓</span>}
+        </div>
+        <div className="emp-meta">
+          <span className="emp-role">{emp.role}</span>
+          {av === 'unavailable' && <span className="av-tag av-no">לא יכול</span>}
+          {av === 'high' && <span className="av-tag av-high">עדיפות גבוהה</span>}
+          {av === 'can' && <span className="av-tag av-can">יכול לעבוד</span>}
+        </div>
+      </div>
+      <div className="emp-side">
+        <span className={'emp-count' + (overMax ? ' emp-count-over' : '')} title="משמרות החודש / מכסה">{count} / {emp.max}</span>
+        {req && <span className="req-dot" title="הגיש/ה בקשת זמינות לחודש"></span>}
+      </div>
+    </div>
+  );
+}
+
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable }) {
+  const [tab, setTab] = React.useState('all');
+
+  const list = React.useMemo(() => {
+    let emps = PD.EMPLOYEES;
+    if (tab === 'available') {
+      emps = emps.filter((e) => !selectedDate || PD.availabilityOn(e.id, selectedDate) !== 'unavailable');
+    } else if (tab === 'requests') {
+      emps = emps.filter((e) => PD.reqOf(e.id));
+    }
+    return emps;
+  }, [tab, selectedDate, schedule]);
+
+  return (
+    <aside className="side-panel">
+      <div className="side-head">
+        <h2 className="side-title">עובדים</h2>
+        <span className="side-count">{list.length}</span>
+      </div>
+      <div className="side-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'all'} className={'side-tab' + (tab === 'all' ? ' on' : '')} onClick={() => setTab('all')}>כל העובדים</button>
+        <button role="tab" aria-selected={tab === 'available'} className={'side-tab' + (tab === 'available' ? ' on' : '')} onClick={() => setTab('available')}>זמינים ליום</button>
+        <button role="tab" aria-selected={tab === 'requests'} className={'side-tab' + (tab === 'requests' ? ' on' : '')} onClick={() => setTab('requests')}>עם בקשות</button>
+      </div>
+      {tab === 'available' && (
+        <div className="side-note">
+          {selectedDate ? <span>זמינים ל־<b>{PD.dayLabel(selectedDate)} {PD.shortDate(selectedDate)}</b></span> : 'בחרו יום בלוח לסינון'}
+        </div>
+      )}
+      <div className="emp-list">
+        {list.map((emp) => (
+          <EmployeeCard key={emp.id} emp={emp} schedule={schedule} selectedDate={selectedDate}
+            onDragEmpStart={onDragEmpStart} onDragEnd={onDragEnd} editable={editable} />
+        ))}
+      </div>
+      <div className="side-hint">גררו עובד אל משמרת בלוח · גרירת משמרת קיימת = העברה · עם <kbd>Shift</kbd> = שכפול</div>
+    </aside>
+  );
+}
+
+Object.assign(window, { EmployeesSidePanel, EmployeeCard });
+</script>
+
+<!-- ============ GenerateDraftModal + לוג AI ============ -->
+<script type="text/babel">
+const MD = window.ShiftData;
+const ME = window.ShiftEngine;
+
+function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialExcluded }) {
+  const base = ME.defaultRange(MD.MONTH);
+  const [daysBefore, setDaysBefore] = React.useState(0);
+  const [daysAfter, setDaysAfter] = React.useState(0);
+  const [excluded, setExcluded] = React.useState(initialExcluded || []);
+
+  React.useEffect(() => {
+    if (open) {
+      const r = initialRange || base;
+      setDaysBefore(Math.max(0, Math.round((MD.parseDate(base.start) - MD.parseDate(r.start)) / 864e5)));
+      setDaysAfter(Math.max(0, Math.round((MD.parseDate(r.end) - MD.parseDate(base.end)) / 864e5)));
+      setExcluded(initialExcluded || []);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const range = { start: MD.addDays(base.start, -daysBefore), end: MD.addDays(base.end, daysAfter) };
+  const dates = ME.listDates(range.start, range.end);
+  const toggleExcluded = (d) => setExcluded((xs) => xs.includes(d) ? xs.filter((x) => x !== d) : [...xs, d]);
+  const activeCount = dates.length - excluded.filter((d) => dates.includes(d)).length;
+
+  const stepper = (label, value, setValue, max, hint) => (
+    <div className="field">
+      <label className="field-label">{label}</label>
+      <div className="stepper">
+        <button className="stepper-btn" onClick={() => setValue(Math.max(0, value - 1))} aria-label="הפחתה">−</button>
+        <span className="stepper-val">{value}</span>
+        <button className="stepper-btn" onClick={() => setValue(Math.min(max, value + 1))} aria-label="הוספה">+</button>
+        <span className="field-hint">{hint}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2 className="modal-title">יצירת טיוטה חדשה</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="סגירה">×</button>
+        </div>
+
+        <div className="modal-body">
+          <div className="field">
+            <label className="field-label">חודש ראשי</label>
+            <div className="month-pill">{MD.monthLabel(MD.MONTH)}</div>
+          </div>
+
+          <div className="field-row">
+            {stepper('ימים מהחודש הקודם', daysBefore, setDaysBefore, 7, daysBefore ? `מ־${MD.shortDate(range.start)}` : '')}
+            {stepper('ימים מהחודש הבא', daysAfter, setDaysAfter, 7, daysAfter ? `עד ${MD.shortDate(range.end)}` : '')}
+          </div>
+
+          <div className="field">
+            <label className="field-label">הוצאת ימים מהסידור <span className="field-sub">לחצו על יום כדי להחריג (חגים, ימי סגירה)</span></label>
+            <div className="exclude-grid" dir="rtl">
+              {dates.map((d) => (
+                <button key={d}
+                  className={'exclude-pill' + (excluded.includes(d) ? ' off' : '') + (MD.weekdayOf(d) >= 5 ? ' wknd' : '')}
+                  onClick={() => toggleExcluded(d)}
+                  title={`${MD.dayLabel(d)} ${MD.shortDate(d)}`}>
+                  <span className="exclude-pill-day">{MD.HEB_DAYS_SHORT[MD.weekdayOf(d)]}</span>
+                  <span className="exclude-pill-num">{MD.parseDate(d).getDate()}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-foot">
+          <span className="modal-summary">{activeCount} ימים בסידור · {excluded.length} מוחרגים</span>
+          <div className="modal-actions">
+            <button className="btn" onClick={onClose}>ביטול</button>
+            <button className="btn btn-primary" onClick={() => onGenerate({ startDate: range.start, endDate: range.end, excluded })}>
+              ✦ צור סידור
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const LOG_META = {
+  info: { label: 'מידע', cls: 'log-info' },
+  dilemma: { label: 'דילמה', cls: 'log-dilemma' },
+  decision: { label: 'הכרעה', cls: 'log-decision' },
+};
+
+function LogDrawer({ open, log, onClose }) {
+  if (!open) return null;
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-head">
+          <h2 className="drawer-title">לוג החלטות השיבוץ</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="סגירה">×</button>
+        </div>
+        {(!log || !log.length) ? (
+          <div className="drawer-empty">עדיין לא הורץ שיבוץ אוטומטי.</div>
+        ) : (
+          <ol className="log-list">
+            {log.map((entry, i) => {
+              const meta = LOG_META[entry.type] || LOG_META.info;
+              return (
+                <li key={i} className={'log-row ' + meta.cls}>
+                  <span className="log-type">{meta.label}</span>
+                  <span className="log-msg">{entry.message}</span>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+Object.assign(window, { GenerateDraftModal, LogDrawer });
+</script>
+
+<!-- ============ App — מעטפת ראשית ============ -->
+<script type="text/babel">
+const AD = window.ShiftData;
+const AE = window.ShiftEngine;
+
+const STORAGE_KEY = 'mishmarot-state-v2';
+
+const STATUS_META = {
+  preview: { label: 'טרם נוצרה טיוטה', cls: 'st-preview' },
+  generating: { label: 'ה־AI משבץ…', cls: 'st-generating' },
+  draft: { label: 'טיוטה', cls: 'st-draft' },
+  final: { label: 'סידור סופי', cls: 'st-final' },
+};
+
+const TWEAK_DEFAULTS = {
+  accent: '#3D63C9',
+  density: 'רגילה',
+  dark: false,
+};
+
+function loadState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (s && s.status) return s;
+  } catch (e) {}
+  return null;
+}
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const saved = React.useMemo(loadState, []);
+  const [status, setStatus] = React.useState(saved ? saved.status : 'preview');
+  const [range, setRange] = React.useState(saved && saved.range ? saved.range : AE.defaultRange(AD.MONTH));
+  const [excluded, setExcluded] = React.useState(saved ? saved.excluded || [] : []);
+  const [schedule, setSchedule] = React.useState(saved ? saved.schedule || {} : {});
+  const [log, setLog] = React.useState(saved ? saved.log || [] : []);
+  const [selectedDate, setSelectedDate] = React.useState(null);
+  const [draggingEmp, setDraggingEmp] = React.useState(null);
+  const [modalOpen, setModalOpen] = React.useState(false);
+  const [logOpen, setLogOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (status === 'generating') return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ status, range, excluded, schedule, log }));
+  }, [status, range, excluded, schedule, log]);
+
+  React.useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = t.dark ? 'dark' : 'light';
+    root.dataset.density = t.density === 'קומפקטית' ? 'compact' : 'regular';
+    root.style.setProperty('--accent', t.accent);
+  }, [t.dark, t.density, t.accent]);
+
+  const conflicts = React.useMemo(() => AE.detectConflicts(schedule), [schedule]);
+  const conflictCount = Object.keys(conflicts).length;
+  const dilemmaCount = log.filter((l) => l.type !== 'info').length;
+  const editable = status === 'draft';
+
+  const assign = (dStr, shiftId, empId) => {
+    setSchedule((s) => {
+      const day = { ...(s[dStr] || {}) };
+      const cur = day[shiftId] || [];
+      if (cur.includes(empId)) return s;
+      day[shiftId] = [...cur, empId];
+      return { ...s, [dStr]: day };
+    });
+  };
+
+  const remove = (dStr, shiftId, empId) => {
+    setSchedule((s) => {
+      const day = { ...(s[dStr] || {}) };
+      day[shiftId] = (day[shiftId] || []).filter((id) => id !== empId);
+      return { ...s, [dStr]: day };
+    });
+  };
+
+  const moveChip = (from, to, empId, copy) => {
+    if (from.dStr === to.dStr && from.shiftId === to.shiftId) return;
+    setSchedule((s) => {
+      const next = { ...s };
+      if (!copy) {
+        const fromDay = { ...(next[from.dStr] || {}) };
+        fromDay[from.shiftId] = (fromDay[from.shiftId] || []).filter((id) => id !== empId);
+        next[from.dStr] = fromDay;
+      }
+      const toDay = { ...(next[to.dStr] || {}) };
+      const cur = toDay[to.shiftId] || [];
+      if (!cur.includes(empId)) toDay[to.shiftId] = [...cur, empId];
+      next[to.dStr] = toDay;
+      return next;
+    });
+  };
+
+  const generate = (opts) => {
+    setModalOpen(false);
+    setRange({ start: opts.startDate, end: opts.endDate });
+    setExcluded(opts.excluded);
+    setStatus('generating');
+    setTimeout(() => {
+      const res = AE.generate(opts);
+      setSchedule(res.schedule);
+      setLog(res.log);
+      setStatus('draft');
+    }, 1600);
+  };
+
+  const slotProps = {
+    onAssign: assign,
+    onRemove: remove,
+    onMoveChip: moveChip,
+    onDragChipStart: setDraggingEmp,
+    onDragEnd: () => setDraggingEmp(null),
+  };
+
+  const st = STATUS_META[status];
+
+  return (
+    <div className="app" dir="rtl">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">⧉</span>
+          <span className="brand-name">משמרות</span>
+        </div>
+        <div className="topbar-center">
+          <h1 className="month-title">{AD.monthLabel(AD.MONTH)}</h1>
+          <span className={'status-chip ' + st.cls}>{st.label}</span>
+          {conflictCount > 0 && status !== 'preview' && (
+            <span className="conflict-count" title="שיבוצים עם חריגה מכלל">{conflictCount} קונפליקטים</span>
+          )}
+        </div>
+        <div className="topbar-actions">
+          <button className="btn" onClick={() => setLogOpen(true)} disabled={status === 'preview'}>
+            לוג AI{dilemmaCount > 0 && <span className="btn-badge">{dilemmaCount}</span>}
+          </button>
+          <button className="btn" onClick={() => AE.exportCsv(schedule, conflicts)} disabled={status === 'preview' || status === 'generating'}>
+            ייצוא לאקסל
+          </button>
+          {status === 'draft' && (
+            <button className="btn btn-final" onClick={() => setStatus('final')}>אישור ופרסום</button>
+          )}
+          {status === 'final' && (
+            <button className="btn" onClick={() => setStatus('draft')}>חזרה לעריכה</button>
+          )}
+          <button className="btn btn-primary" onClick={() => setModalOpen(true)} disabled={status === 'generating'}>
+            ✦ צור טיוטה חדשה
+          </button>
+        </div>
+      </header>
+
+      {status === 'final' && (
+        <div className="final-banner">הסידור פורסם לעובדים והוא נעול לעריכה. לחצו ״חזרה לעריכה״ כדי לבצע שינויים.</div>
+      )}
+
+      <main className="layout">
+        <section className="board">
+          {status === 'preview' ? (
+            <div className="empty-state">
+              <div className="empty-card">
+                <div className="empty-mark" aria-hidden="true">⧉</div>
+                <h2 className="empty-title">אין עדיין סידור ל{AD.monthLabel(AD.MONTH)}</h2>
+                <p className="empty-sub">צרו טיוטה חדשה וה־AI ישבץ את העובדים לפי בקשות, מכסות וזמני מנוחה. לאחר מכן תוכלו לדייק את התוצאה בגרירה.</p>
+                <button className="btn btn-primary btn-lg" onClick={() => setModalOpen(true)}>✦ צור טיוטה חדשה</button>
+              </div>
+            </div>
+          ) : (
+            <div className="board-inner">
+              <MonthView range={range} excluded={excluded} schedule={schedule} conflicts={conflicts}
+                editable={editable} draggingEmp={draggingEmp} selectedDate={selectedDate}
+                onSelectDate={(d) => setSelectedDate((cur) => cur === d ? null : d)} slotProps={slotProps} />
+              {status === 'generating' && (
+                <div className="generating-overlay">
+                  <div className="generating-card">
+                    <span className="spinner" aria-hidden="true"></span>
+                    <div>
+                      <div className="generating-title">ה־AI מרכיב את הסידור…</div>
+                      <div className="generating-sub">עוגנים ← זמינות ← מכסות ← זמני מנוחה ← העדפות</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <EmployeesSidePanel schedule={schedule} selectedDate={selectedDate} draggingEmp={draggingEmp}
+          onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable} />
+      </main>
+
+      <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={generate}
+        initialRange={range} initialExcluded={excluded} />
+      <LogDrawer open={logOpen} log={log} onClose={() => setLogOpen(false)} />
+
+      <TweaksPanel>
+        <TweakSection label="צבע" />
+        <TweakColor label="צבע ראשי" value={t.accent} options={['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E']}
+          onChange={(v) => setTweak('accent', v)} />
+        <TweakSection label="תצוגה" />
+        <TweakRadio label="צפיפות הלוח" value={t.density} options={['רגילה', 'קומפקטית']}
+          onChange={(v) => setTweak('density', v)} />
+        <TweakToggle label="מצב כהה" value={t.dark} onChange={(v) => setTweak('dark', v)} />
+      </TweaksPanel>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

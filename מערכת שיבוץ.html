@@ -443,8 +443,17 @@
   const empById = (id) => EMPLOYEES.find((e) => e.id === id);
   const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('');
 
+  // ---- משמרות קבועות (weekday: 0=ראשון … 6=שבת) ----
+  const FIXED_SHIFTS = [
+    { empId: 'yossi',  weekday: 1, shiftId: 'morning' }, // יוסי — יום שני בוקר
+    { empId: 'dana',   weekday: 0, shiftId: 'morning' }, // דנה — יום ראשון בוקר
+    { empId: 'danny',  weekday: 3, shiftId: 'morning' }, // דני — יום רביעי בוקר
+    { empId: 'alon',   weekday: 3, shiftId: 'night'   }, // אלון — יום רביעי לילה
+    { empId: 'tamar',  weekday: 4, shiftId: 'morning' }, // תמר — יום חמישי בוקר
+  ];
+
   window.ShiftData = {
-    MONTH, HEB_DAYS, HEB_DAYS_SHORT, EMPLOYEES, REQUESTS,
+    MONTH, HEB_DAYS, HEB_DAYS_SHORT, EMPLOYEES, REQUESTS, FIXED_SHIFTS,
     pad, parseDate, dateStr, addDays, weekdayOf, dayLabel, shortDate, monthLabel,
     shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, empById, initials,
   };
@@ -474,7 +483,24 @@
 
   const gapHours = (prevEnd, nextStart) => (nextStart - prevEnd) / 36e5;
 
-  function generate({ startDate, endDate, excluded = [] }) {
+  // מייצר סידור ראשוני עם משמרות קבועות בלבד
+  function applyFixed(dates, fixed) {
+    const schedule = {};
+    dates.forEach((dStr) => {
+      const wd = D.weekdayOf(dStr);
+      schedule[dStr] = {};
+      D.shiftTypesFor(dStr).forEach((shift) => {
+        const emps = fixed
+          .filter((f) => f.weekday === wd && f.shiftId === shift.id && D.availabilityOn(f.empId, dStr) !== 'unavailable')
+          .map((f) => f.empId);
+        schedule[dStr][shift.id] = emps;
+      });
+    });
+    return schedule;
+  }
+
+  // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {} }) {
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
     const schedule = {};
     const log = [];
@@ -483,12 +509,25 @@
     const now = () => new Date().toISOString();
     const addLog = (type, message) => log.push({ timestamp: now(), type, message });
 
+    // העתק שיבוצים קיימים וספור אותם
+    dates.forEach((dStr) => {
+      schedule[dStr] = { ...(existingSchedule[dStr] || {}) };
+      D.shiftTypesFor(dStr).forEach((shift) => {
+        (schedule[dStr][shift.id] || []).forEach((empId) => {
+          counts[empId] = (counts[empId] || 0) + 1;
+          lastEnd[empId] = D.shiftTimes(dStr, shift).end;
+        });
+      });
+    });
+
     addLog('info', `התחלת שיבוץ אוטומטי: ${D.shortDate(startDate)}–${D.shortDate(endDate)}, ${dates.length} ימים`);
     excluded.forEach((d) => addLog('info', `יום ${D.shortDate(d)} הוחרג מהסידור`));
 
     dates.forEach((dStr) => {
-      schedule[dStr] = schedule[dStr] || {};
       D.shiftTypesFor(dStr).forEach((shift) => {
+        // דלג על משבצות שכבר מאוישות
+        if ((schedule[dStr][shift.id] || []).length > 0) return;
+
         const t = D.shiftTimes(dStr, shift);
         const cands = D.EMPLOYEES.filter((e) => {
           if (D.availabilityOn(e.id, dStr) === 'unavailable') return false;
@@ -603,7 +642,7 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
-  window.ShiftEngine = { listDates, defaultRange, generate, detectConflicts, countShifts, exportCsv, MIN_REST_H, gapHours };
+  window.ShiftEngine = { listDates, defaultRange, applyFixed, generate, detectConflicts, countShifts, exportCsv, MIN_REST_H, gapHours };
 })();
 </script>
 
@@ -1267,7 +1306,7 @@ function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialEx
           <div className="modal-actions">
             <button className="btn" onClick={onClose}>ביטול</button>
             <button className="btn btn-primary" onClick={() => onGenerate({ startDate: range.start, endDate: range.end, excluded })}>
-              ✦ צור סידור
+              ✦ צור טיוטה
             </button>
           </div>
         </div>
@@ -1407,13 +1446,23 @@ function App() {
     });
   };
 
-  const generate = (opts) => {
+  // יצירת טיוטה ריקה עם משמרות קבועות בלבד
+  const createDraft = (opts) => {
     setModalOpen(false);
-    setRange({ start: opts.startDate, end: opts.endDate });
+    const newRange = { start: opts.startDate, end: opts.endDate };
+    setRange(newRange);
     setExcluded(opts.excluded);
+    setLog([]);
+    const dates = AE.listDates(opts.startDate, opts.endDate).filter((d) => !opts.excluded.includes(d));
+    setSchedule(AE.applyFixed(dates, AD.FIXED_SHIFTS));
+    setStatus('draft');
+  };
+
+  // שיבוץ אוטומטי — ממלא משבצות ריקות בלבד
+  const runAI = () => {
     setStatus('generating');
     setTimeout(() => {
-      const res = AE.generate(opts);
+      const res = AE.generate({ startDate: range.start, endDate: range.end, excluded, existingSchedule: schedule });
       setSchedule(res.schedule);
       setLog(res.log);
       setStatus('draft');
@@ -1451,6 +1500,9 @@ function App() {
           <button className="btn" onClick={() => AE.exportCsv(schedule, conflicts)} disabled={status === 'preview' || status === 'generating'}>
             ייצוא לאקסל
           </button>
+          {status === 'draft' && (
+            <button className="btn btn-primary" onClick={runAI}>✦ שבץ אוטומטי</button>
+          )}
           {status === 'draft' && (
             <button className="btn btn-final" onClick={() => setStatus('final')}>אישור ופרסום</button>
           )}
@@ -1502,7 +1554,7 @@ function App() {
           onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable} />
       </main>
 
-      <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={generate}
+      <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         initialRange={range} initialExcluded={excluded} />
       <LogDrawer open={logOpen} log={log} onClose={() => setLogOpen(false)} />
 

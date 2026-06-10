@@ -502,7 +502,32 @@
   .slot-continuation { border-style: dashed; opacity: 0.72; }
   .slot-continuation .slot-name::after { content: ' ↵'; font-size: 9px; color: var(--ink-3); }
 
-  /* ---------- לשוניות סינון משמרות ---------- */
+  /* ---------- tooltip קונפליקט ---------- */
+  .conflict-tip-wrap { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; }
+  .conflict-tip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%; transform: translateX(-50%);
+    background: oklch(0.2 0.015 255);
+    color: white;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px; line-height: 1.6;
+    min-width: 180px; max-width: 260px;
+    box-shadow: 0 4px 20px oklch(0 0 0 / 0.35);
+    z-index: 500; pointer-events: none;
+    white-space: normal; text-align: right;
+  }
+  .conflict-tip::after {
+    content: '';
+    position: absolute; top: 100%;
+    left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: oklch(0.2 0.015 255);
+  }
+  .conflict-tip-row { display: flex; align-items: flex-start; gap: 6px; }
+  .conflict-tip-row + .conflict-tip-row { margin-top: 4px; border-top: 1px solid oklch(1 0 0 / 0.12); padding-top: 4px; }
+
   .shift-filter-tabs { display: flex; gap: 4px; padding: 0 12px 8px; flex-wrap: wrap; }
   .shift-filter-tab {
     display: inline-flex; align-items: center; gap: 4px;
@@ -1223,23 +1248,42 @@ function Avatar({ emp, size = 22 }) {
 function ShiftChip({ emp, dStr, shiftId, conflicts, editable, onRemove, onDragChipStart, onDragEnd }) {
   const key = `${dStr}|${shiftId}|${emp.id}`;
   const issues = conflicts[key] || [];
+  const [showTip, setShowTip] = React.useState(false);
+
   const handleDragStart = (e) => {
     e.stopPropagation();
     e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'chip', empId: emp.id, from: { dStr, shiftId } }));
     e.dataTransfer.effectAllowed = 'copyMove';
     onDragChipStart(emp.id);
   };
+
   return (
     <div
       className={'chip' + (issues.length ? ' chip-conflict' : '')}
       draggable={editable}
       onDragStart={editable ? handleDragStart : undefined}
       onDragEnd={onDragEnd}
-      title={issues.length ? issues.join('\n') : emp.name}
+      title={issues.length ? undefined : emp.name}
     >
       <Avatar emp={emp} size={20} />
       <span className="chip-name">{emp.name}</span>
-      {issues.length > 0 && <span className="conflict-badge" title={issues.join('\n')}>!</span>}
+      {issues.length > 0 && (
+        <span className="conflict-tip-wrap"
+          onMouseEnter={() => setShowTip(true)}
+          onMouseLeave={() => setShowTip(false)}>
+          <span className="conflict-badge">!</span>
+          {showTip && (
+            <div className="conflict-tip" role="tooltip">
+              {issues.map((iss, i) => (
+                <div key={i} className="conflict-tip-row">
+                  <span style={{flexShrink:0}}>⚠</span>
+                  <span>{iss}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </span>
+      )}
       {editable && (
         <button className="chip-x" title="הסרה מהמשמרת" onClick={(e) => { e.stopPropagation(); onRemove(dStr, shiftId, emp.id); }}>×</button>
       )}

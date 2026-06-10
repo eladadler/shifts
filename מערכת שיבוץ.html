@@ -744,13 +744,14 @@
 
   const REQUESTS = {};
 
-  const reqOf = (empId) => REQUESTS[empId] || null;
+  // קוראים מהאובייקט החי (window.ShiftData.REQUESTS) שמסונכרן מה-state של האפליקציה
+  const reqOf = (empId) => (window.ShiftData?.REQUESTS || REQUESTS)[empId] || null;
   const availabilityOn = (empId, dStr) => {
-    const r = REQUESTS[empId];
+    const r = reqOf(empId);
     if (!r) return null;
-    if (r.unavailable.includes(dStr)) return 'unavailable';
-    if (r.high.includes(dStr)) return 'high';
-    if (r.can.includes(dStr)) return 'can';
+    if ((r.unavailable || []).includes(dStr)) return 'unavailable';
+    if ((r.high || []).includes(dStr)) return 'high';
+    if ((r.can || []).includes(dStr)) return 'can';
     return null;
   };
 
@@ -2680,47 +2681,200 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
 }
 
 // ---- RequestsScreen ----
-function RequestsScreen({ employees, requests }) {
-  const empsWithReqs = employees.filter((e) => requests[e.id]);
+function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey }) {
+  const [month, setMonth] = React.useState(initialMonth || SD.MONTH);
+  const [analyzing, setAnalyzing] = React.useState({});   // empId -> true
+  const [errors, setErrors] = React.useState({});          // empId -> message
   const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can' };
-  const tagLabel = { unavailable: 'לא יכול', high: 'עדיפות גבוהה', can: 'יכול לעבוד' };
+  const tagLabel = { unavailable: 'לא יכול', high: 'מבקש לעבוד', can: 'גמיש' };
+
+  const navMonth = (dir) => {
+    const [y, m] = month.split('-').map(Number);
+    const nd = new Date(y, m - 1 + dir, 1);
+    setMonth(`${nd.getFullYear()}-${SD.pad(nd.getMonth() + 1)}`);
+  };
+
+  const entryOf = (empId) => (requests[empId] || {})[month] || null;
+
+  const updateEntry = (empId, patch) => {
+    onRequestsChange(prev => ({
+      ...prev,
+      [empId]: { ...(prev[empId] || {}), [month]: { ...((prev[empId] || {})[month] || {}), ...patch } },
+    }));
+  };
+
+  const clearEntry = (empId) => {
+    onRequestsChange(prev => {
+      const months = { ...(prev[empId] || {}) };
+      delete months[month];
+      const next = { ...prev };
+      if (Object.keys(months).length) next[empId] = months; else delete next[empId];
+      return next;
+    });
+  };
+
+  const analyze = async (emp) => {
+    const entry = entryOf(emp.id);
+    const text = (entry?.text || '').trim();
+    if (!text) return;
+    if (!apiKey) { setErrors(e => ({ ...e, [emp.id]: 'יש להזין מפתח API בהגדרות (⚙) כדי לנתח' })); return; }
+    setAnalyzing(a => ({ ...a, [emp.id]: true }));
+    setErrors(e => ({ ...e, [emp.id]: null }));
+    try {
+      const [y, m] = month.split('-').map(Number);
+      const daysInMonth = new Date(y, m, 0).getDate();
+      const datesList = Array.from({ length: daysInMonth }, (_, i) => {
+        const dStr = `${month}-${SD.pad(i + 1)}`;
+        return `${dStr} — יום ${SD.dayLabel(dStr)}`;
+      }).join('\n');
+
+      const prompt = `אתה מנתח בקשת עובד לסידור עבודה לחודש ${SD.monthLabel(month)} (${month}).
+
+## תאריכי החודש וימי השבוע
+${datesList}
+
+## הבקשה החופשית של העובד "${emp.name}"
+"${text}"
+
+## משימה
+תרגם את הבקשה לתאריכים מדויקים. החזר JSON בלבד, ללא טקסט נוסף:
+{
+  "unavailable": ["YYYY-MM-DD", ...],
+  "high": ["YYYY-MM-DD", ...],
+  "can": ["YYYY-MM-DD", ...],
+  "note": "סיכום קצר של הבקשה בעברית"
+}
+
+כללים:
+- unavailable = ימים שהעובד לא יכול/לא רוצה לעבוד
+- high = ימים שהעובד מבקש במפורש לעבוד בהם
+- can = ימים שהעובד ציין שהוא גמיש/יכול אם צריך
+- כל התאריכים חייבים להיות בתוך ${month} ולהתאים לימי השבוע מהרשימה למעלה
+- אם הבקשה מזכירה העדפות כלליות (למשל "מעדיף לילות") שאינן תאריך ספציפי — כלול אותן ב-note בלבד`;
+
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey.trim(),
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error?.message || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      const raw = data.content?.find(b => b.type === 'text')?.text || '';
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('לא התקבל JSON תקין מהמודל');
+      const result = JSON.parse(jsonMatch[0]);
+      const inMonth = (arr) => (Array.isArray(arr) ? arr.filter(d => typeof d === 'string' && d.startsWith(month)) : []);
+      updateEntry(emp.id, {
+        unavailable: inMonth(result.unavailable),
+        high: inMonth(result.high),
+        can: inMonth(result.can),
+        note: result.note || '',
+        analyzedText: text,
+        analyzedAt: Date.now(),
+      });
+    } catch (err) {
+      setErrors(e => ({ ...e, [emp.id]: `שגיאת ניתוח: ${err.message}` }));
+    } finally {
+      setAnalyzing(a => ({ ...a, [emp.id]: false }));
+    }
+  };
+
+  const withReqCount = employees.filter(e => entryOf(e.id)).length;
 
   return (
     <div className="mgmt-screen">
       <div className="mgmt-toolbar">
         <h2 className="mgmt-title">📋 בקשות עובדים</h2>
-        <span style={{fontSize:'13px',color:'var(--ink-3)',marginInlineStart:'auto'}}>{empsWithReqs.length} עובדים הגישו בקשות</span>
+        <div className="month-nav" style={{marginInlineStart:16}}>
+          <button className="month-nav-btn" onClick={() => navMonth(-1)} title="חודש קודם">‹</button>
+          <span style={{fontSize:'14px',fontWeight:600,minWidth:110,textAlign:'center'}}>{SD.monthLabel(month)}</span>
+          <button className="month-nav-btn" onClick={() => navMonth(1)} title="חודש הבא">›</button>
+        </div>
+        <span style={{fontSize:'13px',color:'var(--ink-3)',marginInlineStart:'auto'}}>{withReqCount} מתוך {employees.length} עובדים עם בקשות לחודש זה</span>
       </div>
 
-      {!empsWithReqs.length ? (
-        <div style={{textAlign:'center',padding:'40px',color:'var(--ink-3)'}}>אין בקשות לחודש זה</div>
+      {!employees.length ? (
+        <div style={{textAlign:'center',padding:'40px',color:'var(--ink-3)'}}>אין עובדים במערכת — הוסיפו עובדים במסך העובדים</div>
       ) : (
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          {empsWithReqs.map((emp) => {
-            const req = requests[emp.id];
-            const tags = [
-              ...(req.unavailable || []).map((d) => ({ d, type: 'unavailable' })),
-              ...(req.high || []).map((d) => ({ d, type: 'high' })),
-              ...(req.can || []).map((d) => ({ d, type: 'can' })),
+          {employees.map((emp) => {
+            const entry = entryOf(emp.id);
+            const text = entry?.text || '';
+            const analyzed = entry && entry.analyzedAt;
+            const stale = analyzed && (entry.analyzedText || '') !== text.trim();
+            const busy = !!analyzing[emp.id];
+            const tags = !analyzed ? [] : [
+              ...(entry.unavailable || []).map((d) => ({ d, type: 'unavailable' })),
+              ...(entry.high || []).map((d) => ({ d, type: 'high' })),
+              ...(entry.can || []).map((d) => ({ d, type: 'can' })),
             ].sort((a, b) => a.d.localeCompare(b.d));
+
             return (
               <div key={emp.id} className="req-card" style={{background:'var(--surface)'}}>
                 <div className="req-card-head">
                   <window.Avatar emp={emp} size={30} />
                   <div>
                     <div className="req-card-name">{emp.name}</div>
-                    <div style={{fontSize:'11.5px',color:'var(--ink-3)'}}>{emp.role}</div>
+                    {emp.role && <div style={{fontSize:'11.5px',color:'var(--ink-3)'}}>{emp.role}</div>}
                   </div>
-                  <span style={{marginInlineStart:'auto',fontSize:'12px',color:'var(--ink-3)'}}>{tags.length} בקשות</span>
+                  {analyzed && !stale && <span style={{marginInlineStart:'auto',fontSize:'11.5px',color:'var(--ok)'}}>✓ נותח</span>}
+                  {stale && <span style={{marginInlineStart:'auto',fontSize:'11.5px',color:'var(--warn)'}}>הטקסט שונה מאז הניתוח — נתחו שוב</span>}
                 </div>
-                <div className="req-tags">
-                  {tags.map(({ d, type }) => (
-                    <span key={d + type} className={'req-tag av-tag ' + tagCls[type]} title={tagLabel[type]}>
-                      {SD.shortDate(d)} · {tagLabel[type]}
-                    </span>
-                  ))}
+
+                <div style={{display:'flex',gap:8,alignItems:'flex-start',marginTop:8}}>
+                  <textarea
+                    value={text}
+                    onChange={(e) => updateEntry(emp.id, { text: e.target.value })}
+                    placeholder={'הבקשה של ' + emp.name + ' לחודש זה, בשפה חופשית. למשל: "לא יכול בכל ימי שלישי, מבקש לעבוד ב-12 וב-13, גמיש בסופי שבוע"'}
+                    rows={2}
+                    style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'8px 10px',fontSize:'13px',background:'var(--bg)',color:'var(--ink)',font:'inherit',outline:'none',resize:'vertical',minHeight:'40px'}} />
+                  <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
+                    <button className="btn btn-primary" style={{fontSize:'12.5px',whiteSpace:'nowrap'}}
+                      disabled={busy || !text.trim()} onClick={() => analyze(emp)}>
+                      {busy ? <><span className="spin">↻</span> מנתח…</> : (analyzed ? '✦ נתח שוב' : '✦ נתח עם AI')}
+                    </button>
+                    {entry && (
+                      <button className="btn" style={{fontSize:'12px'}} disabled={busy}
+                        onClick={() => { if (window.confirm('למחוק את הבקשה של עובד זה לחודש זה?')) clearEntry(emp.id); }}>
+                        מחיקה
+                      </button>
+                    )}
+                  </div>
                 </div>
-                {req.note && <div className="req-note">{req.note}</div>}
+
+                {errors[emp.id] && <div style={{marginTop:8,fontSize:'12px',color:'var(--danger)'}}>{errors[emp.id]}</div>}
+
+                {analyzed && (
+                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--line)'}}>
+                    <div style={{fontSize:'11px',color:'var(--ink-3)',marginBottom:6}}>
+                      תוצאת הניתוח של ה-AI — בדקו שהתאריכים תואמים את הבקשה:
+                    </div>
+                    {tags.length ? (
+                      <div className="req-tags">
+                        {tags.map(({ d, type }) => (
+                          <span key={d + type} className={'req-tag av-tag ' + tagCls[type]} title={tagLabel[type]}>
+                            {SD.shortDate(d)} {SD.dayLabel(d)} · {tagLabel[type]}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{fontSize:'12px',color:'var(--ink-3)'}}>לא זוהו תאריכים ספציפיים</div>
+                    )}
+                    {entry.note && <div className="req-note" style={{marginTop:6}}>{entry.note}</div>}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -3013,6 +3167,8 @@ function App() {
   const [generatingId, setGeneratingId] = React.useState(null);
   const [anthropicKey, setAnthropicKey] = React.useState(() => localStorage.getItem('anthropic-api-key') || '');
   const [employees, setEmployees] = React.useState(() => saved?.employees || [...AD.EMPLOYEES]);
+  // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
+  const [requests, setRequests] = React.useState(() => saved?.requests || {});
   const [selectedDate, setSelectedDate] = React.useState(null);
   const [draggingEmp, setDraggingEmp] = React.useState(null);
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -3029,6 +3185,22 @@ function App() {
   // סנכרון employees → window.ShiftData.EMPLOYEES
   React.useEffect(() => { window.ShiftData.EMPLOYEES = employees; }, [employees]);
 
+  // סנכרון requests → window.ShiftData.REQUESTS (שטוח לפי עובד, כל החודשים יחד — לתאימות המנוע)
+  React.useEffect(() => {
+    const flat = {};
+    Object.entries(requests).forEach(([empId, months]) => {
+      const agg = { unavailable: [], high: [], can: [], note: '' };
+      Object.values(months || {}).forEach(r => {
+        agg.unavailable.push(...(r.unavailable || []));
+        agg.high.push(...(r.high || []));
+        agg.can.push(...(r.can || []));
+        if (r.note) agg.note = agg.note ? agg.note + ' · ' + r.note : r.note;
+      });
+      if (agg.unavailable.length || agg.high.length || agg.can.length || agg.note) flat[empId] = agg;
+    });
+    window.ShiftData.REQUESTS = flat;
+  }, [requests]);
+
   // טעינה ראשונית מ-Supabase
   React.useEffect(() => {
     if (!dbAvailable.current) { setSyncStatus('idle'); return; }
@@ -3041,6 +3213,7 @@ function App() {
         setActiveDraftId(remote.activeDraftId || null);
         setShiftSettings(mergeSettings(remote.shiftSettings));
         setEmployees(remote.employees || []);
+        setRequests(remote.requests || {});
         localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
       }
       setSyncStatus('saved');
@@ -3052,7 +3225,7 @@ function App() {
   React.useEffect(() => {
     if (generatingId) return;
     if (isFirstLoad.current) return;
-    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees };
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -3061,7 +3234,7 @@ function App() {
       const ok = await window.__db.save(state);
       setSyncStatus(ok ? 'saved' : 'error');
     }, 1200);
-  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, generatingId]);
+  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, generatingId]);
 
   // ערכת נושא
   React.useEffect(() => {
@@ -3360,7 +3533,8 @@ ${JSON.stringify(snap.schedule, null, 2)}
 
       <ShiftSettingsCtx.Provider value={shiftSettings}>
         {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} />}
-        {screen === 'requests'  && <RequestsScreen  employees={employees} requests={AD.REQUESTS} />}
+        {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
+          initialMonth={currentMonth} apiKey={anthropicKey} />}
         {screen === 'calendar'  && (
           <main className="layout">
             <section className="board">

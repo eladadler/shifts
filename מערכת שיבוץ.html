@@ -414,6 +414,108 @@
     .side-panel { display: none; }
     .topbar { flex-wrap: wrap; }
   }
+
+  /* ---------- ניווט עליון ---------- */
+  .topbar-nav-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+    font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .topbar-nav-btn:hover { background: var(--surface-2); color: var(--ink); border-color: var(--ink-3); }
+  .topbar-nav-btn.active { background: color-mix(in oklab, var(--accent) 11%, transparent); border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- תפריט המבורגר ---------- */
+  .ham-wrap { position: relative; }
+  .ham-btn {
+    background: none; border: 1px solid var(--line); font-size: 16px; color: var(--ink-2);
+    padding: 6px 10px; border-radius: 8px; line-height: 1; cursor: pointer; font-family: inherit;
+  }
+  .ham-btn:hover { background: var(--surface-2); color: var(--ink); }
+  .ham-dropdown {
+    position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: var(--shadow);
+    min-width: 180px; z-index: 200;
+    padding: 6px; display: flex; flex-direction: column; gap: 2px;
+  }
+  .ham-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 7px;
+    background: none; border: none; width: 100%;
+    text-align: right; font: inherit; font-size: 14px; color: var(--ink); cursor: pointer;
+  }
+  .ham-item:hover { background: var(--surface-2); }
+  .ham-item.active { color: var(--accent); font-weight: 600; }
+
+  /* ---------- Drawer ימני ---------- */
+  .right-drawer-backdrop {
+    position: fixed; inset: 0;
+    background: oklch(0.15 0.01 255 / 0.35);
+    z-index: 100; display: flex; justify-content: flex-end;
+  }
+  .right-drawer {
+    background: var(--surface); height: 100%; width: min(480px, 92vw);
+    border-inline-start: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    box-shadow: -4px 0 24px oklch(0.15 0.01 255 / 0.12);
+    overflow: hidden;
+  }
+  .right-drawer-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px 12px; border-bottom: 1px solid var(--line-soft); flex-shrink: 0;
+  }
+  .right-drawer-title { font-size: 16px; font-weight: 700; margin: 0; }
+  .right-drawer-tabs {
+    display: flex; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--line-soft); flex-shrink: 0;
+  }
+  .right-drawer-tab {
+    flex: 1; padding: 6px 4px; font-size: 13px; font-weight: 500;
+    background: none; border: 1px solid var(--line); border-radius: 7px; color: var(--ink-2);
+    cursor: pointer; font-family: inherit;
+  }
+  .right-drawer-tab.on { background: color-mix(in oklab, var(--accent) 11%, transparent); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .right-drawer-body { flex: 1; overflow-y: auto; padding: 16px; }
+
+  /* ---------- אזהרת הגדרות ---------- */
+  .settings-warning {
+    background: var(--warn-bg); color: var(--warn);
+    font-size: 12.5px; font-weight: 500; padding: 8px 14px;
+    border-radius: 8px; border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
+  }
+
+  /* ---------- מסך ניהול ---------- */
+  .mgmt-screen { flex: 1; overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; background: var(--bg); }
+  .mgmt-title { font-size: 20px; font-weight: 700; margin: 0; }
+  .mgmt-toolbar { display: flex; align-items: center; gap: 12px; }
+  .emp-table { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .emp-table-row {
+    display: grid; grid-template-columns: 2fr 1.5fr 60px 60px auto;
+    align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .emp-table-row:last-child { border-bottom: none; }
+  .emp-table-head { font-size: 11px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.05em; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+
+  /* ---------- slot המשכה ---------- */
+  .slot-continuation { border-style: dashed; opacity: 0.72; }
+  .slot-continuation .slot-name::after { content: ' ↵'; font-size: 9px; color: var(--ink-3); }
+
+  /* ---------- toggle switch ---------- */
+  .toggle-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--line); border-radius: 999px; transition: background 0.15s;
+  }
+  .toggle-slider::before {
+    content: ''; position: absolute; height: 16px; width: 16px;
+    left: 3px; top: 3px; background: white; border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2); transition: transform 0.15s;
+  }
+  .toggle-switch input:checked + .toggle-slider { background: var(--ok); }
+  .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
 </style>
 </head>
 <body>
@@ -453,8 +555,41 @@
   ];
   const shiftTypesFor = (s, settings) => {
     const wd = weekdayOf(s);
-    if (settings) return (wd === 5 || wd === 6) ? settings.weekend : settings.weekday;
-    return (wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS;
+    const special = settings?.special || [];
+
+    // special shifts: direct or continuation
+    const directSpecial = special.filter(sp => sp.date === s);
+    const contSpecial = [];
+    special.forEach(sp => {
+      const span = sp.daysSpan || 1;
+      for (let i = 1; i < span; i++) {
+        if (addDays(sp.date, i) === s) {
+          contSpecial.push({ ...sp, continuation: true, originDate: sp.date });
+        }
+      }
+    });
+    if (directSpecial.length || contSpecial.length) return [...directSpecial, ...contSpecial];
+
+    // regular shifts base
+    const base = settings
+      ? ((wd === 5 || wd === 6) ? settings.weekend : settings.weekday)
+      : ((wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS);
+
+    // multi-day continuation from previous days
+    const contRegular = [];
+    for (let i = 1; i <= 2; i++) {
+      const prev = addDays(s, -i);
+      const prevWd = weekdayOf(prev);
+      const prevBase = settings
+        ? ((prevWd === 5 || prevWd === 6) ? settings.weekend : settings.weekday)
+        : ((prevWd === 5 || prevWd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS);
+      prevBase.filter(sh => (sh.daysSpan || 1) > i).forEach(sh => {
+        if (!contRegular.find(c => c.id === sh.id && c.originDate === prev)) {
+          contRegular.push({ ...sh, continuation: true, originDate: prev });
+        }
+      });
+    }
+    return [...base, ...contRegular];
   };
   const shiftDef = (s, shiftId, settings) => shiftTypesFor(s, settings).find((x) => x.id === shiftId);
 
@@ -552,8 +687,9 @@
     const schedule = {};
     dates.forEach((dStr) => {
       const wd = D.weekdayOf(dStr);
-      schedule[dStr] = {};
+      if (!schedule[dStr]) schedule[dStr] = {};
       D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
+        if (shift.continuation) return; // data lives at originDate
         const emps = fixed
           .filter((f) => f.weekday === wd && f.shiftId === shift.id && D.availabilityOn(f.empId, dStr) !== 'unavailable')
           .map((f) => f.empId);
@@ -577,6 +713,7 @@
     dates.forEach((dStr) => {
       schedule[dStr] = { ...(existingSchedule[dStr] || {}) };
       D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
+        if (shift.continuation) return;
         (schedule[dStr][shift.id] || []).forEach((empId) => {
           counts[empId] = (counts[empId] || 0) + 1;
           lastEnd[empId] = D.shiftTimes(dStr, shift).end;
@@ -589,6 +726,7 @@
 
     dates.forEach((dStr) => {
       D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
+        if (shift.continuation) return; // data lives at originDate
         // דלג על משבצות שכבר מאוישות
         if ((schedule[dStr][shift.id] || []).length > 0) return;
 
@@ -715,15 +853,16 @@
 <script>
 window.DEFAULT_SHIFT_SETTINGS = {
   weekday: [
-    { id: 'morning', name: 'בוקר',  start: '07:00', end: '15:00', required: 2 },
-    { id: 'evening', name: 'ערב',   start: '15:00', end: '23:00', required: 2 },
-    { id: 'night',   name: 'לילה',  start: '23:00', end: '07:00', required: 1 },
+    { id: 'morning', name: 'בוקר',  start: '07:00', end: '15:00', required: 2, daysSpan: 1 },
+    { id: 'evening', name: 'ערב',   start: '15:00', end: '23:00', required: 2, daysSpan: 1 },
+    { id: 'night',   name: 'לילה',  start: '23:00', end: '07:00', required: 1, daysSpan: 1 },
   ],
   weekend: [
-    { id: 'morning', name: 'בוקר',  start: '07:00', end: '15:00', required: 2 },
-    { id: 'short',   name: 'קצר',   start: '15:00', end: '19:00', required: 1 },
-    { id: 'night',   name: 'לילה',  start: '19:00', end: '07:00', required: 1 },
+    { id: 'morning', name: 'בוקר',  start: '07:00', end: '15:00', required: 2, daysSpan: 1 },
+    { id: 'short',   name: 'קצר',   start: '15:00', end: '19:00', required: 1, daysSpan: 1 },
+    { id: 'night',   name: 'לילה',  start: '19:00', end: '07:00', required: 1, daysSpan: 1 },
   ],
+  special: [],
 };
 window.ShiftSettingsCtx = React.createContext(null);
 </script>
@@ -1093,7 +1232,7 @@ function ShiftChip({ emp, dStr, shiftId, conflicts, editable, onRemove, onDragCh
   );
 }
 
-function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, onAssign, onRemove, onMoveChip, onDragChipStart, onDragEnd }) {
+function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, isContinuation, onAssign, onRemove, onMoveChip, onDragChipStart, onDragEnd }) {
   const [over, setOver] = React.useState(false);
   const hasConflict = emps.some((id) => (conflicts[`${dStr}|${shift.id}|${id}`] || []).length);
   const required = shift.required || 1;
@@ -1111,7 +1250,7 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, onAssi
 
   return (
     <div
-      className={`slot ${stateCls}` + (over && editable ? ' slot-over' : '')}
+      className={`slot ${stateCls}` + (over && editable ? ' slot-over' : '') + (isContinuation ? ' slot-continuation' : '')}
       onDragOver={(e) => { if (editable) { e.preventDefault(); e.dataTransfer.dropEffect = e.shiftKey ? 'copy' : 'move'; setOver(true); } }}
       onDragLeave={() => setOver(false)}
       onDrop={handleDrop}
@@ -1173,10 +1312,16 @@ function DayCard({ dStr, inMonth, excluded, schedule, conflicts, editable, dragg
         <span className="day-name">{D.dayLabel(dStr)}</span>
       </div>
       <div className="day-slots">
-        {D.shiftTypesFor(dStr, shiftSettings).map((shift) => (
-          <ShiftSlot key={shift.id} dStr={dStr} shift={shift} emps={day[shift.id] || []}
-            conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} {...slotProps} />
-        ))}
+        {D.shiftTypesFor(dStr, shiftSettings).map((shift) => {
+          const dataDStr = shift.continuation ? shift.originDate : dStr;
+          const dayData = schedule[dataDStr] || {};
+          return (
+            <ShiftSlot key={shift.id + (shift.continuation ? shift.originDate : '')}
+              dStr={dataDStr} shift={shift} emps={dayData[shift.id] || []}
+              isContinuation={!!shift.continuation}
+              conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} {...slotProps} />
+          );
+        })}
       </div>
     </div>
   );
@@ -1436,14 +1581,13 @@ function AIChat({ schedule, selectedDate }) {
 }
 
 // ---- חלונית צד ראשית ----
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, shiftSettings, onShiftSettingsChange }) {
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
 
   const NAV = [
     { id: 'employees', icon: '👥', label: 'עובדים' },
     { id: 'requests',  icon: '📋', label: 'בקשות'  },
-    { id: 'settings',  icon: '⚙',  label: 'הגדרות' },
   ];
 
   const list = React.useMemo(() => {
@@ -1487,16 +1631,416 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
 
       {nav === 'requests' && <RequestsPanel />}
 
-      {nav === 'settings' && shiftSettings && (
-        <SettingsPanel settings={shiftSettings} onChange={onShiftSettingsChange} />
-      )}
-
       <AIChat schedule={schedule} selectedDate={selectedDate} />
     </aside>
   );
 }
 
 Object.assign(window, { EmployeesSidePanel, EmployeeCard });
+</script>
+
+<!-- ============ Drawers + Screens ============ -->
+<script type="text/babel">
+const SD = window.ShiftData;
+const SD_E = window.ShiftEngine;
+
+// ---- ShiftsDrawer ----
+function ShiftRowEditorWithSpan({ shift, onChange, onDelete }) {
+  const upd = (field, val) => onChange({ ...shift, [field]: val });
+  return (
+    <div className="shift-row">
+      <input className="shift-row-name" value={shift.name} onChange={(e) => upd('name', e.target.value)} />
+      <input className="shift-time-inp" type="time" value={shift.start} onChange={(e) => upd('start', e.target.value)} />
+      <span style={{fontSize:'10px',color:'var(--ink-3)',flexShrink:0}}>–</span>
+      <input className="shift-time-inp" type="time" value={shift.end} onChange={(e) => upd('end', e.target.value)} />
+      <div className="shift-req" title="כמות נדרשת">
+        <button className="shift-req-btn" onClick={() => upd('required', Math.max(1, (shift.required || 1) - 1))}>−</button>
+        <span className="shift-req-num">{shift.required || 1}</span>
+        <button className="shift-req-btn" onClick={() => upd('required', (shift.required || 1) + 1)}>+</button>
+      </div>
+      <div className="shift-req" title="ימי משך">
+        <button className="shift-req-btn" onClick={() => upd('daysSpan', Math.max(1, (shift.daysSpan || 1) - 1))}>−</button>
+        <span className="shift-req-num" style={{minWidth:22,fontSize:'11px'}}>{shift.daysSpan || 1}י׳</span>
+        <button className="shift-req-btn" onClick={() => upd('daysSpan', Math.min(3, (shift.daysSpan || 1) + 1))}>+</button>
+      </div>
+      <button className="shift-del-btn" onClick={onDelete} title="מחיקת משמרת">×</button>
+    </div>
+  );
+}
+
+function ShiftsDrawer({ open, onClose, settings, onChange }) {
+  const [tab, setTab] = React.useState('regular');
+  const EMPTY_SP = { date: '', name: 'משמרת מיוחדת', start: '08:00', end: '16:00', required: 1, daysSpan: 1 };
+  const [newSp, setNewSp] = React.useState(EMPTY_SP);
+
+  if (!open) return null;
+
+  const updGroup = (group, fn) => onChange({ ...settings, [group]: fn(settings[group]) });
+
+  const addShift = (group) => {
+    const newId = 'shift-' + Date.now();
+    updGroup(group, (arr) => [...arr, { id: newId, name: 'משמרת חדשה', start: '08:00', end: '16:00', required: 1, daysSpan: 1 }]);
+  };
+
+  const addSpecial = () => {
+    if (!newSp.date) return;
+    const sp = { ...newSp, id: 'sp-' + Date.now() };
+    onChange({ ...settings, special: [...(settings.special || []), sp] });
+    setNewSp(EMPTY_SP);
+  };
+
+  const removeSpecial = (id) => onChange({ ...settings, special: (settings.special || []).filter(s => s.id !== id) });
+
+  const renderGroup = (group, label) => (
+    <div>
+      <div className="settings-sec-title">{label}</div>
+      <div className="shift-rows">
+        {settings[group].map((shift, i) => (
+          <ShiftRowEditorWithSpan key={shift.id || i} shift={shift}
+            onChange={(s) => updGroup(group, (arr) => arr.map((x, j) => j === i ? s : x))}
+            onDelete={() => updGroup(group, (arr) => arr.filter((_, j) => j !== i))} />
+        ))}
+      </div>
+      <button className="add-shift-btn" onClick={() => addShift(group)}>+ הוספת משמרת</button>
+    </div>
+  );
+
+  return (
+    <div className="right-drawer-backdrop" onClick={onClose}>
+      <aside className="right-drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="right-drawer-head">
+          <h2 className="right-drawer-title">🗓 משמרות</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="סגירה">×</button>
+        </div>
+        <div className="right-drawer-tabs">
+          <button className={'right-drawer-tab' + (tab === 'regular' ? ' on' : '')} onClick={() => setTab('regular')}>קבועות</button>
+          <button className={'right-drawer-tab' + (tab === 'special' ? ' on' : '')} onClick={() => setTab('special')}>מיוחדות</button>
+        </div>
+        <div className="right-drawer-body">
+          <div className="settings-warning" style={{marginBottom:14}}>
+            שינויים יחולו על טיוטות חדשות בלבד
+          </div>
+
+          {tab === 'regular' && (
+            <div style={{display:'flex',flexDirection:'column',gap:18}}>
+              {renderGroup('weekday', 'ימי חול (א׳–ה׳)')}
+              {renderGroup('weekend', 'סוף שבוע (ו׳–ש׳)')}
+              <button className="btn" style={{width:'100%',fontSize:'12px'}}
+                onClick={() => onChange(window.DEFAULT_SHIFT_SETTINGS)}>
+                איפוס לברירות מחדל
+              </button>
+            </div>
+          )}
+
+          {tab === 'special' && (
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div className="settings-sec-title">הוספת משמרת מיוחדת</div>
+              <div style={{background:'var(--surface-2)',border:'1px solid var(--line)',borderRadius:10,padding:'12px',display:'flex',flexDirection:'column',gap:8}}>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <label style={{fontSize:'12px',color:'var(--ink-3)',flexShrink:0,width:40}}>תאריך</label>
+                  <input type="date" style={{flex:1,padding:'4px 8px',border:'1px solid var(--line)',borderRadius:6,background:'var(--surface)',color:'var(--ink)',font:'inherit',fontSize:'12px',outline:'none'}}
+                    value={newSp.date} onChange={(e) => setNewSp(s => ({...s, date: e.target.value}))} />
+                </div>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <label style={{fontSize:'12px',color:'var(--ink-3)',flexShrink:0,width:40}}>שם</label>
+                  <input className="shift-row-name" style={{flex:1,border:'1px solid var(--line)',borderRadius:6,padding:'3px 7px'}}
+                    value={newSp.name} onChange={(e) => setNewSp(s => ({...s, name: e.target.value}))} />
+                </div>
+                <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                  <input className="shift-time-inp" type="time" value={newSp.start} onChange={(e) => setNewSp(s => ({...s, start: e.target.value}))} />
+                  <span style={{fontSize:'10px',color:'var(--ink-3)'}}>–</span>
+                  <input className="shift-time-inp" type="time" value={newSp.end} onChange={(e) => setNewSp(s => ({...s, end: e.target.value}))} />
+                  <span style={{fontSize:'11px',color:'var(--ink-3)',marginInlineStart:'auto'}}>נדרש:</span>
+                  <button className="shift-req-btn" onClick={() => setNewSp(s => ({...s, required: Math.max(1, s.required - 1)}))}>−</button>
+                  <span style={{fontSize:'12px',fontWeight:700,minWidth:16,textAlign:'center'}}>{newSp.required}</span>
+                  <button className="shift-req-btn" onClick={() => setNewSp(s => ({...s, required: s.required + 1}))}>+</button>
+                </div>
+                <button className="btn btn-primary" style={{fontSize:'12px'}} onClick={addSpecial}>
+                  + הוספה
+                </button>
+              </div>
+
+              <div className="settings-sec-title">משמרות מיוחדות שהוגדרו</div>
+              {!(settings.special || []).length ? (
+                <div style={{color:'var(--ink-3)',fontSize:'13px',textAlign:'center',padding:'16px 0'}}>
+                  לא הוגדרו משמרות מיוחדות
+                </div>
+              ) : (
+                <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                  {(settings.special || []).map((sp) => (
+                    <div key={sp.id} className="shift-row">
+                      <span style={{fontSize:'11px',color:'var(--ink-3)',flexShrink:0,minWidth:44}}>{(sp.date || '').slice(5)}</span>
+                      <span style={{flex:1,fontWeight:600,fontSize:'12.5px'}}>{sp.name}</span>
+                      <span style={{fontSize:'11px',color:'var(--ink-3)'}}>{sp.start}–{sp.end}</span>
+                      <button className="shift-del-btn" onClick={() => removeSpecial(sp.id)}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+// ---- SettingsDrawer ----
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange }) {
+  if (!open) return null;
+  const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
+
+  return (
+    <div className="right-drawer-backdrop" onClick={onClose}>
+      <aside className="right-drawer" style={{maxWidth:340}} onClick={(e) => e.stopPropagation()}>
+        <div className="right-drawer-head">
+          <h2 className="right-drawer-title">⚙ הגדרות תצוגה</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="סגירה">×</button>
+        </div>
+        <div className="right-drawer-body">
+          <div style={{display:'flex',flexDirection:'column',gap:20}}>
+            <div>
+              <div className="settings-sec-title">מצב תצוגה</div>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10,padding:'0 2px'}}>
+                <span style={{fontSize:'13px'}}>מצב כהה</span>
+                <label className="toggle-switch">
+                  <input type="checkbox" checked={!!tweaks.dark} onChange={(e) => onTweakChange('dark', e.target.checked)} />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div>
+              <div className="settings-sec-title">צפיפות לוח</div>
+              <div style={{display:'flex',gap:8,marginTop:10}}>
+                {['רגילה', 'קומפקטית'].map((d) => (
+                  <button key={d} className={'btn' + (tweaks.density === d ? ' btn-primary' : '')}
+                    style={{flex:1,fontSize:'12px'}}
+                    onClick={() => onTweakChange('density', d)}>{d}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="settings-sec-title">צבע ראשי</div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
+                {ACCENTS.map((c) => (
+                  <button key={c} onClick={() => onTweakChange('accent', c)}
+                    style={{
+                      width:36,height:36,borderRadius:8,background:c,border:'none',cursor:'pointer',
+                      boxShadow: tweaks.accent === c ? `0 0 0 2.5px var(--surface), 0 0 0 4.5px ${c}` : 'none',
+                      transition:'box-shadow 0.15s'
+                    }} title={c} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+// ---- EmployeesScreen ----
+function EmployeesScreen({ employees: initEmps }) {
+  const [emps, setEmps] = React.useState(initEmps);
+  const [showForm, setShowForm] = React.useState(false);
+  const [editEmp, setEditEmp] = React.useState(null);
+  const COLORS = ['oklch(0.62 0.14 250)','oklch(0.62 0.14 330)','oklch(0.62 0.14 160)','oklch(0.62 0.14 50)','oklch(0.62 0.14 210)','oklch(0.62 0.14 10)','oklch(0.62 0.14 290)','oklch(0.62 0.14 130)'];
+
+  const openAdd = () => {
+    setEditEmp({ id: 'emp-' + Date.now(), name: '', role: '', color: COLORS[0], max: 16, anchor: false, nights: false });
+    setShowForm(true);
+  };
+  const openEdit = (emp) => { setEditEmp({ ...emp }); setShowForm(true); };
+  const saveEmp = () => {
+    if (!editEmp.name.trim()) return;
+    setEmps(prev => prev.find(e => e.id === editEmp.id)
+      ? prev.map(e => e.id === editEmp.id ? editEmp : e)
+      : [...prev, editEmp]);
+    setShowForm(false);
+  };
+  const deleteEmp = (id) => { if (window.confirm('למחוק עובד זה?')) setEmps(prev => prev.filter(e => e.id !== id)); };
+
+  return (
+    <div className="mgmt-screen">
+      <div className="mgmt-toolbar">
+        <h2 className="mgmt-title">👥 עובדים</h2>
+        <button className="btn btn-primary" style={{marginInlineStart:'auto'}} onClick={openAdd}>+ הוספת עובד</button>
+      </div>
+
+      <div className="emp-table">
+        <div className="emp-table-row emp-table-head">
+          <span>שם</span><span>תפקיד</span>
+          <span style={{textAlign:'center'}}>מכסה</span>
+          <span style={{textAlign:'center'}}>לילות</span>
+          <span></span>
+        </div>
+        {emps.map((emp) => (
+          <div key={emp.id} className="emp-table-row">
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <window.Avatar emp={emp} size={30} />
+              <div>
+                <div style={{fontWeight:600,fontSize:'13px'}}>{emp.name}</div>
+                {emp.anchor && <span style={{fontSize:'10px',color:'var(--ink-3)'}}>⚓ עוגן</span>}
+              </div>
+            </div>
+            <span style={{fontSize:'13px',color:'var(--ink-2)'}}>{emp.role}</span>
+            <span style={{textAlign:'center',fontSize:'13px',fontWeight:600}}>{emp.max}</span>
+            <span style={{textAlign:'center',fontSize:'14px'}}>{emp.nights ? '✓' : '—'}</span>
+            <div style={{display:'flex',gap:6,justifyContent:'flex-end'}}>
+              <button className="btn" style={{padding:'4px 10px',fontSize:'12px'}} onClick={() => openEdit(emp)}>עריכה</button>
+              <button className="btn" style={{padding:'4px 10px',fontSize:'12px',color:'var(--danger)',borderColor:'color-mix(in oklab, var(--danger) 40%, transparent)'}} onClick={() => deleteEmp(emp.id)}>מחיקה</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {showForm && editEmp && (
+        <div className="modal-backdrop" onClick={() => setShowForm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2 className="modal-title">{emps.find(e => e.id === editEmp.id) ? 'עריכת עובד' : 'הוספת עובד'}</h2>
+              <button className="icon-btn" onClick={() => setShowForm(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label className="field-label">שם מלא</label>
+                <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
+                  value={editEmp.name} onChange={(e) => setEditEmp(p => ({...p, name: e.target.value}))} autoFocus />
+              </div>
+              <div className="field">
+                <label className="field-label">תפקיד</label>
+                <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
+                  value={editEmp.role} onChange={(e) => setEditEmp(p => ({...p, role: e.target.value}))} />
+              </div>
+              <div className="field">
+                <label className="field-label">מכסה חודשית</label>
+                <div className="stepper">
+                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, max: Math.max(1, p.max - 1)}))}>−</button>
+                  <span className="stepper-val">{editEmp.max}</span>
+                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, max: p.max + 1}))}>+</button>
+                  <span className="field-hint">משמרות לחודש</span>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:20}}>
+                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+                  <input type="checkbox" checked={editEmp.anchor} onChange={(e) => setEditEmp(p => ({...p, anchor: e.target.checked}))} />
+                  עוגן (ותיק)
+                </label>
+                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+                  <input type="checkbox" checked={editEmp.nights} onChange={(e) => setEditEmp(p => ({...p, nights: e.target.checked}))} />
+                  משמרות לילה
+                </label>
+              </div>
+              <div className="field">
+                <label className="field-label">צבע</label>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  {COLORS.map(c => (
+                    <button key={c} onClick={() => setEditEmp(p => ({...p, color: c}))}
+                      style={{width:32,height:32,borderRadius:7,background:c,border:`2.5px solid ${editEmp.color === c ? 'var(--ink)' : 'transparent'}`,cursor:'pointer',transition:'border-color 0.1s'}} />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <span></span>
+              <div className="modal-actions">
+                <button className="btn" onClick={() => setShowForm(false)}>ביטול</button>
+                <button className="btn btn-primary" onClick={saveEmp}>שמירה</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- RequestsScreen ----
+function RequestsScreen({ employees, requests }) {
+  const empsWithReqs = employees.filter((e) => requests[e.id]);
+  const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can' };
+  const tagLabel = { unavailable: 'לא יכול', high: 'עדיפות גבוהה', can: 'יכול לעבוד' };
+
+  return (
+    <div className="mgmt-screen">
+      <div className="mgmt-toolbar">
+        <h2 className="mgmt-title">📋 בקשות עובדים</h2>
+        <span style={{fontSize:'13px',color:'var(--ink-3)',marginInlineStart:'auto'}}>{empsWithReqs.length} עובדים הגישו בקשות</span>
+      </div>
+
+      {!empsWithReqs.length ? (
+        <div style={{textAlign:'center',padding:'40px',color:'var(--ink-3)'}}>אין בקשות לחודש זה</div>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          {empsWithReqs.map((emp) => {
+            const req = requests[emp.id];
+            const tags = [
+              ...(req.unavailable || []).map((d) => ({ d, type: 'unavailable' })),
+              ...(req.high || []).map((d) => ({ d, type: 'high' })),
+              ...(req.can || []).map((d) => ({ d, type: 'can' })),
+            ].sort((a, b) => a.d.localeCompare(b.d));
+            return (
+              <div key={emp.id} className="req-card" style={{background:'var(--surface)'}}>
+                <div className="req-card-head">
+                  <window.Avatar emp={emp} size={30} />
+                  <div>
+                    <div className="req-card-name">{emp.name}</div>
+                    <div style={{fontSize:'11.5px',color:'var(--ink-3)'}}>{emp.role}</div>
+                  </div>
+                  <span style={{marginInlineStart:'auto',fontSize:'12px',color:'var(--ink-3)'}}>{tags.length} בקשות</span>
+                </div>
+                <div className="req-tags">
+                  {tags.map(({ d, type }) => (
+                    <span key={d + type} className={'req-tag av-tag ' + tagCls[type]} title={tagLabel[type]}>
+                      {SD.shortDate(d)} · {tagLabel[type]}
+                    </span>
+                  ))}
+                </div>
+                {req.note && <div className="req-note">{req.note}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- HamburgerMenu ----
+function HamburgerMenu({ screen, onNavigate }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const nav = (s) => { onNavigate(s); setOpen(false); };
+
+  return (
+    <div className="ham-wrap" ref={ref}>
+      <button className="ham-btn" onClick={() => setOpen(o => !o)} title="תפריט" aria-label="תפריט">≡</button>
+      {open && (
+        <div className="ham-dropdown">
+          <button className={'ham-item' + (screen === 'calendar' ? ' active' : '')} onClick={() => nav('calendar')}>
+            📅 סידור
+          </button>
+          <button className={'ham-item' + (screen === 'employees' ? ' active' : '')} onClick={() => nav('employees')}>
+            👥 עובדים
+          </button>
+          <button className={'ham-item' + (screen === 'requests' ? ' active' : '')} onClick={() => nav('requests')}>
+            📋 בקשות
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+Object.assign(window, { ShiftsDrawer, SettingsDrawer, EmployeesScreen, RequestsScreen, HamburgerMenu });
 </script>
 
 <!-- ============ GenerateDraftModal + לוג AI ============ -->
@@ -1639,7 +2183,7 @@ Object.assign(window, { GenerateDraftModal, LogDrawer });
 const AD = window.ShiftData;
 const AE = window.ShiftEngine;
 
-const STORAGE_KEY = 'mishmarot-state-v4';
+const STORAGE_KEY = 'mishmarot-state-v5';
 const ShiftSettingsCtx = window.ShiftSettingsCtx;
 const DEFAULT_SHIFT_SETTINGS = window.DEFAULT_SHIFT_SETTINGS;
 
@@ -1665,6 +2209,7 @@ function mergeSettings(saved) {
   return {
     weekday: saved.weekday || DEFAULT_SHIFT_SETTINGS.weekday,
     weekend: saved.weekend || DEFAULT_SHIFT_SETTINGS.weekend,
+    special: saved.special || [],
   };
 }
 
@@ -1715,6 +2260,9 @@ function App() {
   const [draggingEmp, setDraggingEmp] = React.useState(null);
   const [modalOpen, setModalOpen] = React.useState(false);
   const [logOpen, setLogOpen] = React.useState(false);
+  const [screen, setScreen] = React.useState('calendar');
+  const [shiftsDrawerOpen, setShiftsDrawerOpen] = React.useState(false);
+  const [settingsDrawerOpen, setSettingsDrawerOpen] = React.useState(false);
 
   // התמדה
   React.useEffect(() => {
@@ -1840,44 +2388,60 @@ function App() {
   return (
     <div className="app" dir="rtl">
       <header className="topbar">
+        <HamburgerMenu screen={screen} onNavigate={setScreen} />
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">⧉</span>
           <span className="brand-name">משמרות</span>
         </div>
-        <div className="topbar-center">
-          <div className="month-nav">
-            <button className="month-nav-btn" onClick={() => navigateMonth(-1)} title="חודש קודם">‹</button>
-            <h1 className="month-title">{AD.monthLabel(currentMonth)}</h1>
-            <button className="month-nav-btn" onClick={() => navigateMonth(1)} title="חודש הבא">›</button>
+        {screen === 'calendar' && (
+          <div className="topbar-center">
+            <div className="month-nav">
+              <button className="month-nav-btn" onClick={() => navigateMonth(-1)} title="חודש קודם">‹</button>
+              <h1 className="month-title">{AD.monthLabel(currentMonth)}</h1>
+              <button className="month-nav-btn" onClick={() => navigateMonth(1)} title="חודש הבא">›</button>
+            </div>
+            <span className={'status-chip ' + st.cls}>{st.label}</span>
+            {conflictCount > 0 && status !== 'preview' && (
+              <span className="conflict-count">{conflictCount} קונפליקטים</span>
+            )}
           </div>
-          <span className={'status-chip ' + st.cls}>{st.label}</span>
-          {conflictCount > 0 && status !== 'preview' && (
-            <span className="conflict-count">{conflictCount} קונפליקטים</span>
-          )}
-        </div>
+        )}
+        {screen !== 'calendar' && <div style={{flex:1}} />}
         <div className="topbar-actions">
-          <button className="btn" onClick={() => setLogOpen(true)} disabled={!currentDraft}>
-            לוג AI{dilemmaCount > 0 && <span className="btn-badge">{dilemmaCount}</span>}
+          <button className={'topbar-nav-btn' + (shiftsDrawerOpen ? ' active' : '')}
+            onClick={() => { setShiftsDrawerOpen(o => !o); setSettingsDrawerOpen(false); }}>
+            🗓 משמרות
           </button>
-          <button className="btn" onClick={() => AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth, shiftSettings)} disabled={!currentDraft || isGenerating}>
-            ייצוא לאקסל
+          <button className={'topbar-nav-btn' + (settingsDrawerOpen ? ' active' : '')}
+            onClick={() => { setSettingsDrawerOpen(o => !o); setShiftsDrawerOpen(false); }}>
+            ⚙ הגדרות
           </button>
-          {status === 'draft' && (
-            <button className="btn btn-primary" onClick={runAI}>✦ שבץ אוטומטי</button>
+          {screen === 'calendar' && (
+            <>
+              <button className="btn" onClick={() => setLogOpen(true)} disabled={!currentDraft}>
+                לוג AI{dilemmaCount > 0 && <span className="btn-badge">{dilemmaCount}</span>}
+              </button>
+              <button className="btn" onClick={() => AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth, shiftSettings)} disabled={!currentDraft || isGenerating}>
+                ייצוא
+              </button>
+              {status === 'draft' && (
+                <button className="btn btn-primary" onClick={runAI}>✦ שבץ אוטומטי</button>
+              )}
+              {status === 'draft' && (
+                <button className="btn btn-final" onClick={() => setDraftStatus(activeDraftId, 'final')}>אישור ופרסום</button>
+              )}
+              {status === 'final' && (
+                <button className="btn" onClick={() => setDraftStatus(activeDraftId, 'draft')}>חזרה לעריכה</button>
+              )}
+              <button className="btn btn-primary" onClick={() => setModalOpen(true)} disabled={isGenerating}>
+                ✦ צור טיוטה
+              </button>
+            </>
           )}
-          {status === 'draft' && (
-            <button className="btn btn-final" onClick={() => setDraftStatus(activeDraftId, 'final')}>אישור ופרסום</button>
-          )}
-          {status === 'final' && (
-            <button className="btn" onClick={() => setDraftStatus(activeDraftId, 'draft')}>חזרה לעריכה</button>
-          )}
-          <button className="btn btn-primary" onClick={() => setModalOpen(true)} disabled={isGenerating}>
-            ✦ צור טיוטה חדשה
-          </button>
         </div>
       </header>
 
-      {monthDrafts.length > 0 && (
+      {screen === 'calendar' && monthDrafts.length > 0 && (
         <div className="drafts-bar">
           {monthDrafts.map(d => (
             <DraftTab key={d.id} draft={d} isActive={d.id === activeDraftId}
@@ -1886,48 +2450,56 @@ function App() {
         </div>
       )}
 
-      {status === 'final' && (
+      {screen === 'calendar' && status === 'final' && (
         <div className="final-banner">הסידור פורסם לעובדים והוא נעול לעריכה. לחצו ״חזרה לעריכה״ כדי לבצע שינויים.</div>
       )}
 
       <ShiftSettingsCtx.Provider value={shiftSettings}>
-        <main className="layout">
-          <section className="board">
-            {!currentDraft ? (
-              <div className="empty-state">
-                <div className="empty-card">
-                  <div className="empty-mark" aria-hidden="true">⧉</div>
-                  <h2 className="empty-title">אין עדיין סידור ל{AD.monthLabel(currentMonth)}</h2>
-                  <p className="empty-sub">צרו טיוטה חדשה וה־AI ישבץ את העובדים לפי בקשות, מכסות וזמני מנוחה. לאחר מכן תוכלו לדייק את התוצאה בגרירה.</p>
-                  <button className="btn btn-primary btn-lg" onClick={() => setModalOpen(true)}>✦ צור טיוטה חדשה</button>
+        {screen === 'employees' && <EmployeesScreen employees={AD.EMPLOYEES} />}
+        {screen === 'requests'  && <RequestsScreen  employees={AD.EMPLOYEES} requests={AD.REQUESTS} />}
+        {screen === 'calendar'  && (
+          <main className="layout">
+            <section className="board">
+              {!currentDraft ? (
+                <div className="empty-state">
+                  <div className="empty-card">
+                    <div className="empty-mark" aria-hidden="true">⧉</div>
+                    <h2 className="empty-title">אין עדיין סידור ל{AD.monthLabel(currentMonth)}</h2>
+                    <p className="empty-sub">צרו טיוטה חדשה וה־AI ישבץ את העובדים לפי בקשות, מכסות וזמני מנוחה. לאחר מכן תוכלו לדייק את התוצאה בגרירה.</p>
+                    <button className="btn btn-primary btn-lg" onClick={() => setModalOpen(true)}>✦ צור טיוטה חדשה</button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="board-inner">
-                <MonthView range={currentDraft.range} excluded={currentDraft.excluded} schedule={currentDraft.schedule}
-                  conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} selectedDate={selectedDate}
-                  onSelectDate={d => setSelectedDate(cur => cur === d ? null : d)} slotProps={slotProps} />
-                {isGenerating && (
-                  <div className="generating-overlay">
-                    <div className="generating-card">
-                      <span className="spinner" aria-hidden="true"></span>
-                      <div>
-                        <div className="generating-title">ה־AI מרכיב את הסידור…</div>
-                        <div className="generating-sub">עוגנים ← זמינות ← מכסות ← זמני מנוחה ← העדפות</div>
+              ) : (
+                <div className="board-inner">
+                  <MonthView range={currentDraft.range} excluded={currentDraft.excluded} schedule={currentDraft.schedule}
+                    conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} selectedDate={selectedDate}
+                    onSelectDate={d => setSelectedDate(cur => cur === d ? null : d)} slotProps={slotProps} />
+                  {isGenerating && (
+                    <div className="generating-overlay">
+                      <div className="generating-card">
+                        <span className="spinner" aria-hidden="true"></span>
+                        <div>
+                          <div className="generating-title">ה־AI מרכיב את הסידור…</div>
+                          <div className="generating-sub">עוגנים ← זמינות ← מכסות ← זמני מנוחה ← העדפות</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
+                  )}
+                </div>
+              )}
+            </section>
 
-          <EmployeesSidePanel
-            schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
-            onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
-            shiftSettings={shiftSettings} onShiftSettingsChange={setShiftSettings} />
-        </main>
+            <EmployeesSidePanel
+              schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
+              onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable} />
+          </main>
+        )}
       </ShiftSettingsCtx.Provider>
+
+      <ShiftsDrawer open={shiftsDrawerOpen} onClose={() => setShiftsDrawerOpen(false)}
+        settings={shiftSettings} onChange={setShiftSettings} />
+      <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
+        tweaks={t} onTweakChange={setTweak} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         month={currentMonth}

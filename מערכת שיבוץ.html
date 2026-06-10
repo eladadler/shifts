@@ -1625,53 +1625,75 @@ function SettingsPanel({ settings, onChange }) {
 }
 
 // ---- צ׳אט AI ----
-function AIChat({ schedule, selectedDate }) {
+function AIChat({ schedule, selectedDate, apiKey }) {
   const [open, setOpen] = React.useState(false);
   const [msgs, setMsgs] = React.useState([{ from: 'ai', text: 'שלום! אני יכול לענות על שאלות לגבי הסידור.' }]);
   const [input, setInput] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
   const msgsRef = React.useRef(null);
 
   React.useEffect(() => {
     if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight;
   }, [msgs, open]);
 
-  const send = () => {
+  const send = async () => {
     const q = input.trim();
-    if (!q) return;
+    if (!q || loading) return;
     setInput('');
-    let reply = '';
-    const low = q;
+    setMsgs(prev => [...prev, { from: 'user', text: q }]);
 
-    if (low.includes('כמה') || low.includes('משמרות')) {
-      const emp = PD.EMPLOYEES.find((e) => q.includes(e.name.split(' ')[0]));
-      if (emp && schedule) {
-        const count = PE.countShifts(schedule, emp.id);
-        reply = `ל${emp.name} יש ${count} משמרות בסידור הנוכחי (מכסה: ${emp.max}).`;
-      } else {
-        reply = 'ציינו שם עובד ואספר כמה משמרות יש לו.';
-      }
-    } else if (low.includes('קונפליקט') || low.includes('בעיה') || low.includes('חריג')) {
-      const c = schedule ? Object.keys(PE.detectConflicts(schedule)).length : 0;
-      reply = c ? `יש ${c} קונפליקטים בסידור הנוכחי.` : 'אין קונפליקטים בסידור הנוכחי.';
-    } else if (low.includes('פנוי') || low.includes('זמין')) {
-      if (selectedDate) {
-        const free = PD.EMPLOYEES.filter((e) => PD.availabilityOn(e.id, selectedDate) !== 'unavailable');
-        reply = `ב${PD.shortDate(selectedDate)}: ${free.map((e) => e.name).join(', ')} זמינים.`;
-      } else {
-        reply = 'בחרו יום בלוח כדי שאוכל לבדוק מי זמין.';
-      }
-    } else if (low.includes('בקשה') || low.includes('העדפה')) {
-      const wr = PD.EMPLOYEES.filter((e) => PD.reqOf(e.id));
-      reply = `${wr.length} עובדים הגישו בקשות: ${wr.map((e) => e.name).join(', ')}.`;
-    } else if (low.includes('עובד') || low.includes('צוות')) {
-      reply = `יש ${PD.EMPLOYEES.length} עובדים בצוות.`;
-    } else {
-      const opts = [
-        'נסו "כמה משמרות יש ל[שם]?" או "מי זמין?"',
-        'אני יכול לבדוק קונפליקטים, זמינות ובקשות עובדים.',
-        'בחרו יום בלוח ואז שאלו "מי זמין?" לרשימת הזמינים.',
-      ];
-      reply = opts[Math.floor(Math.random() * opts.length)];
+    if (!apiKey) {
+      setMsgs(prev => [...prev, { from: 'ai', text: 'כדי להשתמש בצ׳אט יש להזין מפתח API בהגדרות (⚙).' }]);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const employees = PD.EMPLOYEES.map(e => ({
+        id: e.id, name: e.name, role: e.role, maxShifts: e.max,
+        canDoNights: !!e.nights, requests: PD.reqOf(e.id) || null,
+      }));
+      const conflicts = schedule ? Object.keys(PE.detectConflicts(schedule)).length : 0;
+      const systemPrompt = `אתה עוזר לניהול סידור עבודה. ענה בעברית בתמציתיות.
+
+נתונים על הצוות:
+${JSON.stringify(employees, null, 2)}
+
+סידור עבודה נוכחי:
+${JSON.stringify(schedule || {}, null, 2)}
+
+יום נבחר בלוח: ${selectedDate || 'לא נבחר'}
+מספר קונפליקטים: ${conflicts}
+
+ענה על שאלות לגבי הסידור, הצוות, זמינות, קונפליקטים ובקשות עובדים. תשובות קצרות וממוקדות.`;
+
+      const history = msgs
+        .filter(m => m.from !== 'system')
+        .map(m => ({ role: m.from === 'user' ? 'user' : 'assistant', content: m.text }));
+      history.push({ role: 'user', content: q });
+
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey.trim(),
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 512,
+          system: systemPrompt,
+          messages: history,
+        }),
+      });
+      const data = await resp.json();
+      const reply = data.content?.[0]?.text || 'שגיאה בקבלת תשובה.';
+      setMsgs(prev => [...prev, { from: 'ai', text: reply }]);
+    } catch (err) {
+      setMsgs(prev => [...prev, { from: 'ai', text: `שגיאה: ${err.message}` }]);
+    } finally {
+      setLoading(false);
     }
 
     setMsgs((prev) => [...prev, { from: 'user', text: q }, { from: 'ai', text: reply }]);
@@ -1689,12 +1711,13 @@ function AIChat({ schedule, selectedDate }) {
             {msgs.map((m, i) => (
               <div key={i} className={'ai-msg ' + (m.from === 'user' ? 'ai-msg-user' : 'ai-msg-ai')}>{m.text}</div>
             ))}
+            {loading && <div className="ai-msg ai-msg-ai" style={{opacity:0.6}}><span className="spin">↻</span> חושב…</div>}
           </div>
           <div className="ai-chat-input-row">
-            <input className="ai-chat-input" value={input} placeholder="שאלו שאלה…"
+            <input className="ai-chat-input" value={input} placeholder="שאלו שאלה…" disabled={loading}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') send(); }} />
-            <button className="ai-send-btn" onClick={send}>→</button>
+            <button className="ai-send-btn" onClick={send} disabled={loading}>→</button>
           </div>
         </div>
       )}
@@ -1703,7 +1726,7 @@ function AIChat({ schedule, selectedDate }) {
 }
 
 // ---- חלונית צד ראשית ----
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable }) {
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
   const [shiftFilter, setShiftFilter] = React.useState('all');
@@ -1828,7 +1851,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
 
       {nav === 'requests' && <RequestsPanel />}
 
-      <AIChat schedule={schedule} selectedDate={selectedDate} />
+      <AIChat schedule={schedule} selectedDate={selectedDate} apiKey={apiKey} />
     </aside>
   );
 }
@@ -2853,7 +2876,8 @@ ${JSON.stringify(snap.schedule, null, 2)}
 
             <EmployeesSidePanel
               schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
-              onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable} />
+              onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
+              apiKey={anthropicKey} />
           </main>
         )}
       </ShiftSettingsCtx.Provider>

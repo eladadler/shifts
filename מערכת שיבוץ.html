@@ -1985,9 +1985,10 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 }
 
 // ---- SettingsDrawer ----
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
+  const [showKey, setShowKey] = React.useState(false);
 
   return (
     <div className="right-drawer-backdrop" onClick={onClose}>
@@ -2030,6 +2031,32 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange }) {
                     }} title={c} />
                 ))}
               </div>
+            </div>
+            <div>
+              <div className="settings-sec-title">✦ שיבוץ AI — מפתח Anthropic</div>
+              <div style={{marginTop:10,fontSize:'12px',color:'var(--ink-3)',marginBottom:8,lineHeight:1.5}}>
+                נדרש לשיבוץ האוטומטי עם Claude.{' '}
+                <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{color:'var(--accent)'}}>קבל מפתח</a>
+              </div>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={e => onApiKeyChange(e.target.value)}
+                  placeholder="sk-ant-..."
+                  style={{
+                    flex:1, border:'1px solid var(--line)', borderRadius:7,
+                    padding:'7px 10px', fontSize:'13px', background:'var(--surface)',
+                    color:'var(--ink)', font:'inherit', outline:'none',
+                    fontFamily:'monospace',
+                  }}
+                />
+                <button className="btn" style={{padding:'6px 10px',fontSize:'12px',flexShrink:0}}
+                  onClick={() => setShowKey(v => !v)}>
+                  {showKey ? 'הסתר' : 'הצג'}
+                </button>
+              </div>
+              {apiKey && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן בלבד</div>}
             </div>
           </div>
         </div>
@@ -2463,6 +2490,7 @@ function App() {
   const [activeDraftId, setActiveDraftId] = React.useState(saved?.activeDraftId || null);
   const [shiftSettings, setShiftSettings] = React.useState(() => mergeSettings(saved?.shiftSettings));
   const [generatingId, setGeneratingId] = React.useState(null);
+  const [anthropicKey, setAnthropicKey] = React.useState(() => localStorage.getItem('anthropic-api-key') || '');
   const [selectedDate, setSelectedDate] = React.useState(null);
   const [draggingEmp, setDraggingEmp] = React.useState(null);
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -2562,17 +2590,103 @@ function App() {
     setActiveDraftId(id);
   };
 
-  // שיבוץ אוטומטי — ממלא ריקות בלבד
-  const runAI = () => {
+  // שיבוץ אוטומטי — Claude Sonnet 4.6
+  const runAI = async () => {
     if (!currentDraft) return;
+    if (!anthropicKey.trim()) {
+      setSettingsDrawerOpen(true);
+      return;
+    }
     const id = activeDraftId;
-    const snap = { ...currentDraft };
+    const snap = JSON.parse(JSON.stringify(currentDraft));
     setGeneratingId(id);
-    setTimeout(() => {
-      const res = AE.generate({ startDate: snap.range.start, endDate: snap.range.end, excluded: snap.excluded, existingSchedule: snap.schedule, shiftSettings });
-      setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: res.schedule, log: res.log } : d));
+    try {
+      const employees = AD.EMPLOYEES.map(e => ({
+        id: e.id, name: e.name, role: e.role, maxShifts: e.max,
+        canDoNights: !!e.nights, nightOwl: !!e.nightOwl, anchor: !!e.anchor,
+        requests: AD.reqOf(e.id) || null,
+      }));
+      const dates = [];
+      let cur = snap.range.start;
+      while (cur <= snap.range.end) {
+        if (!snap.excluded.includes(cur)) dates.push(cur);
+        cur = AD.addDays(cur, 1);
+      }
+      const shiftReqs = {};
+      dates.forEach(d => {
+        shiftReqs[d] = AD.shiftTypesFor(d, shiftSettings)
+          .filter(s => !s.continuation)
+          .map(s => ({ id: s.id, name: s.name, required: s.required, isNight: s.id === 'night' }));
+      });
+
+      const prompt = `אתה מערכת שיבוץ עובדים. מלא משמרות ריקות (מערכי עובדים ריקים []) בלבד — אל תשנה שיבוצים שכבר קיימים.
+
+## עובדים
+${JSON.stringify(employees, null, 2)}
+
+## דרישות משמרות לפי יום
+${JSON.stringify(shiftReqs, null, 2)}
+
+## שיבוצים קיימים (לא לשנות)
+${JSON.stringify(snap.schedule, null, 2)}
+
+## כללים
+- מלא כל שיבוץ ריק עם בדיוק "required" עובדים (מערך של מזהי עובדים)
+- אסור לשבץ עובד שביום זה יש לו unavailable בבקשות
+- עובד עם canDoNights:false — אסור בשיבוץ לילה (isNight:true)
+- שמור 8 שעות מנוחה בין משמרות לאותו עובד
+- אל תחרוג ממכסת maxShifts לעובד
+- העדף עובדים שסימנו "high" ביום זה
+- פזר שוויונית בין כל העובדים
+- nightOwl:true — עדיפות גבוהה לשיבוץ לילה
+
+## פורמט תגובה — JSON בלבד, ללא הסברים נוספים
+{
+  "schedule": { "YYYY-MM-DD": { "shiftId": ["empId1","empId2"] } },
+  "log": [{ "type": "info|decision|dilemma", "message": "הסבר קצר בעברית" }]
+}
+החזר את הסידור המלא כולל שיבוצים קיימים ללא שינוי.`;
+
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey.trim(),
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 4096,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error?.message || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      const text = data.content[0].text;
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('לא נמצא JSON בתגובה');
+      const result = JSON.parse(jsonMatch[0]);
+      if (!result.schedule) throw new Error('פורמט תגובה שגוי');
+      const ts = new Date().toISOString();
+      const finalLog = [
+        { timestamp: ts, type: 'info', message: 'שיבוץ AI בוצע על ידי Claude Sonnet 4.6' },
+        ...(result.log || []).map(l => ({ timestamp: ts, ...l })),
+      ];
+      setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: result.schedule, log: finalLog } : d));
+    } catch (err) {
+      console.error('Claude API error:', err);
+      const ts = new Date().toISOString();
+      setDrafts(ds => ds.map(d => d.id === id
+        ? { ...d, log: [{ timestamp: ts, type: 'dilemma', message: `שגיאת AI: ${err.message}` }] }
+        : d
+      ));
+    } finally {
       setGeneratingId(null);
-    }, 1600);
+    }
   };
 
   const renameDraft = (id, name) => updateDraft(id, () => ({ name }));
@@ -2747,7 +2861,9 @@ function App() {
       <ShiftsDrawer open={shiftsDrawerOpen} onClose={() => setShiftsDrawerOpen(false)}
         settings={shiftSettings} onChange={setShiftSettings} />
       <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
-        tweaks={t} onTweakChange={setTweak} />
+        tweaks={t} onTweakChange={setTweak}
+        apiKey={anthropicKey}
+        onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); }} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         month={currentMonth}

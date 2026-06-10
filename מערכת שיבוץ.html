@@ -87,6 +87,21 @@
   .conflict-count { font-size: 12px; font-weight: 600; color: var(--danger); background: var(--danger-bg); padding: 3px 10px; border-radius: 999px; }
   .topbar-actions { display: flex; align-items: center; gap: 8px; }
 
+  /* ---------- סנכרון מסד נתונים ---------- */
+  .sync-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11.5px; font-weight: 500;
+    padding: 3px 9px; border-radius: 999px;
+    border: 1px solid transparent; transition: all 0.2s;
+    flex-shrink: 0;
+  }
+  .sync-loading { background: var(--surface-2); color: var(--ink-3); border-color: var(--line); }
+  .sync-saving  { background: color-mix(in oklab, var(--accent) 12%, transparent); color: var(--accent); border-color: color-mix(in oklab, var(--accent) 30%, transparent); }
+  .sync-saved   { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in oklab, var(--ok) 30%, transparent); }
+  .sync-error   { background: var(--danger-bg); color: var(--danger); border-color: color-mix(in oklab, var(--danger) 30%, transparent); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { display: inline-block; animation: spin 0.9s linear infinite; }
+
   .btn {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 7px 14px; border-radius: 8px;
@@ -564,6 +579,43 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+(function () {
+  const URL  = 'https://ajniglpdgkwnasuslsyc.supabase.co';
+  const KEY  = 'sb_publishable_zMTTfShJSVqKaGRYlYoqFA_9y_5Q5hk';
+  const ROW  = 'main';
+  const TABLE = 'mishmarot_state';
+
+  let client = null;
+  try { client = supabase.createClient(URL, KEY); } catch(e) { console.warn('Supabase init failed', e); }
+
+  window.__db = {
+    async load() {
+      if (!client) return null;
+      try {
+        const { data, error } = await client.from(TABLE).select('data').eq('id', ROW).single();
+        if (error) throw error;
+        return data?.data || null;
+      } catch (e) {
+        console.warn('DB load failed:', e.message);
+        return null;
+      }
+    },
+    async save(state) {
+      if (!client) return false;
+      try {
+        const { error } = await client.from(TABLE).upsert({ id: ROW, data: state, updated_at: new Date().toISOString() });
+        if (error) throw error;
+        return true;
+      } catch (e) {
+        console.warn('DB save failed:', e.message);
+        return false;
+      }
+    },
+  };
+})();
+</script>
 
 <!-- ============ נתוני דמו — מוקד שירות 24/7, יולי 2026 ============ -->
 <script>
@@ -2351,6 +2403,12 @@ function loadState() {
   return null;
 }
 
+function applyState(setter, state) {
+  if (!state || !Array.isArray(state.drafts)) return false;
+  setter(state);
+  return true;
+}
+
 function mergeSettings(saved) {
   if (!saved) return DEFAULT_SHIFT_SETTINGS;
   const oldWeekend = saved.weekend; // backward compat — old data had a single "weekend" group
@@ -2412,11 +2470,42 @@ function App() {
   const [screen, setScreen] = React.useState('calendar');
   const [shiftsDrawerOpen, setShiftsDrawerOpen] = React.useState(false);
   const [settingsDrawerOpen, setSettingsDrawerOpen] = React.useState(false);
+  const [syncStatus, setSyncStatus] = React.useState('loading'); // loading | saving | saved | error | idle
 
-  // התמדה
+  const saveTimerRef = React.useRef(null);
+  const isFirstLoad = React.useRef(true);
+  const dbAvailable = React.useRef(typeof window.__db !== 'undefined');
+
+  // טעינה ראשונית מ-Supabase
+  React.useEffect(() => {
+    if (!dbAvailable.current) { setSyncStatus('idle'); return; }
+    setSyncStatus('loading');
+    window.__db.load().then(remote => {
+      if (remote && Array.isArray(remote.drafts)) {
+        setCurrentMonth(remote.currentMonth || AD.MONTH);
+        setDrafts(remote.drafts);
+        setActiveDraftId(remote.activeDraftId || null);
+        setShiftSettings(mergeSettings(remote.shiftSettings));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+      }
+      setSyncStatus('saved');
+      isFirstLoad.current = false;
+    }).catch(() => { setSyncStatus('error'); isFirstLoad.current = false; });
+  }, []);
+
+  // התמדה — localStorage + Supabase (מדוד)
   React.useEffect(() => {
     if (generatingId) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentMonth, drafts, activeDraftId, shiftSettings }));
+    if (isFirstLoad.current) return;
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (!dbAvailable.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSyncStatus('saving');
+    saveTimerRef.current = setTimeout(async () => {
+      const ok = await window.__db.save(state);
+      setSyncStatus(ok ? 'saved' : 'error');
+    }, 1200);
   }, [currentMonth, drafts, activeDraftId, shiftSettings, generatingId]);
 
   // ערכת נושא
@@ -2563,6 +2652,10 @@ function App() {
         )}
         {screen !== 'calendar' && <div style={{flex:1}} />}
         <div className="topbar-actions">
+          {syncStatus === 'loading' && <span className="sync-badge sync-loading"><span className="spin">↻</span> טוען…</span>}
+          {syncStatus === 'saving'  && <span className="sync-badge sync-saving"><span className="spin">↻</span> שומר…</span>}
+          {syncStatus === 'saved'   && <span className="sync-badge sync-saved">✓ נשמר</span>}
+          {syncStatus === 'error'   && <span className="sync-badge sync-error" title="שגיאת סנכרון עם מסד הנתונים">⚠ שגיאת שמירה</span>}
           <button className={'topbar-nav-btn' + (shiftsDrawerOpen ? ' active' : '')}
             onClick={() => { setShiftsDrawerOpen(o => !o); setSettingsDrawerOpen(false); }}>
             🗓 משמרות

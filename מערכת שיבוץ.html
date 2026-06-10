@@ -502,7 +502,22 @@
   .slot-continuation { border-style: dashed; opacity: 0.72; }
   .slot-continuation .slot-name::after { content: ' ↵'; font-size: 9px; color: var(--ink-3); }
 
-  /* ---------- toggle switch ---------- */
+  /* ---------- לשוניות סינון משמרות ---------- */
+  .shift-filter-tabs { display: flex; gap: 4px; padding: 0 12px 8px; flex-wrap: wrap; }
+  .shift-filter-tab {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; font-size: 11.5px; font-weight: 500;
+    background: none; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2);
+    cursor: pointer; font-family: inherit; white-space: nowrap;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+  }
+  .shift-filter-tab:hover { background: var(--surface-2); color: var(--ink); }
+  .shift-filter-tab.on { background: color-mix(in oklab, var(--accent) 11%, transparent); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .shift-filter-count { font-size: 10px; font-weight: 700; background: var(--surface-2); border-radius: 999px; padding: 0 5px; line-height: 16px; }
+  .shift-filter-tab.on .shift-filter-count { background: color-mix(in oklab, var(--accent) 18%, transparent); }
+  .emp-card-assigned { opacity: 0.45; }
+  .assigned-badge { font-size: 10px; font-weight: 600; color: var(--ok); background: var(--ok-bg); border-radius: 999px; padding: 1px 6px; }
+
   .toggle-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
   .toggle-switch input { opacity: 0; width: 0; height: 0; }
   .toggle-slider {
@@ -1366,7 +1381,7 @@ Object.assign(window, { Avatar, ShiftChip, ShiftSlot, DayCard, MonthView });
 const PD = window.ShiftData;
 const PE = window.ShiftEngine;
 
-function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, editable }) {
+function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, editable, extraBadge }) {
   const count = PE.countShifts(schedule, emp.id);
   const req = PD.reqOf(emp.id);
   const overMax = count > emp.max;
@@ -1395,6 +1410,7 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
           {av === 'unavailable' && <span className="av-tag av-no">לא יכול</span>}
           {av === 'high' && <span className="av-tag av-high">עדיפות גבוהה</span>}
           {av === 'can' && <span className="av-tag av-can">יכול לעבוד</span>}
+          {extraBadge}
         </div>
       </div>
       <div className="emp-side">
@@ -1584,17 +1600,65 @@ function AIChat({ schedule, selectedDate }) {
 function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
+  const [shiftFilter, setShiftFilter] = React.useState('all');
+  const shiftSettings = React.useContext(window.ShiftSettingsCtx);
+
+  React.useEffect(() => { setShiftFilter('all'); }, [selectedDate]);
 
   const NAV = [
     { id: 'employees', icon: '👥', label: 'עובדים' },
     { id: 'requests',  icon: '📋', label: 'בקשות'  },
   ];
 
+  const isNightHour = (t) => { const h = parseInt((t || '00').split(':')[0], 10); return h >= 19 || h < 6; };
+
+  const isEligible = (emp, shift) => {
+    if (PD.availabilityOn(emp.id, selectedDate) === 'unavailable') return false;
+    if (isNightHour(shift.start) && !emp.nights) return false;
+    if (PE.countShifts(schedule, emp.id) >= emp.max) return false;
+    return true;
+  };
+
+  const dayShifts = React.useMemo(() => {
+    if (!selectedDate) return [];
+    return PD.shiftTypesFor(selectedDate, shiftSettings).filter(s => !s.continuation);
+  }, [selectedDate, shiftSettings]);
+
+  const shiftCounts = React.useMemo(() => {
+    const out = {};
+    dayShifts.forEach(s => {
+      out[s.id] = PD.EMPLOYEES.filter(e => isEligible(e, s)).length;
+    });
+    return out;
+  }, [dayShifts, schedule, selectedDate]);
+
+  const isAssigned = (emp, shiftId) => {
+    if (!selectedDate || !shiftId || shiftId === 'all') return false;
+    const dataDStr = (() => {
+      const sh = dayShifts.find(s => s.id === shiftId);
+      return sh?.continuation ? sh.originDate : selectedDate;
+    })();
+    return ((schedule[dataDStr] || {})[shiftId] || []).includes(emp.id);
+  };
+
   const list = React.useMemo(() => {
     let emps = PD.EMPLOYEES;
-    if (tab === 'available') emps = emps.filter((e) => !selectedDate || PD.availabilityOn(e.id, selectedDate) !== 'unavailable');
+    if (tab === 'available' && selectedDate) {
+      emps = emps.filter(e => PD.availabilityOn(e.id, selectedDate) !== 'unavailable');
+      if (shiftFilter !== 'all') {
+        const shift = dayShifts.find(s => s.id === shiftFilter);
+        if (shift) emps = emps.filter(e => isEligible(e, shift));
+      }
+      emps = [...emps].sort((a, b) => {
+        const avScore = { high: 3, can: 1 };
+        const sa = avScore[PD.availabilityOn(a.id, selectedDate)] || 0;
+        const sb = avScore[PD.availabilityOn(b.id, selectedDate)] || 0;
+        if (sb !== sa) return sb - sa;
+        return (b.max - PE.countShifts(schedule, b.id)) - (a.max - PE.countShifts(schedule, a.id));
+      });
+    }
     return emps;
-  }, [tab, selectedDate, schedule]);
+  }, [tab, shiftFilter, selectedDate, schedule, shiftSettings]);
 
   return (
     <aside className="side-panel">
@@ -1613,17 +1677,44 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
             <button role="tab" aria-selected={tab === 'all'} className={'side-tab' + (tab === 'all' ? ' on' : '')} onClick={() => setTab('all')}>כל העובדים</button>
             <button role="tab" aria-selected={tab === 'available'} className={'side-tab' + (tab === 'available' ? ' on' : '')} onClick={() => setTab('available')}>זמינים ליום</button>
           </div>
+
           {tab === 'available' && (
-            <div className="side-note">
-              {selectedDate ? <span>זמינים ל־<b>{PD.dayLabel(selectedDate)} {PD.shortDate(selectedDate)}</b></span> : 'בחרו יום בלוח לסינון'}
-            </div>
+            selectedDate ? (
+              <>
+                <div className="side-note">
+                  זמינים ל־<b>{PD.dayLabel(selectedDate)} {PD.shortDate(selectedDate)}</b>
+                </div>
+                {dayShifts.length > 0 && (
+                  <div className="shift-filter-tabs">
+                    <button className={'shift-filter-tab' + (shiftFilter === 'all' ? ' on' : '')} onClick={() => setShiftFilter('all')}>
+                      הכל
+                    </button>
+                    {dayShifts.map(s => (
+                      <button key={s.id} className={'shift-filter-tab' + (shiftFilter === s.id ? ' on' : '')} onClick={() => setShiftFilter(s.id)}>
+                        {s.name}
+                        <span className="shift-filter-count">{shiftCounts[s.id] ?? 0}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="side-note">בחרו יום בלוח לסינון</div>
+            )
           )}
+
           <div className="emp-list">
-            {list.map((emp) => (
-              <EmployeeCard key={emp.id} emp={emp} schedule={schedule}
-                selectedDate={tab === 'available' ? selectedDate : null}
-                onDragEmpStart={onDragEmpStart} onDragEnd={onDragEnd} editable={editable} />
-            ))}
+            {list.map((emp) => {
+              const assigned = tab === 'available' && shiftFilter !== 'all' && isAssigned(emp, shiftFilter);
+              return (
+                <div key={emp.id} style={assigned ? {opacity:0.45} : undefined}>
+                  <EmployeeCard emp={emp} schedule={schedule}
+                    selectedDate={tab === 'available' ? selectedDate : null}
+                    onDragEmpStart={onDragEmpStart} onDragEnd={onDragEnd} editable={editable}
+                    extraBadge={assigned ? <span className="assigned-badge">משובץ ✓</span> : null} />
+                </div>
+              );
+            })}
           </div>
           <div className="side-hint">גררו עובד אל משמרת בלוח · גרירת משמרת קיימת = העברה · עם <kbd>Shift</kbd> = שכפול</div>
         </>

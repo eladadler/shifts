@@ -1719,8 +1719,6 @@ ${JSON.stringify(schedule || {}, null, 2)}
     } finally {
       setLoading(false);
     }
-
-    setMsgs((prev) => [...prev, { from: 'user', text: q }, { from: 'ai', text: reply }]);
   };
 
   return (

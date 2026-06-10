@@ -1233,7 +1233,7 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
       draggable={editable}
       onDragStart={(e) => {
         e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'emp', empId: emp.id }));
-        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.effectAllowed = 'copyMove';
         onDragEmpStart(emp.id);
       }}
       onDragEnd={onDragEnd}

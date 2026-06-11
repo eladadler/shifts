@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>משמרות המהפכה — אזור עובדים</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800;900&family=Noto+Sans+Hebrew:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #E9E7E2; }
+  body { font-family: 'Noto Sans Hebrew', Heebo, sans-serif; color: #1C1A17; }
+  input, textarea { font-family: 'Noto Sans Hebrew', Heebo, sans-serif; }
+  textarea:focus, input:focus { outline: none; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes popIn { from { transform: translateY(6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+/* ============ Supabase ============ */
+const SB_URL = 'https://ajniglpdgkwnasuslsyc.supabase.co';
+const SB_KEY = 'sb_publishable_zMTTfShJSVqKaGRYlYoqFA_9y_5Q5hk';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+/* ============ תאריכים ============ */
+const HEB_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const HEB_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+const pad = (n) => String(n).padStart(2, '0');
+const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const dateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const addDays = (s, n) => { const d = parseDate(s); d.setDate(d.getDate() + n); return dateStr(d); };
+const weekdayOf = (s) => parseDate(s).getDay();
+const monthLabel = (ym) => { const [y, m] = ym.split('-').map(Number); return `${HEB_MONTHS[m - 1]} ${y}`; };
+const monthName = (ym) => HEB_MONTHS[Number(ym.split('-')[1]) - 1];
+const inMonthLabel = (ym) => 'ב' + monthName(ym);
+const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+const daysInMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).getDate(); };
+const monthOffset = (ym) => weekdayOf(ym + '-01');
+const todayStr = () => dateStr(new Date());
+const thisMonth = () => todayStr().slice(0, 7);
+const diffDays = (a, b) => Math.round((parseDate(b) - parseDate(a)) / 86400000);
+
+/* ============ הגדרות משמרות — אותה לוגיקה כמו אצל המשבץ ============ */
+const WEEKDAY_SHIFTS = [
+  { id: 'morning', name: 'בוקר', start: '07:00', end: '15:00' },
+  { id: 'evening', name: 'ערב', start: '15:00', end: '23:00' },
+  { id: 'night', name: 'לילה', start: '23:00', end: '07:00' },
+];
+const WEEKEND_SHIFTS = [
+  { id: 'morning', name: 'בוקר', start: '07:00', end: '15:00' },
+  { id: 'short', name: 'קצר', start: '15:00', end: '19:00' },
+  { id: 'night', name: 'לילה', start: '19:00', end: '07:00' },
+];
+const getBase = (dayStr, settings) => {
+  const wd = weekdayOf(dayStr);
+  if (settings) {
+    if (wd === 6) return settings.saturday || settings.weekend || WEEKEND_SHIFTS;
+    if (wd === 5) return settings.friday || settings.weekend || WEEKEND_SHIFTS;
+    return settings.weekday || WEEKDAY_SHIFTS;
+  }
+  return (wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS;
+};
+const shiftTypesFor = (s, settings) => {
+  const special = settings?.special || [];
+  const directSpecial = special.filter(sp => sp.date === s);
+  if (directSpecial.length) return directSpecial;
+  return getBase(s, settings);
+};
+const shiftDefOf = (s, shiftId, settings) => {
+  const direct = shiftTypesFor(s, settings).find(x => x.id === shiftId);
+  if (direct) return direct;
+  // משמרת מיוחדת/רגילה שמתחילה ביום אחר (המשך) — חיפוש בהגדרות
+  const special = (settings?.special || []).find(sp => sp.id === shiftId);
+  return special || null;
+};
+
+/* ============ עיצוב ============ */
+const INK = '#1C1A17';
+const TEAL = '#41ABC3';
+const TEAL_DARK = 'color-mix(in oklab, #41ABC3 70%, black)';
+const TEAL_SOFT = 'color-mix(in oklab, #41ABC3 14%, white)';
+const DOTS = {
+  morning: 'oklch(0.78 0.13 80)', evening: 'oklch(0.62 0.12 250)',
+  short: 'oklch(0.68 0.11 160)', night: 'oklch(0.45 0.09 290)',
+};
+const EXTRA_DOTS = ['oklch(0.62 0.14 25)', 'oklch(0.62 0.14 330)', 'oklch(0.62 0.14 130)'];
+const dotOf = (id) => DOTS[id] || EXTRA_DOTS[Math.abs([...String(id)].reduce((a, c) => a + c.charCodeAt(0), 0)) % EXTRA_DOTS.length];
+const MARK_STATUS = {
+  un:   { bg: 'oklch(0.93 0.06 25)',  bd: '1.5px solid oklch(0.62 0.16 25)',  fg: 'oklch(0.42 0.16 25)' },
+  high: { bg: 'oklch(0.94 0.06 155)', bd: '1.5px solid oklch(0.6 0.13 155)',  fg: 'oklch(0.4 0.12 155)' },
+  can:  { bg: 'oklch(0.94 0.05 240)', bd: '1.5px solid oklch(0.6 0.12 240)',  fg: 'oklch(0.42 0.12 240)' },
+  none: { bg: '#FFFFFF', bd: '1px solid #E7E4DF', fg: '#3A3631' },
+};
+
+const fmtSentAt = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const t = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return `היום, ${t}`;
+  return `${d.getDate()} ${HEB_MONTHS[d.getMonth()]}, ${t}`;
+};
+
+/* ============ פירוק סידור שפורסם לימי-תצוגה ============ */
+function buildMonthDays(ym, pubRow, myId, empNames) {
+  const settings = pubRow?.shift_settings || null;
+  const schedule = pubRow?.schedule || {};
+  const days = [];
+  const n = daysInMonth(ym);
+  for (let d = 1; d <= n; d++) {
+    const ds = `${ym}-${pad(d)}`;
+    const dow = weekdayOf(ds);
+    const baseOrder = shiftTypesFor(ds, settings).map(x => x.id);
+    const dayData = schedule[ds] || {};
+    const ids = Object.keys(dayData).sort((a, b) => {
+      const ia = baseOrder.indexOf(a), ib = baseOrder.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+    const shifts = ids.map(id => {
+      const def = shiftDefOf(ds, id, settings);
+      const people = dayData[id] || [];
+      const special = !!(def && (def.date || (def.daysSpan || 1) > 1)) || !DOTS[id];
+      return {
+        id,
+        label: def?.name || id,
+        time: def ? `${def.start}–${def.end}` : '',
+        dot: dotOf(id),
+        people,
+        mine: people.includes(myId),
+        special,
+      };
+    }).filter(sh => sh.people.length > 0);
+    const mineShift = shifts.find(s => s.mine) || null;
+    days.push({ num: d, ds, dow, dayName: HEB_DAYS[dow], shifts, mine: !!mineShift });
+  }
+  return days;
+}
+
+/* ============ רכיבים משותפים ============ */
+function PersonChip({ id, myId, empNames }) {
+  const isMe = id === myId;
+  return (
+    <span style={{ padding: '4px 10px', borderRadius: 999, background: isMe ? TEAL : '#F2F0EC',
+      color: isMe ? '#FFFFFF' : '#4A4640', fontWeight: isMe ? 700 : 500, fontSize: 12 }}>
+      {isMe ? (empNames[id] || 'אני') + ' · אני' : (empNames[id] || id)}
+    </span>
+  );
+}
+
+function ShiftRow({ sh, myId, empNames }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, padding: '10px 12px', borderRadius: 10,
+      background: sh.mine ? TEAL_SOFT : (sh.special ? 'oklch(0.96 0.04 80)' : '#FBFAF8'),
+      border: sh.mine ? `1.5px solid ${TEAL}` : (sh.special ? '1px dashed oklch(0.72 0.1 70)' : '1px solid #ECEAE5') }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: sh.dot, flexShrink: 0 }} />
+        <span style={{ fontSize: 13, fontWeight: 800, color: INK }}>{sh.label}</span>
+        <span style={{ fontSize: 12, color: '#8A867F' }}>{sh.time}</span>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {sh.people.map(p => <PersonChip key={p} id={p} myId={myId} empNames={empNames} />)}
+      </div>
+    </div>
+  );
+}
+
+function MonthSwitcher({ label, onPrev, onNext, canPrev, canNext }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#F1EFEB', borderRadius: 12, padding: 6 }}>
+      <div onClick={canPrev ? onPrev : undefined} style={{ width: 34, height: 34, borderRadius: 9, background: '#FFFFFF', border: '1px solid #E2DFD9',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, color: INK, cursor: canPrev ? 'pointer' : 'default', opacity: canPrev ? 1 : 0.3 }}>›</div>
+      <div style={{ fontSize: 16, fontWeight: 900 }}>{label}</div>
+      <div onClick={canNext ? onNext : undefined} style={{ width: 34, height: 34, borderRadius: 9, background: '#FFFFFF', border: '1px solid #E2DFD9',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, color: INK, cursor: canNext ? 'pointer' : 'default', opacity: canNext ? 1 : 0.3 }}>‹</div>
+    </div>
+  );
+}
+
+function Spinner() {
+  return <span style={{ display: 'inline-block', width: 18, height: 18, border: '2.5px solid #DCD9D3', borderTopColor: INK, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />;
+}
+
+/* ============ מסך כניסה ============ */
+function LoginScreen({ onError }) {
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [err, setErr] = React.useState(false);
+  const [resetSent, setResetSent] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+
+  const login = async () => {
+    if (busy) return;
+    setBusy(true); setErr(false); setResetSent(false);
+    const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password });
+    setBusy(false);
+    if (error) setErr(true);
+  };
+
+  const reset = async () => {
+    if (!email.trim()) { setErr(true); return; }
+    await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.href.split('#')[0] });
+    setResetSent(true);
+  };
+
+  return (
+    <div style={{ flex: 1, padding: '76px 30px 44px', display: 'flex', flexDirection: 'column', overflowY: 'auto', animation: 'fadeIn 0.25s' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 48 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 8, background: INK, color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 900 }}>מ</div>
+        <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '0.02em' }}>משמרות המהפכה</div>
+      </div>
+      <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.2, marginBottom: 8 }}>כניסה <span style={{ color: TEAL }}>לצוות.</span></div>
+      <div style={{ fontSize: 15, color: '#6B6760', marginBottom: 32 }}>החשבון נוצר על ידי המנהל. אין הרשמה עצמית.</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 800 }}>אימייל</span>
+          <input type="email" placeholder="dana@example.com" value={email} autoComplete="email"
+            onChange={e => { setEmail(e.target.value); setErr(false); }}
+            onKeyDown={e => { if (e.key === 'Enter') login(); }}
+            style={{ border: `1.5px solid ${INK}`, borderRadius: 8, padding: '13px 14px', fontSize: 15, background: '#FFF', color: INK, direction: 'ltr', textAlign: 'right' }} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 800 }}>סיסמה</span>
+          <input type="password" placeholder="••••••••" value={password} autoComplete="current-password"
+            onChange={e => { setPassword(e.target.value); setErr(false); }}
+            onKeyDown={e => { if (e.key === 'Enter') login(); }}
+            style={{ border: err ? '1.5px solid oklch(0.55 0.18 25)' : `1.5px solid ${INK}`, borderRadius: 8, padding: '13px 14px', fontSize: 15,
+              background: err ? 'oklch(0.98 0.01 25)' : '#FFF', color: INK }} />
+          {err && <span style={{ fontSize: 13, fontWeight: 600, color: 'oklch(0.5 0.18 25)' }}>האימייל או הסיסמה שגויים. נסו שוב או אפסו סיסמה.</span>}
+        </div>
+        <div onClick={login} style={{ background: INK, color: '#FFF', borderRadius: 8, padding: '14px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, cursor: 'pointer', marginTop: 8, opacity: busy ? 0.6 : 1 }}>
+          {busy ? 'רק רגע…' : 'כניסה'}
+        </div>
+        <div onClick={reset} style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: TEAL_DARK, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>שכחתי סיסמה</div>
+        {resetSent && (
+          <div style={{ textAlign: 'center', fontSize: 13, fontWeight: 600, color: 'oklch(0.45 0.1 160)', background: 'oklch(0.96 0.03 160)', borderRadius: 8, padding: '10px 12px' }}>
+            שלחנו קישור לאיפוס סיסמה לכתובת האימייל שלך ✓
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============ קביעת סיסמה חדשה (לאחר קישור איפוס) ============ */
+function NewPasswordScreen({ onDone }) {
+  const [pw, setPw] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+  const save = async () => {
+    if (pw.length < 6) { setErr('הסיסמה צריכה להכיל לפחות 6 תווים'); return; }
+    setBusy(true);
+    const { error } = await sb.auth.updateUser({ password: pw });
+    setBusy(false);
+    if (error) setErr(error.message); else onDone();
+  };
+  return (
+    <div style={{ flex: 1, padding: '76px 30px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ fontSize: 26, fontWeight: 900 }}>בחירת סיסמה חדשה</div>
+      <input type="password" placeholder="סיסמה חדשה" value={pw} onChange={e => { setPw(e.target.value); setErr(null); }}
+        style={{ border: `1.5px solid ${INK}`, borderRadius: 8, padding: '13px 14px', fontSize: 15 }} />
+      {err && <span style={{ fontSize: 13, fontWeight: 600, color: 'oklch(0.5 0.18 25)' }}>{err}</span>}
+      <div onClick={save} style={{ background: INK, color: '#FFF', borderRadius: 8, padding: '14px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>שמירה והמשך</div>
+    </div>
+  );
+}
+
+/* ============ האפליקציה הראשית ============ */
+function App() {
+  const [session, setSession] = React.useState(undefined);   // undefined=בטעינה, null=לא מחובר
+  const [recovery, setRecovery] = React.useState(false);
+  const [me, setMe] = React.useState(null);                  // רשומת העובד מ-app_employees
+  const [meStatus, setMeStatus] = React.useState('loading'); // loading | ok | notfound | error
+  const [published, setPublished] = React.useState({});      // { 'YYYY-MM': row }
+  const [serverReqs, setServerReqs] = React.useState({});    // { 'YYYY-MM': row } — הבקשות שלי מהשרת
+  const [localReqs, setLocalReqs] = React.useState({});      // { 'YYYY-MM': { marks, note, dirty } }
+  const [tab, setTab] = React.useState('home');
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [toast, setToast] = React.useState(null);
+
+  const TM = thisMonth();
+
+  /* --- session --- */
+  React.useEffect(() => {
+    sb.auth.getSession().then(({ data }) => setSession(data.session ?? null));
+    const { data: sub } = sb.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true);
+      setSession(s ?? null);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
+
+  /* --- טעינת נתונים --- */
+  const loadAll = React.useCallback(async (email) => {
+    try {
+      const { data: emps, error: e1 } = await sb.from('app_employees').select('*');
+      if (e1) throw e1;
+      const mine = (emps || []).find(x => (x.email || '').trim().toLowerCase() === email.trim().toLowerCase());
+      if (!mine) { setMeStatus('notfound'); return; }
+      setMe({ ...mine, allEmployees: emps });
+      setMeStatus('ok');
+
+      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }] = await Promise.all([
+        sb.from('published_schedules').select('*'),
+        sb.from('employee_requests').select('*').eq('emp_id', mine.id),
+      ]);
+      if (e2) throw e2;
+      if (e3) throw e3;
+      const pubMap = {};
+      (pubs || []).forEach(r => { pubMap[r.month] = r; });
+      setPublished(pubMap);
+      const reqMap = {};
+      (reqs || []).forEach(r => { reqMap[r.month] = r; });
+      setServerReqs(reqMap);
+      // אתחול עריכות מקומיות מהשרת — בלי לדרוס שינויים שטרם נשלחו
+      setLocalReqs(prev => {
+        const next = { ...prev };
+        Object.entries(reqMap).forEach(([m, r]) => {
+          if (next[m]?.dirty) return;
+          const marks = {};
+          [['unavailable', 'un'], ['high', 'high'], ['can', 'can']].forEach(([key, mark]) => {
+            (r[key] || []).forEach(ds => { const day = Number(ds.split('-')[2]); if (day) marks[day] = mark; });
+          });
+          next[m] = { marks, note: r.note || '', dirty: false };
+        });
+        return next;
+      });
+    } catch (err) {
+      console.error(err);
+      setMeStatus('error');
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!session?.user?.email) return;
+    setMeStatus('loading');
+    loadAll(session.user.email);
+  }, [session?.user?.email, loadAll]);
+
+  // רענון כשהאפליקציה חוזרת לפוקוס (סידור חדש פורסם וכו')
+  React.useEffect(() => {
+    const onVis = () => { if (document.visibilityState === 'visible' && session?.user?.email && meStatus === 'ok') loadAll(session.user.email); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [session, meStatus, loadAll]);
+
+  const logout = async () => { await sb.auth.signOut(); setMe(null); setMeStatus('loading'); setMenuOpen(false); setTab('home'); };
+
+  /* --- מסכי קצה --- */
+  const frame = (children) => (
+    <div style={{ minHeight: '100vh', background: '#E9E7E2', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: '100%', maxWidth: 430, background: '#FFFFFF', minHeight: '100vh', display: 'flex', flexDirection: 'column', position: 'relative',
+        boxShadow: '0 0 0 1px #DCD9D3, 0 24px 60px rgba(30,28,24,0.12)', overflow: 'hidden' }}>
+        {children}
+        {toast && (
+          <div style={{ position: 'fixed', bottom: 84, left: '50%', transform: 'translateX(-50%)', background: INK, color: '#FFF', borderRadius: 10,
+            padding: '10px 18px', fontSize: 13, fontWeight: 700, zIndex: 100, animation: 'popIn 0.2s', maxWidth: 340, textAlign: 'center' }}>{toast}</div>
+        )}
+      </div>
+    </div>
+  );
+
+  if (session === undefined) {
+    return frame(<div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner /></div>);
+  }
+  if (recovery && session) {
+    return frame(<NewPasswordScreen onDone={() => { setRecovery(false); showToast('הסיסמה עודכנה ✓'); }} />);
+  }
+  if (!session) return frame(<LoginScreen />);
+
+  if (meStatus === 'loading') {
+    return frame(<div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+      <Spinner /><span style={{ fontSize: 13, color: '#8A867F' }}>טוען את הנתונים שלך…</span>
+    </div>);
+  }
+  if (meStatus === 'notfound' || meStatus === 'error') {
+    return frame(
+      <div style={{ flex: 1, padding: '76px 30px', display: 'flex', flexDirection: 'column', gap: 14, textAlign: 'center', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 58, height: 58, borderRadius: 14, background: '#F1EFEB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 900, color: '#A09C94' }}>!</div>
+        {meStatus === 'notfound' ? (<>
+          <div style={{ fontSize: 17, fontWeight: 800 }}>החשבון לא משויך לעובד</div>
+          <div style={{ fontSize: 14, color: '#6B6760', lineHeight: 1.6 }}>
+            התחברת בתור <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{session.user.email}</b>, אבל הכתובת הזו לא מופיעה אצל אף עובד במערכת.<br />
+            בקשו מהמנהל להזין את האימייל הזה בכרטיס העובד שלכם (מסך עובדים ← עריכה).
+          </div>
+        </>) : (<>
+          <div style={{ fontSize: 17, fontWeight: 800 }}>לא הצלחנו לטעון את הנתונים</div>
+          <div style={{ fontSize: 14, color: '#6B6760', lineHeight: 1.6 }}>ייתכן שהמערכת עדיין לא הוקמה (טבלאות Supabase חסרות) או שיש בעיית רשת. נסו שוב מאוחר יותר.</div>
+        </>)}
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <div onClick={() => loadAll(session.user.email)} style={{ background: INK, color: '#FFF', borderRadius: 8, padding: '11px 20px', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>נסו שוב</div>
+          <div onClick={logout} style={{ background: '#FFF', border: `1.5px solid ${INK}`, borderRadius: 8, padding: '11px 20px', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>התנתקות</div>
+        </div>
+      </div>
+    );
+  }
+
+  /* --- נתונים מחושבים --- */
+  const empNames = {};
+  (me.allEmployees || []).forEach(e => { empNames[e.id] = e.name; });
+  Object.values(published).forEach(p => (p.employees || []).forEach(e => { if (!empNames[e.id]) empNames[e.id] = e.name; }));
+
+  const firstName = (me.name || '').split(' ')[0];
+
+  return frame(
+    <Shell me={me} firstName={firstName} email={session.user.email} menuOpen={menuOpen} setMenuOpen={setMenuOpen} onLogout={logout}
+      tab={tab} setTab={setTab}>
+      {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} />}
+      {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} goReq={() => setTab('requests')} />}
+      {tab === 'requests' && <RequestsTab me={me} email={session.user.email} published={published} TM={TM}
+        serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} />}
+    </Shell>
+  );
+}
+
+/* ============ מעטפת: כותרת + טאבים ============ */
+function Shell({ me, firstName, email, menuOpen, setMenuOpen, onLogout, tab, setTab, children }) {
+  const tabStyle = (active) => ({
+    padding: '13px 0 17px', textAlign: 'center', fontSize: 13, fontWeight: active ? 800 : 500,
+    color: active ? INK : '#8A867F', borderTop: `3px solid ${active ? TEAL : 'transparent'}`, marginTop: -1.5, cursor: 'pointer', transition: 'color 0.15s',
+  });
+  return (<>
+    <div style={{ padding: '13px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1.5px solid ${INK}`, position: 'relative', background: '#FFF', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <div style={{ width: 28, height: 28, borderRadius: 7, background: INK, color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900 }}>מ</div>
+        <div style={{ fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap' }}>משמרות המהפכה</div>
+      </div>
+      <div onClick={() => setMenuOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '4px 8px', borderRadius: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{me.name}</span>
+        <div style={{ width: 30, height: 30, borderRadius: '50%', background: TEAL_SOFT, color: TEAL_DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14 }}>
+          {(firstName || '?')[0]}
+        </div>
+      </div>
+      {menuOpen && (
+        <div style={{ position: 'absolute', top: 52, left: 14, background: '#FFF', border: `1.5px solid ${INK}`, borderRadius: 10, boxShadow: '0 12px 28px rgba(0,0,0,0.14)', zIndex: 30, overflow: 'hidden', minWidth: 180 }}>
+          <div style={{ padding: '11px 16px', fontSize: 12, color: '#8A867F', borderBottom: '1px solid #EFEDE9', direction: 'ltr', textAlign: 'right' }}>{email}</div>
+          <div onClick={onLogout} style={{ padding: '12px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', color: 'oklch(0.5 0.18 25)' }}>התנתקות</div>
+        </div>
+      )}
+    </div>
+    <div style={{ flex: 1, overflowY: 'auto', background: '#FAF9F7' }} onClick={() => menuOpen && setMenuOpen(false)}>
+      {children}
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderTop: `1.5px solid ${INK}`, background: '#FFF', flexShrink: 0 }}>
+      <div onClick={() => { setTab('home'); setMenuOpen(false); }} style={tabStyle(tab === 'home')}>הבית</div>
+      <div onClick={() => { setTab('schedule'); setMenuOpen(false); }} style={tabStyle(tab === 'schedule')}>הסידור</div>
+      <div onClick={() => { setTab('requests'); setMenuOpen(false); }} style={tabStyle(tab === 'requests')}>הגשת בקשות</div>
+    </div>
+  </>);
+}
+
+/* ============ טאב הבית ============ */
+function HomeTab({ me, empNames, published, TM, goSched, goReq }) {
+  const today = todayStr();
+  const relOf = (off) => off === 0 ? 'היום' : off === 1 ? 'מחר' : `בעוד ${off} ימים`;
+
+  // כל המשמרות שלי מהיום והלאה, מכל החודשים שפורסמו
+  const upcoming = [];
+  Object.keys(published).sort().forEach(ym => {
+    if (ym < TM) return;
+    const days = buildMonthDays(ym, published[ym], me.id, empNames);
+    days.forEach(d => {
+      if (d.ds < today) return;
+      d.shifts.filter(s => s.mine).forEach(sh => {
+        upcoming.push({ ym, d, sh, off: diffDays(today, d.ds) });
+      });
+    });
+  });
+  upcoming.sort((a, b) => a.off - b.off);
+  const hero = upcoming[0] || null;
+  const firstName = (me.name || '').split(' ')[0];
+
+  // הגשת בקשות פתוחה לחודש הקרוב שטרם פורסם
+  const openReqMonth = [addMonths(TM, 1), addMonths(TM, 2)].find(m => !published[m]) || (!published[TM] ? TM : null);
+
+  return (
+    <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 14, animation: 'fadeIn 0.25s' }}>
+      <div style={{ fontSize: 24, fontWeight: 900 }}>שלום, {firstName}</div>
+
+      {hero ? (
+        <div style={{ background: INK, color: '#FFF', borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 11, boxShadow: '0 12px 26px rgba(28,26,23,0.18)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: 'color-mix(in oklab, #41ABC3 45%, white)', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>המשמרת הקרובה שלך</span>
+            <span style={{ fontSize: 12, fontWeight: 800, background: TEAL, color: '#FFF', borderRadius: 999, padding: '4px 12px' }}>{relOf(hero.off)}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: hero.sh.dot, flexShrink: 0 }} />
+            <span style={{ fontSize: 34, fontWeight: 900, lineHeight: 1 }}>{hero.sh.label}</span>
+            <span style={{ fontSize: 18, fontWeight: 700, color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' }}>{hero.sh.time}</span>
+          </div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }}>יום {hero.d.dayName}, {hero.d.num} {inMonthLabel(hero.ym)}</div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', borderTop: '1px solid rgba(255,255,255,0.16)', paddingTop: 10 }}>
+            {(() => { const mates = hero.sh.people.filter(p => p !== me.id).map(p => empNames[p] || p);
+              return mates.length ? 'יחד עם: ' + mates.join(', ') : 'משמרת יחיד — אתם לבד במשמרת זו'; })()}
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: INK, color: '#FFF', borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: 'color-mix(in oklab, #41ABC3 45%, white)' }}>המשמרת הקרובה שלך</span>
+          <span style={{ fontSize: 18, fontWeight: 800 }}>אין משמרות קרובות בסידור שפורסם</span>
+        </div>
+      )}
+
+      {openReqMonth && (
+        <div style={{ background: TEAL_SOFT, border: '1px solid color-mix(in oklab, #41ABC3 30%, white)', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'color-mix(in oklab, #41ABC3 60%, black)' }}>הגשת הבקשות ל{monthName(openReqMonth)} פתוחה</span>
+          <span onClick={goReq} style={{ fontSize: 13, fontWeight: 800, color: TEAL_DARK, cursor: 'pointer', flexShrink: 0 }}>להגשה ←</span>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+        <div style={{ fontSize: 15, fontWeight: 900 }}>המשמרות הבאות שלך</div>
+        <div onClick={goSched} style={{ fontSize: 13, fontWeight: 700, color: TEAL_DARK, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>לסידור המלא</div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {upcoming.slice(1, 6).map((u, i) => (
+          <div key={i} style={{ background: '#FFF', border: '1px solid #EAE7E1', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 10, background: '#F1EFEB', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0, gap: 1 }}>
+              <span style={{ fontSize: 16, fontWeight: 900, lineHeight: 1 }}>{u.d.num}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#8A867F' }}>{monthName(u.ym)}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: u.sh.dot }} />
+                <span style={{ fontSize: 14, fontWeight: 800 }}>{u.sh.label}</span>
+                <span style={{ fontSize: 12, color: '#8A867F' }}>{u.sh.time}</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#8A867F' }}>יום {u.d.dayName}</div>
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#56524C', flexShrink: 0 }}>{relOf(u.off)}</div>
+          </div>
+        ))}
+        {upcoming.length <= 1 && <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 13, color: '#8A867F' }}>אין משמרות נוספות בסידורים שפורסמו.</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ============ טאב הסידור ============ */
+function ScheduleTab({ me, empNames, published, TM, goReq }) {
+  const months = React.useMemo(() => {
+    const set = new Set([TM, addMonths(TM, 1), ...Object.keys(published)]);
+    return [...set].sort();
+  }, [published, TM]);
+  const [mi, setMi] = React.useState(() => Math.max(0, months.indexOf(TM)));
+  const [view, setView] = React.useState('grid');
+  const [onlyMine, setOnlyMine] = React.useState(false);
+  const ym = months[Math.min(mi, months.length - 1)];
+  const pub = published[ym] || null;
+  const today = todayStr();
+  const todayNum = ym === TM ? Number(today.split('-')[2]) : null;
+
+  const days = React.useMemo(() => pub ? buildMonthDays(ym, pub, me.id, empNames) : [], [pub, ym, me.id]);
+  const [selDay, setSelDay] = React.useState(todayNum || 1);
+  const [weekIdx, setWeekIdx] = React.useState(() => Math.floor(((todayNum || 1) - 1 + monthOffset(ym)) / 7));
+
+  const gotoMonth = (idx) => {
+    const m = months[idx];
+    const sel = (m === TM ? Number(today.split('-')[2]) : 1);
+    setMi(idx); setSelDay(sel); setWeekIdx(Math.floor((sel - 1 + monthOffset(m)) / 7));
+  };
+
+  const offset = monthOffset(ym);
+  const nDays = daysInMonth(ym);
+  const sel = Math.min(selDay, nDays);
+
+  const myCount = days.filter(d => d.mine).length;
+  const nightCount = days.reduce((a, d) => a + d.shifts.filter(s => s.mine && s.id === 'night').length, 0);
+
+  const letters = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+  const maxWeek = Math.floor((nDays - 1 + offset) / 7);
+  const wi = Math.min(weekIdx, maxWeek);
+  const dFirst = Math.max(1, wi * 7 - offset + 1);
+  const dLast = Math.min(nDays, wi * 7 - offset + 7);
+
+  return (
+    <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.25s' }}>
+      <div style={{ fontSize: 24, fontWeight: 900 }}>הסידור</div>
+      <MonthSwitcher label={monthLabel(ym)} canPrev={mi > 0} canNext={mi < months.length - 1}
+        onPrev={() => gotoMonth(mi - 1)} onNext={() => gotoMonth(mi + 1)} />
+
+      {!pub ? (
+        <div style={{ padding: '56px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
+          <div style={{ width: 58, height: 58, borderRadius: 14, background: '#F1EFEB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 900, color: '#A09C94' }}>?</div>
+          <div style={{ fontSize: 17, fontWeight: 800 }}>הסידור ל{monthLabel(ym)} טרם פורסם</div>
+          <div style={{ fontSize: 14, color: '#6B6760', lineHeight: 1.6, maxWidth: 280 }}>ברגע שהמנהל יפרסם את הסידור, הוא יופיע כאן.</div>
+          <div onClick={goReq} style={{ marginTop: 8, background: INK, color: '#FFF', borderRadius: 8, padding: '12px 22px', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>
+            להגשת בקשות ל{monthName(ym)}
+          </div>
+        </div>
+      ) : (<>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', background: '#F1EFEB', borderRadius: 10, padding: 3 }}>
+            {[['grid', 'לוח'], ['list', 'רשימה']].map(([v, label]) => (
+              <div key={v} onClick={() => setView(v)} style={{ padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer',
+                background: view === v ? INK : 'transparent', color: view === v ? '#FFF' : '#8A867F', transition: 'background 0.15s, color 0.15s' }}>{label}</div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#56524C' }}>רק שלי</span>
+            <div onClick={() => setOnlyMine(o => !o)} style={{ width: 42, height: 24, borderRadius: 999, background: onlyMine ? TEAL : '#D8D4CE', position: 'relative', cursor: 'pointer', transition: 'background 0.2s' }}>
+              <div style={{ position: 'absolute', top: 2, right: 2, width: 20, height: 20, borderRadius: '50%', background: '#FFF', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                transform: onlyMine ? 'translateX(-18px)' : 'translateX(0)', transition: 'transform 0.2s' }} />
+            </div>
+          </div>
+        </div>
+        <div style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 800, color: TEAL_DARK, background: TEAL_SOFT, borderRadius: 999, padding: '5px 12px' }}>
+          {myCount} משמרות החודש · {nightCount === 1 ? 'לילה אחד' : `${nightCount} לילות`}
+        </div>
+
+        {view === 'grid' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+              {['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'].map(l => <div key={l} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#A09C94' }}>{l}</div>)}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+              {Array.from({ length: offset }).map((_, i) => <div key={'pad' + i} />)}
+              {days.map(d => {
+                const isSel = d.num === sel;
+                const isToday = todayNum === d.num;
+                return (
+                  <div key={d.num} onClick={() => setSelDay(d.num)} style={{ aspectRatio: '0.92', borderRadius: 10,
+                    background: isSel ? INK : (d.mine ? TEAL_SOFT : '#FFF'), color: isSel ? '#FFF' : INK,
+                    border: isSel ? `1.5px solid ${INK}` : (isToday ? `2px solid ${INK}` : (d.mine ? `1.5px solid ${TEAL}` : '1px solid #E7E4DF')),
+                    opacity: (onlyMine && !d.mine && !isSel) ? 0.35 : 1,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, cursor: 'pointer',
+                    transition: 'background 0.15s, opacity 0.2s' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{d.num}</div>
+                    <div style={{ display: 'flex', gap: 3 }}>
+                      {d.shifts.slice(0, 3).map((s, i) => <span key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: isSel ? 'rgba(255,255,255,0.85)' : s.dot }} />)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ background: '#FFF', borderRadius: 14, border: '1px solid #EAE7E1', padding: 14, display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {(() => {
+                const d = days[sel - 1];
+                if (!d) return null;
+                const use = onlyMine ? d.shifts.filter(s => s.mine) : d.shifts;
+                return (<>
+                  <div style={{ fontSize: 14, fontWeight: 900 }}>יום {d.dayName}, {d.num} {inMonthLabel(ym)}{todayNum === d.num ? ' · היום' : ''}</div>
+                  {use.length === 0 && <div style={{ fontSize: 13, color: '#8A867F' }}>{onlyMine ? 'אין לך משמרות ביום זה.' : 'אין משמרות ביום זה.'}</div>}
+                  {use.map((sh, i) => <ShiftRow key={i} sh={sh} myId={me.id} empNames={empNames} />)}
+                </>);
+              })()}
+            </div>
+          </div>
+        )}
+
+        {view === 'list' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>שבוע {dFirst}–{dLast} {inMonthLabel(ym)}</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <div onClick={() => wi > 0 && (setWeekIdx(wi - 1), setSelDay(Math.max(1, (wi - 1) * 7 - offset + 1)))}
+                  style={{ width: 28, height: 28, borderRadius: 8, background: '#F1EFEB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, cursor: 'pointer', opacity: wi > 0 ? 1 : 0.3 }}>›</div>
+                <div onClick={() => wi < maxWeek && (setWeekIdx(wi + 1), setSelDay(Math.min(nDays, (wi + 1) * 7 - offset + 1)))}
+                  style={{ width: 28, height: 28, borderRadius: 8, background: '#F1EFEB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, cursor: 'pointer', opacity: wi < maxWeek ? 1 : 0.3 }}>‹</div>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+              {Array.from({ length: 7 }).map((_, s) => {
+                const dn = wi * 7 - offset + 1 + s;
+                if (dn < 1 || dn > nDays) return <div key={s} />;
+                const d = days[dn - 1];
+                const act = dn === sel;
+                return (
+                  <div key={s} onClick={() => setSelDay(dn)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '8px 0 7px', borderRadius: 11,
+                    background: act ? INK : 'transparent', color: act ? '#FFF' : INK,
+                    border: (todayNum === dn && !act) ? `1.5px solid ${INK}` : '1px solid transparent', cursor: 'pointer' }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.75 }}>{letters[s]}</div>
+                    <div style={{ fontSize: 15, fontWeight: 800 }}>{dn}</div>
+                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: d.mine ? (act ? 'rgba(255,255,255,0.9)' : TEAL) : 'transparent' }} />
+                  </div>
+                );
+              })}
+            </div>
+            {Array.from({ length: dLast - dFirst + 1 }).map((_, i) => {
+              const dn = dFirst + i;
+              const d = days[dn - 1];
+              const mineShifts = d.shifts.filter(s => s.mine);
+              const use = onlyMine ? mineShifts : d.shifts;
+              const isThin = onlyMine && mineShifts.length === 0;
+              const expanded = dn === sel && !isThin;
+              return (
+                <div key={dn} onClick={() => setSelDay(dn)} style={{ background: '#FFF', borderRadius: 14, border: expanded ? `1.5px solid ${INK}` : '1px solid #E7E4DF', padding: 13,
+                  display: 'flex', flexDirection: 'column', gap: 9, cursor: 'pointer', transition: 'border 0.15s' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800 }}>יום {d.dayName} · {dn} {inMonthLabel(ym)}{todayNum === dn ? ' · היום' : ''}</div>
+                    {d.mine && <span style={{ fontSize: 11, fontWeight: 800, color: '#FFF', background: TEAL, borderRadius: 999, padding: '3px 9px' }}>משמרת שלך</span>}
+                  </div>
+                  {isThin && <div style={{ fontSize: 12, color: '#A09C94' }}>אין משמרות שלך ביום זה</div>}
+                  {!expanded && !isThin && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {use.map((s, j) => (
+                        <span key={j} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, background: '#F4F2EE', fontSize: 11, fontWeight: 600, color: '#56524C' }}>
+                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.dot }} />{s.label}
+                        </span>
+                      ))}
+                      {use.length === 0 && <span style={{ fontSize: 12, color: '#A09C94' }}>אין משמרות</span>}
+                    </div>
+                  )}
+                  {expanded && use.map((sh, j) => <ShiftRow key={j} sh={sh} myId={me.id} empNames={empNames} />)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </>)}
+    </div>
+  );
+}
+
+/* ============ טאב הגשת בקשות ============ */
+function RequestsTab({ me, email, published, TM, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast }) {
+  const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);
+  const [mi, setMi] = React.useState(() => {
+    // ברירת מחדל: החודש הקרוב שעדיין פתוח לבקשות
+    const i = months.findIndex(m => m >= TM && !published[m]);
+    return i === -1 ? months.length - 1 : i;
+  });
+  const [brush, setBrush] = React.useState('un');
+  const [saving, setSaving] = React.useState(false);
+  const ym = months[mi];
+  const editable = !published[ym];
+  const local = localReqs[ym] || { marks: {}, note: '', dirty: false };
+  const server = serverReqs[ym] || null;
+  const offset = monthOffset(ym);
+  const nDays = daysInMonth(ym);
+
+  const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', dirty: false }), ...patch } }));
+
+  const paint = (d) => {
+    if (!editable) return;
+    const marks = { ...local.marks };
+    if (brush === 'erase') delete marks[d]; else marks[d] = brush;
+    setLocal({ marks, dirty: true });
+  };
+
+  const submit = async () => {
+    if (saving) return;
+    setSaving(true);
+    const toDates = (mark) => Object.entries(local.marks).filter(([, v]) => v === mark).map(([d]) => `${ym}-${pad(Number(d))}`).sort();
+    const row = {
+      emp_id: me.id, month: ym,
+      unavailable: toDates('un'), high: toDates('high'), can: toDates('can'),
+      note: local.note || '', updated_at: new Date().toISOString(), updated_by: email,
+    };
+    const { data, error } = await sb.from('employee_requests').upsert(row).select().single();
+    setSaving(false);
+    if (error) { console.error(error); showToast('שגיאה בשליחה — נסו שוב'); return; }
+    setServerReqs(prev => ({ ...prev, [ym]: data }));
+    setLocal({ dirty: false });
+    showToast('הבקשות נשלחו ✓');
+  };
+
+  const hasMarks = Object.keys(local.marks).length > 0;
+  const needSend = !server || local.dirty;
+  const counts = (mark) => Object.values(local.marks).filter(v => v === mark).length;
+  const sentAt = fmtSentAt(server?.updated_at);
+
+  const BRUSHES = [
+    { id: 'un', label: 'לא זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' },
+    { id: 'can', label: 'יכול.ה' }, { id: 'erase', label: 'מחיקה' },
+  ];
+
+  return (
+    <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.25s' }}>
+      <div style={{ fontSize: 24, fontWeight: 900 }}>הגשת בקשות</div>
+      <MonthSwitcher label={monthLabel(ym)} canPrev={mi > 0} canNext={mi < months.length - 1}
+        onPrev={() => setMi(mi - 1)} onNext={() => setMi(mi + 1)} />
+
+      {editable ? (<>
+        <div style={{ fontSize: 12, color: '#8A867F' }}>1. בוחרים סימון · 2. מקישים על הימים בלוח</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
+          {BRUSHES.map(c => {
+            const s = c.id === 'erase' ? { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' } : MARK_STATUS[c.id];
+            const active = brush === c.id;
+            return (
+              <div key={c.id} onClick={() => setBrush(c.id)} style={{ padding: '9px 0', borderRadius: 10, background: s.bg, color: s.fg,
+                border: active ? `2px solid ${s.fg}` : s.bd, boxShadow: active ? '0 3px 10px rgba(30,28,24,0.16)' : 'none',
+                fontSize: 12, fontWeight: 800, textAlign: 'center', cursor: 'pointer', transition: 'box-shadow 0.15s, border 0.15s' }}>{c.label}</div>
+            );
+          })}
+        </div>
+      </>) : (
+        <div style={{ background: '#F1EFEB', borderRadius: 10, padding: '11px 14px', fontSize: 13, fontWeight: 700, color: '#56524C' }}>
+          הסידור לחודש זה כבר פורסם — הבקשות מוצגות לקריאה בלבד.
+        </div>
+      )}
+
+      {(editable || hasMarks) && (<>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+          {['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'].map(l => <div key={l} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#A09C94' }}>{l}</div>)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+          {Array.from({ length: offset }).map((_, i) => <div key={'pad' + i} />)}
+          {Array.from({ length: nDays }).map((_, i) => {
+            const d = i + 1;
+            const s = MARK_STATUS[local.marks[d] || 'none'];
+            return (
+              <div key={d} onClick={() => paint(d)} style={{ aspectRatio: '1', borderRadius: 10, background: s.bg, border: s.bd, color: s.fg,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700,
+                cursor: editable ? 'pointer' : 'default', transition: 'background 0.15s, border 0.15s' }}>{d}</div>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
+          {counts('un')} לא זמין · {counts('high')} מעדיף · {counts('can')} יכול
+        </div>
+      </>)}
+
+      {editable && (<>
+        <textarea placeholder='הערות למשבץ — למשל: מעדיפה לילות, עד 15 בחודש אני בחו"ל' value={local.note}
+          onChange={e => setLocal({ note: e.target.value, dirty: true })}
+          style={{ border: `1.5px solid ${INK}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 68 }} />
+        <div onClick={needSend ? submit : undefined} style={{
+          background: needSend ? INK : '#FFF', color: needSend ? '#FFF' : TEAL_DARK,
+          border: needSend ? `1.5px solid ${INK}` : `1.5px solid ${TEAL}`,
+          borderRadius: 10, padding: '14px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, cursor: needSend ? 'pointer' : 'default',
+          opacity: saving ? 0.6 : 1, transition: 'background 0.2s, color 0.2s' }}>
+          {saving ? 'שולח…' : needSend ? (server ? 'שליחת עדכון' : 'שליחת בקשות') : 'הבקשות נשלחו ✓'}
+        </div>
+        {sentAt && (
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
+            עודכן לאחרונה: {sentAt}{local.dirty ? ' · יש שינויים שטרם נשלחו' : ''}
+          </div>
+        )}
+      </>)}
+
+      {!editable && local.note && (
+        <div style={{ background: '#FFF', border: '1px solid #EAE7E1', borderRadius: 12, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#8A867F' }}>הערות למשבץ</div>
+          <div style={{ fontSize: 14, lineHeight: 1.6 }}>{local.note}</div>
+        </div>
+      )}
+      {!editable && sentAt && <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>נשלח לאחרונה: {sentAt}</div>}
+      {!editable && !hasMarks && !local.note && (
+        <div style={{ padding: '36px 24px', textAlign: 'center', fontSize: 14, color: '#8A867F' }}>לא הגשת בקשות לחודש זה.</div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

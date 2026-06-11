@@ -645,6 +645,63 @@
         return false;
       }
     },
+    // ---- ממשק לאפליקציית העובדים (עובד.html) ----
+    async fetchEmployeeRequests() {
+      if (!client) return null;
+      try {
+        const { data, error } = await client.from('employee_requests').select('*');
+        if (error) throw error;
+        return data || [];
+      } catch (e) {
+        console.warn('DB fetchEmployeeRequests failed:', e.message);
+        return null;
+      }
+    },
+    async syncEmployees(employees) {
+      if (!client) return false;
+      try {
+        const rows = (employees || []).map(e => ({
+          id: e.id, name: e.name,
+          email: (e.email || '').trim().toLowerCase() || null,
+          color: e.color || null,
+          updated_at: new Date().toISOString(),
+        }));
+        if (rows.length) {
+          const { error } = await client.from('app_employees').upsert(rows);
+          if (error) throw error;
+        }
+        const ids = rows.map(r => '"' + r.id + '"');
+        const del = client.from('app_employees').delete();
+        const { error: derr } = await (ids.length ? del.not('id', 'in', '(' + ids.join(',') + ')') : del.neq('id', ''));
+        if (derr) throw derr;
+        return true;
+      } catch (e) {
+        console.warn('DB syncEmployees failed:', e.message);
+        return false;
+      }
+    },
+    async publishSchedule(row) {
+      if (!client) return false;
+      try {
+        const { error } = await client.from('published_schedules').upsert(row);
+        if (error) throw error;
+        return true;
+      } catch (e) {
+        console.warn('DB publishSchedule failed:', e.message);
+        return false;
+      }
+    },
+    async unpublishSchedule(month) {
+      if (!client) return false;
+      try {
+        const { error } = await client.from('published_schedules').delete().eq('month', month);
+        if (error) throw error;
+        return true;
+      } catch (e) {
+        console.warn('DB unpublishSchedule failed:', e.message);
+        return false;
+      }
+    },
   };
 })();
 </script>
@@ -2571,7 +2628,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
   };
 
   const openAdd = () => {
-    setEditEmp({ id: 'emp-' + Date.now(), name: '', role: '', color: COLORS[0], max: 16, anchor: false, nights: false });
+    setEditEmp({ id: 'emp-' + Date.now(), name: '', role: '', email: '', color: COLORS[0], max: 16, anchor: false, nights: false });
     setShowForm(true);
   };
   const openEdit = (emp) => { setEditEmp({ ...emp }); setShowForm(true); };
@@ -2604,6 +2661,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
               <window.Avatar emp={emp} size={30} />
               <div>
                 <div style={{fontWeight:600,fontSize:'13px'}}>{emp.name}</div>
+                {emp.email && <div style={{fontSize:'10.5px',color:'var(--ink-3)',direction:'ltr',textAlign:'right'}}>{emp.email}</div>}
                 {emp.anchor && <span style={{fontSize:'10px',color:'var(--ink-3)'}}>⚓ עוגן</span>}
               </div>
             </div>
@@ -2636,6 +2694,13 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
                 <label className="field-label">תפקיד <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
                 <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
                   value={editEmp.role} onChange={(e) => setEditEmp(p => ({...p, role: e.target.value}))} />
+              </div>
+              <div className="field">
+                <label className="field-label">אימייל <span style={{color:'var(--ink-3)',fontWeight:400}}>(לכניסה לאפליקציית העובדים)</span></label>
+                <input type="email" dir="ltr" style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%',textAlign:'left'}}
+                  value={editEmp.email || ''} onChange={(e) => setEditEmp(p => ({...p, email: e.target.value}))}
+                  placeholder="dana@example.com" />
+                <span className="field-hint" style={{fontSize:'11px'}}>חייב להתאים לאימייל של חשבון העובד ב-Supabase Auth</span>
               </div>
               <div className="field">
                 <label className="field-label">מכסה חודשית <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
@@ -2681,7 +2746,14 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
 }
 
 // ---- RequestsScreen ----
-function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey }) {
+function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey, onRefresh }) {
+  const [refreshing, setRefreshing] = React.useState(false);
+  const refresh = async () => {
+    if (!onRefresh || refreshing) return;
+    setRefreshing(true);
+    await onRefresh();
+    setRefreshing(false);
+  };
   const [month, setMonth] = React.useState(initialMonth || SD.MONTH);
   const [analyzing, setAnalyzing] = React.useState({});   // empId -> true
   const [errors, setErrors] = React.useState({});          // empId -> message
@@ -2802,6 +2874,9 @@ ${datesList}
           <span style={{fontSize:'14px',fontWeight:600,minWidth:110,textAlign:'center'}}>{SD.monthLabel(month)}</span>
           <button className="month-nav-btn" onClick={() => navMonth(1)} title="חודש הבא">›</button>
         </div>
+        <button className="btn" style={{marginInlineStart:12,fontSize:'12.5px'}} onClick={refresh} disabled={refreshing}>
+          {refreshing ? <><span className="spin">↻</span> מרענן…</> : '↻ רענון בקשות מהעובדים'}
+        </button>
         <span style={{fontSize:'13px',color:'var(--ink-3)',marginInlineStart:'auto'}}>{withReqCount} מתוך {employees.length} עובדים עם בקשות לחודש זה</span>
       </div>
 
@@ -2813,9 +2888,11 @@ ${datesList}
             const entry = entryOf(emp.id);
             const text = entry?.text || '';
             const analyzed = entry && entry.analyzedAt;
+            const fromEmployee = entry && entry.fromEmployee;
             const stale = analyzed && (entry.analyzedText || '') !== text.trim();
             const busy = !!analyzing[emp.id];
-            const tags = !analyzed ? [] : [
+            const hasDates = entry && ((entry.unavailable || []).length || (entry.high || []).length || (entry.can || []).length);
+            const tags = !entry ? [] : [
               ...(entry.unavailable || []).map((d) => ({ d, type: 'unavailable' })),
               ...(entry.high || []).map((d) => ({ d, type: 'high' })),
               ...(entry.can || []).map((d) => ({ d, type: 'can' })),
@@ -2829,6 +2906,12 @@ ${datesList}
                     <div className="req-card-name">{emp.name}</div>
                     {emp.role && <div style={{fontSize:'11.5px',color:'var(--ink-3)'}}>{emp.role}</div>}
                   </div>
+                  {fromEmployee && (
+                    <span style={{fontSize:'11px',fontWeight:600,color:'var(--accent)',background:'color-mix(in oklab, var(--accent) 12%, transparent)',borderRadius:999,padding:'2px 9px'}}
+                      title={entry.employeeUpdatedAt ? 'הוגש: ' + new Date(entry.employeeUpdatedAt).toLocaleString('he-IL') : ''}>
+                      📥 הוגש מאפליקציית העובד
+                    </span>
+                  )}
                   {analyzed && !stale && <span style={{marginInlineStart:'auto',fontSize:'11.5px',color:'var(--ok)'}}>✓ נותח</span>}
                   {stale && <span style={{marginInlineStart:'auto',fontSize:'11.5px',color:'var(--warn)'}}>הטקסט שונה מאז הניתוח — נתחו שוב</span>}
                 </div>
@@ -2856,10 +2939,10 @@ ${datesList}
 
                 {errors[emp.id] && <div style={{marginTop:8,fontSize:'12px',color:'var(--danger)'}}>{errors[emp.id]}</div>}
 
-                {analyzed && (
+                {(analyzed || (fromEmployee && (hasDates || entry.note))) && (
                   <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--line)'}}>
                     <div style={{fontSize:'11px',color:'var(--ink-3)',marginBottom:6}}>
-                      תוצאת הניתוח של ה-AI — בדקו שהתאריכים תואמים את הבקשה:
+                      {analyzed ? 'תוצאת הניתוח של ה-AI — בדקו שהתאריכים תואמים את הבקשה:' : 'הבקשה כפי שהוגשה מאפליקציית העובד:'}
                     </div>
                     {tags.length ? (
                       <div className="req-tags">
@@ -3206,6 +3289,7 @@ function App() {
     if (!dbAvailable.current) { setSyncStatus('idle'); return; }
     setSyncStatus('loading');
     window.__db.load().then(remote => {
+      let loadedEmployees = saved?.employees || [];
       if (remote && Array.isArray(remote.drafts)) {
         remote = purgeDemoEmployees(remote);
         setCurrentMonth(remote.currentMonth || AD.MONTH);
@@ -3215,11 +3299,57 @@ function App() {
         setEmployees(remote.employees || []);
         setRequests(remote.requests || {});
         localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+        loadedEmployees = remote.employees || [];
       }
       setSyncStatus('saved');
       isFirstLoad.current = false;
+      // ממשק לאפליקציית העובדים: סנכרון עובדים + קליטת בקשות שהוגשו
+      window.__db.syncEmployees?.(loadedEmployees);
+      refreshEmployeeRequests();
     }).catch(() => { setSyncStatus('error'); isFirstLoad.current = false; });
   }, []);
+
+  // קליטת בקשות שהוגשו מאפליקציית העובדים (employee_requests) ומיזוגן ל-state
+  const refreshEmployeeRequests = React.useCallback(async () => {
+    if (!dbAvailable.current || !window.__db.fetchEmployeeRequests) return;
+    const rows = await window.__db.fetchEmployeeRequests();
+    if (!rows || !rows.length) return;
+    setRequests(prev => {
+      let changed = false;
+      const next = { ...prev };
+      rows.forEach(r => {
+        const cur = (next[r.emp_id] || {})[r.month];
+        // מיזוג רק כשיש עדכון חדש מהעובד — עריכות מקומיות של המשבץ נשמרות בינתיים
+        if (cur && cur.employeeUpdatedAt === r.updated_at) return;
+        next[r.emp_id] = {
+          ...(next[r.emp_id] || {}),
+          [r.month]: {
+            ...(cur || {}),
+            unavailable: r.unavailable || [],
+            high: r.high || [],
+            can: r.can || [],
+            note: r.note || '',
+            fromEmployee: true,
+            employeeUpdatedAt: r.updated_at,
+          },
+        };
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  React.useEffect(() => {
+    const t = setInterval(refreshEmployeeRequests, 60000);
+    return () => clearInterval(t);
+  }, [refreshEmployeeRequests]);
+
+  // סנכרון רשימת העובדים לטבלת app_employees — כך אפליקציית העובדים מזהה עובד לפי אימייל
+  React.useEffect(() => {
+    if (isFirstLoad.current) return;
+    if (!dbAvailable.current || !window.__db.syncEmployees) return;
+    window.__db.syncEmployees(employees);
+  }, [employees]);
 
   // התמדה — localStorage + Supabase (מדוד)
   React.useEffect(() => {
@@ -3401,6 +3531,30 @@ ${JSON.stringify(snap.schedule, null, 2)}
   const renameDraft = (id, name) => updateDraft(id, () => ({ name }));
   const setDraftStatus = (id, s) => updateDraft(id, () => ({ status: s }));
 
+  // אישור ופרסום — מפרסם את הסידור גם לאפליקציית העובדים (published_schedules)
+  const publishDraft = (id) => {
+    const d = drafts.find(x => x.id === id);
+    setDraftStatus(id, 'final');
+    if (d && dbAvailable.current && window.__db.publishSchedule) {
+      window.__db.publishSchedule({
+        month: d.month,
+        schedule: d.schedule,
+        shift_settings: shiftSettings,
+        employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
+        published_at: new Date().toISOString(),
+      });
+    }
+  };
+
+  // חזרה לעריכה — מסיר את הפרסום מאפליקציית העובדים
+  const unpublishDraft = (id) => {
+    const d = drafts.find(x => x.id === id);
+    setDraftStatus(id, 'draft');
+    if (d && dbAvailable.current && window.__db.unpublishSchedule) {
+      window.__db.unpublishSchedule(d.month);
+    }
+  };
+
   const assign = (dStr, shiftId, empId) => {
     if (!activeDraftId) return;
     updateDraft(activeDraftId, d => {
@@ -3505,10 +3659,10 @@ ${JSON.stringify(snap.schedule, null, 2)}
                 <button className="btn btn-ai" onClick={runAI}>✦ שבץ אוטומטי</button>
               )}
               {status === 'draft' && (
-                <button className="btn btn-final" onClick={() => setDraftStatus(activeDraftId, 'final')}>אישור ופרסום</button>
+                <button className="btn btn-final" onClick={() => publishDraft(activeDraftId)}>אישור ופרסום</button>
               )}
               {status === 'final' && (
-                <button className="btn" onClick={() => setDraftStatus(activeDraftId, 'draft')}>חזרה לעריכה</button>
+                <button className="btn" onClick={() => unpublishDraft(activeDraftId)}>חזרה לעריכה</button>
               )}
               <button className="btn btn-primary" onClick={() => setModalOpen(true)} disabled={isGenerating}>
                 ✦ צור טיוטה
@@ -3534,7 +3688,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
       <ShiftSettingsCtx.Provider value={shiftSettings}>
         {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} />}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
-          initialMonth={currentMonth} apiKey={anthropicKey} />}
+          initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} />}
         {screen === 'calendar'  && (
           <main className="layout">
             <section className="board">

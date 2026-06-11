@@ -9,13 +9,17 @@ We now want a second app: the **Employee App**. Employees use it to:
 1. Submit scheduling requests for an upcoming month (days they can't work, days they prefer, etc.)
 2. View the published shift schedule (current month, next month) — the whole team's schedule, with a toggle to see only their own shifts.
 
-This spec describes the screens to design. The output should be an HTML/CSS/JS prototype bundle (Claude Design handoff) that will then be implemented for real against the existing Supabase backend.
+This spec describes the screens to design. The output should be an HTML/CSS/JS prototype bundle (Claude Design handoff) that will then be implemented as a **separate file** (`עובד.html`) alongside the existing manager app.
+
+There are two apps in this project:
+- **Manager app** (`מערכת שיבוץ.html`) — desktop browser, used by one scheduler.
+- **Employee app** (`עובד.html`) — **mobile only**, used by every employee on their phone. Design exclusively for mobile (390px wide). There is no desktop layout for this app.
 
 ## Global design requirements
 
 - **Language: Hebrew. Direction: RTL.** All UI text in Hebrew.
-- **Mobile-first.** Employees will open this on their phones. Must look great at ~390px wide; desktop is secondary.
-- Clean, friendly, light theme. It's a sibling of the manager app but can have its own character.
+- **Mobile only (~390px wide).** This app is never opened on a desktop. Design for a phone screen — no need for responsive breakpoints or desktop layouts.
+- Clean, friendly, light theme. It can have its own visual character (warmer, friendlier) compared to the manager's more functional desktop app.
 - Logged-in employee's name should always be visible (e.g., in the header).
 
 ## Screen 1: Login — «כניסה»

@@ -660,12 +660,19 @@
     async syncEmployees(employees) {
       if (!client) return false;
       try {
-        const rows = (employees || []).map(e => ({
-          id: e.id, name: e.name,
-          email: (e.email || '').trim().toLowerCase() || null,
-          color: e.color || null,
-          updated_at: new Date().toISOString(),
-        }));
+        // ייתכנו כפילויות id ברשימה — upsert נכשל על id כפול באותה קריאה
+        const seen = new Set();
+        const rows = [];
+        (employees || []).forEach(e => {
+          if (!e || !e.id || seen.has(e.id)) return;
+          seen.add(e.id);
+          rows.push({
+            id: e.id, name: e.name,
+            email: (e.email || '').trim().toLowerCase() || null,
+            color: e.color || null,
+            updated_at: new Date().toISOString(),
+          });
+        });
         if (rows.length) {
           const { error } = await client.from('app_employees').upsert(rows);
           if (error) throw error;

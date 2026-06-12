@@ -709,6 +709,31 @@
         return false;
       }
     },
+    // ---- ניהול חשבונות עובדים — דורש מפתח service_role (נשמר בדפדפן בלבד, לא בקוד) ----
+    async adminSetPassword(adminKey, email, password) {
+      try {
+        const admin = supabase.createClient(URL, adminKey, { auth: { autoRefreshToken: false, persistSession: false } });
+        const target = (email || '').trim().toLowerCase();
+        // ניסיון יצירת חשבון חדש; אם כבר קיים — עדכון הסיסמה
+        const { error: createErr } = await admin.auth.admin.createUser({ email: target, password, email_confirm: true });
+        if (!createErr) return { ok: true, created: true };
+        if (!/already|exists|registered/i.test(createErr.message || '')) throw createErr;
+        let user = null;
+        for (let page = 1; page <= 10 && !user; page++) {
+          const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+          if (error) throw error;
+          user = (data.users || []).find(u => (u.email || '').toLowerCase() === target);
+          if (!data.users || data.users.length < 200) break;
+        }
+        if (!user) throw new Error('החשבון קיים אך לא אותר — בדקו את האימייל');
+        const { error: updErr } = await admin.auth.admin.updateUserById(user.id, { password });
+        if (updErr) throw updErr;
+        return { ok: true, created: false };
+      } catch (e) {
+        console.warn('adminSetPassword failed:', e.message);
+        return { ok: false, error: e.message };
+      }
+    },
   };
 })();
 </script>
@@ -2539,10 +2564,11 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 }
 
 // ---- SettingsDrawer ----
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showKey, setShowKey] = React.useState(false);
+  const [showAdminKey, setShowAdminKey] = React.useState(false);
 
   return (
     <div className="right-drawer-backdrop" onClick={onClose}>
@@ -2612,6 +2638,33 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
               </div>
               {apiKey && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן בלבד</div>}
             </div>
+            <div>
+              <div className="settings-sec-title">🔑 חשבונות עובדים — מפתח אדמין</div>
+              <div style={{marginTop:10,fontSize:'12px',color:'var(--ink-3)',marginBottom:8,lineHeight:1.5}}>
+                נדרש ליצירת חשבונות וקביעת סיסמאות לעובדים ממסך העובדים.
+                העתיקו מ-Supabase: Project Settings ← API Keys ← <code>service_role</code>.
+                <b> אל תשתפו את המפתח עם איש</b> — הוא מקנה שליטה מלאה במסד הנתונים.
+              </div>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                <input
+                  type={showAdminKey ? 'text' : 'password'}
+                  value={adminKey}
+                  onChange={e => onAdminKeyChange(e.target.value)}
+                  placeholder="eyJhbGciOi... / sb_secret_..."
+                  style={{
+                    flex:1, border:'1px solid var(--line)', borderRadius:7,
+                    padding:'7px 10px', fontSize:'13px', background:'var(--surface)',
+                    color:'var(--ink)', font:'inherit', outline:'none',
+                    fontFamily:'monospace',
+                  }}
+                />
+                <button className="btn" style={{padding:'6px 10px',fontSize:'12px',flexShrink:0}}
+                  onClick={() => setShowAdminKey(v => !v)}>
+                  {showAdminKey ? 'הסתר' : 'הצג'}
+                </button>
+              </div>
+              {adminKey && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן זה בלבד</div>}
+            </div>
           </div>
         </div>
       </aside>
@@ -2620,10 +2673,28 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
 }
 
 // ---- EmployeesScreen ----
-function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
+function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   const [emps, setEmps] = React.useState(initEmps);
   const [showForm, setShowForm] = React.useState(false);
   const [editEmp, setEditEmp] = React.useState(null);
+  const [acctPw, setAcctPw] = React.useState('');
+  const [acctBusy, setAcctBusy] = React.useState(false);
+  const [acctMsg, setAcctMsg] = React.useState(null);
+
+  const setAccountPassword = async () => {
+    const email = (editEmp.email || '').trim();
+    if (!email) { setAcctMsg({ err: true, text: 'מלאו קודם את שדה האימייל' }); return; }
+    if (acctPw.length < 6) { setAcctMsg({ err: true, text: 'הסיסמה צריכה להכיל לפחות 6 תווים' }); return; }
+    setAcctBusy(true); setAcctMsg(null);
+    const res = await window.__db.adminSetPassword(adminKey, email, acctPw);
+    setAcctBusy(false);
+    if (res.ok) {
+      setAcctPw('');
+      setAcctMsg({ err: false, text: res.created ? '✓ החשבון נוצר והסיסמה נקבעה — אל תשכחו ללחוץ "שמירה"' : '✓ הסיסמה עודכנה' });
+    } else {
+      setAcctMsg({ err: true, text: 'שגיאה: ' + res.error });
+    }
+  };
   const COLORS = ['oklch(0.62 0.14 250)','oklch(0.62 0.14 330)','oklch(0.62 0.14 160)','oklch(0.62 0.14 50)','oklch(0.62 0.14 210)','oklch(0.62 0.14 10)','oklch(0.62 0.14 290)','oklch(0.62 0.14 130)'];
 
   const updateEmps = (fn) => {
@@ -2636,9 +2707,10 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
 
   const openAdd = () => {
     setEditEmp({ id: 'emp-' + Date.now(), name: '', role: '', email: '', color: COLORS[0], max: 16, anchor: false, nights: false });
+    setAcctPw(''); setAcctMsg(null);
     setShowForm(true);
   };
-  const openEdit = (emp) => { setEditEmp({ ...emp }); setShowForm(true); };
+  const openEdit = (emp) => { setEditEmp({ ...emp }); setAcctPw(''); setAcctMsg(null); setShowForm(true); };
   const saveEmp = () => {
     if (!editEmp.name.trim()) return;
     updateEmps(prev => prev.find(e => e.id === editEmp.id)
@@ -2707,7 +2779,25 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
                 <input type="email" dir="ltr" style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%',textAlign:'left'}}
                   value={editEmp.email || ''} onChange={(e) => setEditEmp(p => ({...p, email: e.target.value}))}
                   placeholder="dana@example.com" />
-                <span className="field-hint" style={{fontSize:'11px'}}>חייב להתאים לאימייל של חשבון העובד ב-Supabase Auth</span>
+              </div>
+              <div className="field">
+                <label className="field-label">סיסמה לאפליקציית העובדים</label>
+                {!adminKey ? (
+                  <span className="field-hint" style={{fontSize:'11.5px'}}>כדי ליצור חשבון ולקבוע סיסמה מכאן, הזינו מפתח אדמין בהגדרות (⚙)</span>
+                ) : (
+                  <>
+                    <div style={{display:'flex',gap:6}}>
+                      <input type="text" dir="ltr" style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'left'}}
+                        value={acctPw} onChange={(e) => { setAcctPw(e.target.value); setAcctMsg(null); }}
+                        placeholder="סיסמה חדשה (6 תווים לפחות)" />
+                      <button className="btn btn-primary" style={{whiteSpace:'nowrap',fontSize:'12.5px'}} disabled={acctBusy}
+                        onClick={setAccountPassword}>
+                        {acctBusy ? <><span className="spin">↻</span> שומר…</> : 'צור חשבון / קבע סיסמה'}
+                      </button>
+                    </div>
+                    {acctMsg && <div style={{marginTop:6,fontSize:'12px',color:acctMsg.err ? 'var(--danger)' : 'var(--ok)'}}>{acctMsg.text}</div>}
+                  </>
+                )}
               </div>
               <div className="field">
                 <label className="field-label">מכסה חודשית <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
@@ -3256,6 +3346,7 @@ function App() {
   const [shiftSettings, setShiftSettings] = React.useState(() => mergeSettings(saved?.shiftSettings));
   const [generatingId, setGeneratingId] = React.useState(null);
   const [anthropicKey, setAnthropicKey] = React.useState(() => localStorage.getItem('anthropic-api-key') || '');
+  const [adminKey, setAdminKey] = React.useState(() => localStorage.getItem('supabase-admin-key') || '');
   const [employees, setEmployees] = React.useState(() => saved?.employees || [...AD.EMPLOYEES]);
   // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
   const [requests, setRequests] = React.useState(() => saved?.requests || {});
@@ -3693,7 +3784,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
       )}
 
       <ShiftSettingsCtx.Provider value={shiftSettings}>
-        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} />}
+        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} />}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} />}
         {screen === 'calendar'  && (
@@ -3742,7 +3833,9 @@ ${JSON.stringify(snap.schedule, null, 2)}
       <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
         tweaks={t} onTweakChange={setTweak}
         apiKey={anthropicKey}
-        onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); }} />
+        onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); }}
+        adminKey={adminKey}
+        onAdminKeyChange={key => { setAdminKey(key); localStorage.setItem('supabase-admin-key', key); }} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         month={currentMonth}

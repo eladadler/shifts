@@ -1867,7 +1867,7 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
     switch (name) {
       case 'add_employee': {
         if (!input.name || !String(input.name).trim()) return 'חסר שם — זהו השדה היחיד שחובה להזין';
-        const id = 'emp-' + Date.now();
+        const id = 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
         const newEmp = { id, name: String(input.name).trim(), role: input.role || '', max: input.max ?? 16,
           nights: !!input.nights, anchor: !!input.anchor, nightOwl: false,
           color: EMP_COLORS[Math.floor(Math.random() * EMP_COLORS.length)] };
@@ -2720,7 +2720,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   };
 
   const openAdd = () => {
-    setEditEmp({ id: 'emp-' + Date.now(), name: '', role: '', email: '', color: COLORS[0], max: 16, anchor: false, nights: false });
+    setEditEmp({ id: 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: '', role: '', email: '', color: COLORS[0], max: 16, anchor: false, nights: false });
     setAcctPw(''); setAcctMsg(null);
     setShowForm(true);
   };
@@ -3273,7 +3273,15 @@ const DEMO_EMP_IDS = new Set(['yossi','dana','danny','noa','avi','michal','omer'
 
 function purgeDemoEmployees(state) {
   if (!state) return state;
-  const employees = (state.employees || []).filter(e => !DEMO_EMP_IDS.has(e.id));
+  const seen = new Set();
+  const employees = (state.employees || []).filter(e => e && !DEMO_EMP_IDS.has(e.id)).map(e => {
+    if (!seen.has(e.id)) { seen.add(e.id); return e; }
+    // תיקון נתונים: id כפול גורם לעובדים להיעלם מהרשימה (React keys) ולכשל סנכרון — מקצים id חדש
+    let nid;
+    do { nid = 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6); } while (seen.has(nid));
+    seen.add(nid);
+    return { ...e, id: nid };
+  });
   const drafts = (state.drafts || []).map(d => {
     const schedule = {};
     Object.entries(d.schedule || {}).forEach(([date, day]) => {

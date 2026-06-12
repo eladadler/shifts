@@ -835,13 +835,33 @@
 
   // קוראים מהאובייקט החי (window.ShiftData.REQUESTS) שמסונכרן מה-state של האפליקציה
   const reqOf = (empId) => (window.ShiftData?.REQUESTS || REQUESTS)[empId] || null;
-  const availabilityOn = (empId, dStr) => {
+  // ערך בקשה: "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת ספציפית.
+  // בלי shiftId נבדקות רק בקשות של יום שלם (תצוגות יומיות ב-UI).
+  const availabilityOn = (empId, dStr, shiftId) => {
     const r = reqOf(empId);
     if (!r) return null;
-    if ((r.unavailable || []).includes(dStr)) return 'unavailable';
-    if ((r.high || []).includes(dStr)) return 'high';
-    if ((r.can || []).includes(dStr)) return 'can';
+    const hit = (arr) => (arr || []).some((v) => v === dStr || (shiftId && v === dStr + '@' + shiftId));
+    if (hit(r.unavailable)) return 'unavailable';
+    if (hit(r.high)) return 'high';
+    if (hit(r.can)) return 'can';
     return null;
+  };
+
+  // פירוק ערך בקשה "YYYY-MM-DD[@shiftId]" לתאריך + משמרת
+  const splitReqEntry = (v) => {
+    const i = (v || '').indexOf('@');
+    return i === -1 ? { d: v, sid: null } : { d: v.slice(0, i), sid: v.slice(i + 1) };
+  };
+  const shiftNameOf = (sid, settings) => {
+    const lists = settings
+      ? [settings.weekday, settings.friday, settings.saturday, settings.special]
+      : [WEEKDAY_SHIFTS, WEEKEND_SHIFTS];
+    for (const l of lists) {
+      const f = (l || []).find((s) => s.id === sid);
+      if (f) return f.name;
+    }
+    const builtin = [...WEEKDAY_SHIFTS, ...WEEKEND_SHIFTS].find((s) => s.id === sid);
+    return builtin ? builtin.name : sid;
   };
 
   // קורא מהרשימה החיה (window.ShiftData.EMPLOYEES) שמסונכרנת מה-state, לא מהקבוע המקורי
@@ -855,6 +875,7 @@
     MONTH, HEB_DAYS, HEB_DAYS_SHORT, EMPLOYEES, REQUESTS, FIXED_SHIFTS,
     pad, parseDate, dateStr, addDays, weekdayOf, dayLabel, shortDate, monthLabel,
     getBase, shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, empById, initials, shiftKey, orderShifts,
+    splitReqEntry, shiftNameOf,
   };
 })();
 </script>
@@ -891,7 +912,7 @@
       D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
         if (shift.continuation) return; // data lives at originDate
         const emps = fixed
-          .filter((f) => f.weekday === wd && f.shiftId === shift.id && D.availabilityOn(f.empId, dStr) !== 'unavailable')
+          .filter((f) => f.weekday === wd && f.shiftId === shift.id && D.availabilityOn(f.empId, dStr, shift.id) !== 'unavailable')
           .map((f) => f.empId);
         schedule[dStr][shift.id] = emps;
       });
@@ -937,7 +958,7 @@
           const alreadyIn = schedule[dStr][shift.id] || [];
           const cands = D.EMPLOYEES.filter((e) => {
             if (alreadyIn.includes(e.id)) return false;
-            if (D.availabilityOn(e.id, dStr) === 'unavailable') return false;
+            if (D.availabilityOn(e.id, dStr, shift.id) === 'unavailable') return false;
             if (counts[e.id] >= e.max) return false;
             if (shift.id === 'night' && !e.nights) return false;
             return true;
@@ -952,7 +973,7 @@
           }
 
           const score = (e) => {
-            const av = D.availabilityOn(e.id, dStr);
+            const av = D.availabilityOn(e.id, dStr, shift.id);
             let s = 0;
             if (av === 'high') s += 6;
             if (av === 'can') s += 2;
@@ -969,7 +990,7 @@
           counts[best.id] += 1;
           lastEnd[best.id] = t.end;
 
-          const av = D.availabilityOn(best.id, dStr);
+          const av = D.availabilityOn(best.id, dStr, shift.id);
           if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
           else if (av === 'high') addLog('info', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} לפי בקשה בעדיפות גבוהה`);
         }
@@ -996,8 +1017,8 @@
         const t = D.shiftTimes(dStr, shift);
         emps.forEach((empId) => {
           (byEmp[empId] = byEmp[empId] || []).push({ dStr, shiftId, shift, ...t });
-          if (D.availabilityOn(empId, dStr) === 'unavailable') {
-            add(dStr, shiftId, empId, 'שובץ ביום שסומן ״לא יכול״');
+          if (D.availabilityOn(empId, dStr, shiftId) === 'unavailable') {
+            add(dStr, shiftId, empId, 'שובץ במשמרת שסומנה ״לא יכול״');
           }
         });
       });
@@ -1682,6 +1703,7 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
 
 // ---- בקשות עובדים ----
 function RequestsPanel() {
+  const settings = React.useContext(window.ShiftSettingsCtx);
   const empsWithReqs = PD.EMPLOYEES.filter((e) => PD.reqOf(e.id));
   const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can' };
   const tagLabel = { unavailable: 'לא יכול', high: 'עדיפות', can: 'יכול' };
@@ -1695,10 +1717,10 @@ function RequestsPanel() {
       {empsWithReqs.map((emp) => {
         const req = PD.reqOf(emp.id);
         const tags = [
-          ...(req.unavailable || []).map((d) => ({ d, type: 'unavailable' })),
-          ...(req.high || []).map((d) => ({ d, type: 'high' })),
-          ...(req.can || []).map((d) => ({ d, type: 'can' })),
-        ].sort((a, b) => a.d.localeCompare(b.d));
+          ...(req.unavailable || []).map((v) => ({ v, type: 'unavailable' })),
+          ...(req.high || []).map((v) => ({ v, type: 'high' })),
+          ...(req.can || []).map((v) => ({ v, type: 'can' })),
+        ].sort((a, b) => a.v.localeCompare(b.v));
 
         return (
           <div key={emp.id} className="req-card">
@@ -1707,11 +1729,14 @@ function RequestsPanel() {
               <span className="req-card-name">{emp.name}</span>
             </div>
             <div className="req-tags">
-              {tags.map(({ d, type }) => (
-                <span key={d + type} className={'req-tag av-tag ' + tagCls[type]} title={tagLabel[type]}>
-                  {PD.shortDate(d)}
-                </span>
-              ))}
+              {tags.map(({ v, type }) => {
+                const { d, sid } = PD.splitReqEntry(v);
+                return (
+                  <span key={v + type} className={'req-tag av-tag ' + tagCls[type]} title={tagLabel[type]}>
+                    {PD.shortDate(d)}{sid ? ` · ${PD.shiftNameOf(sid, settings)}` : ''}
+                  </span>
+                );
+              })}
             </div>
             {req.note && <div className="req-note">{req.note}</div>}
           </div>
@@ -2858,6 +2883,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
 
 // ---- RequestsScreen ----
 function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey, onRefresh }) {
+  const shiftSettings = React.useContext(window.ShiftSettingsCtx);
   const [refreshing, setRefreshing] = React.useState(false);
   const refresh = async () => {
     if (!onRefresh || refreshing) return;
@@ -2911,10 +2937,20 @@ function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, a
         return `${dStr} — יום ${SD.dayLabel(dStr)}`;
       }).join('\n');
 
+      const shiftLine = (label, list) => `${label}: ` + (list || []).map(s => `${s.id} = ${s.name} ${s.start}–${s.end}`).join(' · ');
+      const shiftsDesc = [
+        shiftLine('ימי חול (א׳–ה׳)', shiftSettings?.weekday),
+        shiftLine('שישי', shiftSettings?.friday),
+        shiftLine('שבת', shiftSettings?.saturday),
+      ].join('\n');
+
       const prompt = `אתה מנתח בקשת עובד לסידור עבודה לחודש ${SD.monthLabel(month)} (${month}).
 
 ## תאריכי החודש וימי השבוע
 ${datesList}
+
+## המשמרות הקיימות (לפי סוג יום)
+${shiftsDesc}
 
 ## הבקשה החופשית של העובד "${emp.name}"
 "${text}"
@@ -2922,18 +2958,20 @@ ${datesList}
 ## משימה
 תרגם את הבקשה לתאריכים מדויקים. החזר JSON בלבד, ללא טקסט נוסף:
 {
-  "unavailable": ["YYYY-MM-DD", ...],
+  "unavailable": ["YYYY-MM-DD", "YYYY-MM-DD@shiftId", ...],
   "high": ["YYYY-MM-DD", ...],
   "can": ["YYYY-MM-DD", ...],
   "note": "סיכום קצר של הבקשה בעברית"
 }
 
 כללים:
-- unavailable = ימים שהעובד לא יכול/לא רוצה לעבוד
-- high = ימים שהעובד מבקש במפורש לעבוד בהם
-- can = ימים שהעובד ציין שהוא גמיש/יכול אם צריך
+- unavailable = ימים/משמרות שהעובד לא יכול/לא רוצה לעבוד
+- high = ימים/משמרות שהעובד מבקש במפורש לעבוד בהם
+- can = ימים/משמרות שהעובד ציין שהוא גמיש/יכול אם צריך
+- בקשה על יום שלם (חופשה, חו"ל) — תאריך בלבד: "YYYY-MM-DD"
+- בקשה ממוקדת-משמרת (למשל "לא יכול לילות", "מעדיף בוקר ב-12") — הוסף את מזהה המשמרת: "YYYY-MM-DD@shiftId" (למשל "${month}-12@night"). השתמש רק במזהי המשמרות מהרשימה למעלה, ופרוס על כל התאריכים הרלוונטיים
 - כל התאריכים חייבים להיות בתוך ${month} ולהתאים לימי השבוע מהרשימה למעלה
-- אם הבקשה מזכירה העדפות כלליות (למשל "מעדיף לילות") שאינן תאריך ספציפי — כלול אותן ב-note בלבד`;
+- העדפה כללית שלא ניתנת לתרגום לתאריכים או משמרות — כלול אותה ב-note בלבד`;
 
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -3004,10 +3042,10 @@ ${datesList}
             const busy = !!analyzing[emp.id];
             const hasDates = entry && ((entry.unavailable || []).length || (entry.high || []).length || (entry.can || []).length);
             const tags = !entry ? [] : [
-              ...(entry.unavailable || []).map((d) => ({ d, type: 'unavailable' })),
-              ...(entry.high || []).map((d) => ({ d, type: 'high' })),
-              ...(entry.can || []).map((d) => ({ d, type: 'can' })),
-            ].sort((a, b) => a.d.localeCompare(b.d));
+              ...(entry.unavailable || []).map((v) => ({ v, type: 'unavailable' })),
+              ...(entry.high || []).map((v) => ({ v, type: 'high' })),
+              ...(entry.can || []).map((v) => ({ v, type: 'can' })),
+            ].sort((a, b) => a.v.localeCompare(b.v));
 
             return (
               <div key={emp.id} className="req-card" style={{background:'var(--surface)'}}>
@@ -3057,11 +3095,14 @@ ${datesList}
                     </div>
                     {tags.length ? (
                       <div className="req-tags">
-                        {tags.map(({ d, type }) => (
-                          <span key={d + type} className={'req-tag av-tag ' + tagCls[type]} title={tagLabel[type]}>
-                            {SD.shortDate(d)} {SD.dayLabel(d)} · {tagLabel[type]}
-                          </span>
-                        ))}
+                        {tags.map(({ v, type }) => {
+                          const { d, sid } = SD.splitReqEntry(v);
+                          return (
+                            <span key={v + type} className={'req-tag av-tag ' + tagCls[type]} title={tagLabel[type]}>
+                              {SD.shortDate(d)} {SD.dayLabel(d)}{sid ? ` · ${SD.shiftNameOf(sid, shiftSettings)}` : ''} · {tagLabel[type]}
+                            </span>
+                          );
+                        })}
                       </div>
                     ) : (
                       <div style={{fontSize:'12px',color:'var(--ink-3)'}}>לא זוהו תאריכים ספציפיים</div>
@@ -3583,11 +3624,11 @@ ${JSON.stringify(snap.schedule, null, 2)}
 ## כללים — חובה לעמוד בכולם
 1. כל משמרת עם required:N חייבת לקבל בדיוק N עובדים שונים — לא פחות, לא יותר.
    דוגמה: required:2 → ["empId1","empId2"], required:1 → ["empId3"]
-2. אסור לשבץ עובד שביום זה יש לו unavailable בבקשות
+2. אסור לשבץ עובד שיש לו unavailable בבקשות. פורמט: "YYYY-MM-DD" חוסם את כל היום, "YYYY-MM-DD@shiftId" חוסם רק את אותה משמרת באותו יום
 3. עובד עם canDoNights:false — אסור בשיבוץ לילה (isNight:true)
 4. שמור 8 שעות מנוחה בין משמרות לאותו עובד באותו יום
 5. אל תחרוג ממכסת maxShifts לעובד בסך כל הסידור
-6. העדף עובדים שסימנו "high" ביום זה
+6. העדף עובדים שסימנו "high" — "YYYY-MM-DD" הוא העדפה לכל היום, "YYYY-MM-DD@shiftId" הוא העדפה לאותה משמרת בלבד
 7. פזר שוויונית — אל תשבץ עובד אחד יותר מדי
 8. nightOwl:true — עדיפות גבוהה לשיבוץ לילה
 

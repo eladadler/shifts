@@ -280,6 +280,7 @@ function App() {
   const [me, setMe] = React.useState(null);                  // רשומת העובד מ-app_employees
   const [meStatus, setMeStatus] = React.useState('loading'); // loading | ok | notfound | error
   const [published, setPublished] = React.useState({});      // { 'YYYY-MM': row }
+  const [globalSettings, setGlobalSettings] = React.useState(null); // הגדרות משמרות עדכניות מהמשבץ
   const [serverReqs, setServerReqs] = React.useState({});    // { 'YYYY-MM': row } — הבקשות שלי מהשרת
   const [localReqs, setLocalReqs] = React.useState({});      // { 'YYYY-MM': { marks, note, dirty } }
   const [tab, setTab] = React.useState('home');
@@ -310,26 +311,42 @@ function App() {
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
 
-      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }] = await Promise.all([
+      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes] = await Promise.all([
         sb.from('published_schedules').select('*'),
         sb.from('employee_requests').select('*').eq('emp_id', mine.id),
+        sb.from('mishmarot_state').select('data->shiftSettings').eq('id', 'main').maybeSingle(),
       ]);
       if (e2) throw e2;
       if (e3) throw e3;
+      // הגדרות המשמרות העדכניות של המשבץ — לכרטיס פירוט היום בחודשים שטרם פורסמו
+      setGlobalSettings(settingsRes?.data?.shiftSettings || null);
       const pubMap = {};
       (pubs || []).forEach(r => { pubMap[r.month] = r; });
       setPublished(pubMap);
       const reqMap = {};
       (reqs || []).forEach(r => { reqMap[r.month] = r; });
       setServerReqs(reqMap);
-      // אתחול עריכות מקומיות מהשרת — בלי לדרוס שינויים שטרם נשלחו
+      // אתחול עריכות מקומיות מהשרת — בלי לדרוס שינויים שטרם נשלחו.
+      // ערך "YYYY-MM-DD" = יום שלם (marks[day] מחרוזת), "YYYY-MM-DD@shiftId" = משמרת (marks[day] אובייקט)
       setLocalReqs(prev => {
         const next = { ...prev };
         Object.entries(reqMap).forEach(([m, r]) => {
           if (next[m]?.dirty) return;
           const marks = {};
           [['unavailable', 'un'], ['high', 'high'], ['can', 'can']].forEach(([key, mark]) => {
-            (r[key] || []).forEach(ds => { const day = Number(ds.split('-')[2]); if (day) marks[day] = mark; });
+            (r[key] || []).forEach(entry => {
+              const at = entry.indexOf('@');
+              const ds = at === -1 ? entry : entry.slice(0, at);
+              const sid = at === -1 ? null : entry.slice(at + 1);
+              const day = Number(ds.split('-')[2]);
+              if (!day) return;
+              if (sid) {
+                if (typeof marks[day] !== 'object' || !marks[day]) marks[day] = {};
+                marks[day][sid] = mark;
+              } else {
+                marks[day] = mark;
+              }
+            });
           });
           next[m] = { marks, note: r.note || '', dirty: false };
         });
@@ -417,7 +434,7 @@ function App() {
       tab={tab} setTab={setTab}>
       {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} />}
       {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} goReq={() => setTab('requests')} />}
-      {tab === 'requests' && <RequestsTab me={me} email={session.user.email} published={published} TM={TM}
+      {tab === 'requests' && <RequestsTab me={me} email={session.user.email} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} />}
     </Shell>
   );
@@ -723,7 +740,7 @@ function ScheduleTab({ me, empNames, published, TM, goReq }) {
 }
 
 /* ============ טאב הגשת בקשות ============ */
-function RequestsTab({ me, email, published, TM, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast }) {
+function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast }) {
   const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);
   const [mi, setMi] = React.useState(() => {
     // ברירת מחדל: החודש הקרוב שעדיין פתוח לבקשות
@@ -732,26 +749,71 @@ function RequestsTab({ me, email, published, TM, serverReqs, setServerReqs, loca
   });
   const [brush, setBrush] = React.useState('un');
   const [saving, setSaving] = React.useState(false);
+  const [selDay, setSelDay] = React.useState(1);
   const ym = months[mi];
   const editable = !published[ym];
   const local = localReqs[ym] || { marks: {}, note: '', dirty: false };
   const server = serverReqs[ym] || null;
   const offset = monthOffset(ym);
   const nDays = daysInMonth(ym);
+  const sel = Math.min(selDay, nDays);
+
+  // הגדרות משמרות לפירוט היום: של החודש אם פורסם → העדכניות מהמשבץ → של הפרסום האחרון → ברירת מחדל
+  const lastPubSettings = React.useMemo(() => {
+    const keys = Object.keys(published).sort();
+    for (let i = keys.length - 1; i >= 0; i--) {
+      if (published[keys[i]]?.shift_settings) return published[keys[i]].shift_settings;
+    }
+    return null;
+  }, [published]);
+  const settings = published[ym]?.shift_settings || globalSettings || lastPubSettings;
+  const selDs = `${ym}-${pad(sel)}`;
+  const dayShifts = shiftTypesFor(selDs, settings).filter(s => !s.continuation);
 
   const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', dirty: false }), ...patch } }));
 
-  const paint = (d) => {
+  // הקשה על יום בלוח: בוחרת אותו, ובמצב עריכה גם צובעת את כל היום.
+  // יום עם סימון חלקי (לפי משמרות) — הקשה רק בוחרת, כדי לא לדרוס את הדיוק; מחיקה עובדת תמיד.
+  const tapDay = (d) => {
+    setSelDay(d);
     if (!editable) return;
+    const cur = local.marks[d];
+    if (cur && typeof cur === 'object' && brush !== 'erase') return;
     const marks = { ...local.marks };
     if (brush === 'erase') delete marks[d]; else marks[d] = brush;
+    setLocal({ marks, dirty: true });
+  };
+
+  // קביעת סימון למשמרת בודדת מכרטיס הפירוט. יום שצבוע במלואו נפרס קודם לכל המשמרות.
+  const setShiftMark = (sid, mark) => {
+    if (!editable) return;
+    const ids = dayShifts.map(s => s.id);
+    const marks = { ...local.marks };
+    const cur = marks[sel];
+    let obj = {};
+    if (typeof cur === 'string') ids.forEach(id => { obj[id] = cur; });
+    else if (cur) obj = { ...cur };
+    if (mark) obj[sid] = mark; else delete obj[sid];
+    const vals = ids.map(id => obj[id]);
+    if (!Object.keys(obj).length) delete marks[sel];
+    else if (ids.length && vals.every(v => v && v === vals[0]) && Object.keys(obj).length === ids.length) marks[sel] = vals[0];
+    else marks[sel] = obj;
     setLocal({ marks, dirty: true });
   };
 
   const submit = async () => {
     if (saving) return;
     setSaving(true);
-    const toDates = (mark) => Object.entries(local.marks).filter(([, v]) => v === mark).map(([d]) => `${ym}-${pad(Number(d))}`).sort();
+    // "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת בודדת
+    const toDates = (mark) => {
+      const out = [];
+      Object.entries(local.marks).forEach(([d, v]) => {
+        const ds = `${ym}-${pad(Number(d))}`;
+        if (typeof v === 'string') { if (v === mark) out.push(ds); }
+        else Object.entries(v || {}).forEach(([sid, m]) => { if (m === mark) out.push(`${ds}@${sid}`); });
+      });
+      return out.sort();
+    };
     const row = {
       emp_id: me.id, month: ym,
       unavailable: toDates('un'), high: toDates('high'), can: toDates('can'),
@@ -767,7 +829,14 @@ function RequestsTab({ me, email, published, TM, serverReqs, setServerReqs, loca
 
   const hasMarks = Object.keys(local.marks).length > 0;
   const needSend = !server || local.dirty;
-  const counts = (mark) => Object.values(local.marks).filter(v => v === mark).length;
+  const stats = React.useMemo(() => {
+    const s = { un: 0, high: 0, can: 0, days: 0, shifts: 0 };
+    Object.values(local.marks).forEach(v => {
+      if (typeof v === 'string') { s.days++; s[v]++; }
+      else Object.values(v || {}).forEach(m => { s.shifts++; s[m]++; });
+    });
+    return s;
+  }, [local.marks]);
   const sentAt = fmtSentAt(server?.updated_at);
 
   const BRUSHES = [
@@ -808,16 +877,63 @@ function RequestsTab({ me, email, published, TM, serverReqs, setServerReqs, loca
           {Array.from({ length: offset }).map((_, i) => <div key={'pad' + i} />)}
           {Array.from({ length: nDays }).map((_, i) => {
             const d = i + 1;
-            const s = MARK_STATUS[local.marks[d] || 'none'];
+            const v = local.marks[d];
+            const whole = typeof v === 'string';
+            const s = MARK_STATUS[whole ? v : 'none'];
+            const dots = !whole && v ? Object.values(v).map(m => MARK_STATUS[m].fg) : [];
+            const isSel = d === sel;
             return (
-              <div key={d} onClick={() => paint(d)} style={{ aspectRatio: '1', borderRadius: 10, background: s.bg, border: s.bd, color: s.fg,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700,
-                cursor: editable ? 'pointer' : 'default', transition: 'background 0.15s, border 0.15s' }}>{d}</div>
+              <div key={d} onClick={() => tapDay(d)} style={{ aspectRatio: '1', borderRadius: 10, background: s.bg,
+                border: isSel ? `2px solid ${INK}` : s.bd, color: s.fg,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'background 0.15s, border 0.15s' }}>
+                <span>{d}</span>
+                {dots.length > 0 && (
+                  <span style={{ display: 'flex', gap: 2 }}>
+                    {dots.slice(0, 4).map((c, j) => <span key={j} style={{ width: 5, height: 5, borderRadius: '50%', background: c }} />)}
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>
         <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
-          {counts('un')} לא זמין · {counts('high')} מעדיף · {counts('can')} יכול
+          {stats.un} לא זמין · {stats.high} מעדיף · {stats.can} יכול
+          {stats.shifts > 0 && <> — {stats.days} ימים מלאים · {stats.shifts} משמרות בודדות</>}
+        </div>
+
+        {/* כרטיס פירוט היום הנבחר — דיוק ברמת משמרת */}
+        <div style={{ background: '#FFF', borderRadius: 14, border: '1px solid #EAE7E1', padding: 14, display: 'flex', flexDirection: 'column', gap: 9 }}>
+          <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(ym)}</div>
+          {editable && <div style={{ fontSize: 12, color: '#8A867F' }}>דיוק לפי משמרת — בחרו סימון לכל משמרת בנפרד:</div>}
+          {dayShifts.map(sh => {
+            const dayMark = local.marks[sel];
+            const cur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
+            const CHIPS = [[null, '—'], ['un', 'לא'], ['high', 'מעדיף'], ['can', 'יכול']];
+            return (
+              <div key={sh.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: '#FBFAF8', border: '1px solid #ECEAE5' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotOf(sh.id), flexShrink: 0 }} />
+                <span style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{sh.name}</span>
+                <span style={{ fontSize: 11, color: '#8A867F', whiteSpace: 'nowrap' }}>{sh.start}–{sh.end}</span>
+                <span style={{ display: 'flex', gap: 4, marginInlineStart: 'auto' }}>
+                  {CHIPS.map(([m, label]) => {
+                    const st = m ? MARK_STATUS[m] : { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' };
+                    const active = cur === m;
+                    return (
+                      <span key={label} onClick={() => editable && setShiftMark(sh.id, m)} style={{
+                        padding: '5px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 800,
+                        background: active ? st.bg : '#FFF', color: active ? st.fg : '#A09C94',
+                        border: active ? (m ? st.bd : `1.5px solid ${INK}`) : '1px solid #E7E4DF',
+                        cursor: editable ? 'pointer' : 'default', transition: 'background 0.15s, border 0.15s' }}>
+                        {label}
+                      </span>
+                    );
+                  })}
+                </span>
+              </div>
+            );
+          })}
+          {!dayShifts.length && <div style={{ fontSize: 12, color: '#A09C94' }}>לא הוגדרו משמרות ליום זה.</div>}
         </div>
       </>)}
 

@@ -2569,6 +2569,14 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showKey, setShowKey] = React.useState(false);
   const [showAdminKey, setShowAdminKey] = React.useState(false);
+  const [adminDraft, setAdminDraft] = React.useState(adminKey || '');
+  const [adminSaved, setAdminSaved] = React.useState(false);
+
+  const saveAdminKey = () => {
+    onAdminKeyChange(adminDraft.trim());
+    setAdminSaved(true);
+    setTimeout(() => setAdminSaved(false), 2500);
+  };
 
   return (
     <div className="right-drawer-backdrop" onClick={onClose}>
@@ -2648,9 +2656,9 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
                 <input
                   type={showAdminKey ? 'text' : 'password'}
-                  value={adminKey}
-                  onChange={e => onAdminKeyChange(e.target.value)}
-                  placeholder="eyJhbGciOi... / sb_secret_..."
+                  value={adminDraft}
+                  onChange={e => { setAdminDraft(e.target.value); setAdminSaved(false); }}
+                  placeholder="eyJhbGciOi..."
                   style={{
                     flex:1, border:'1px solid var(--line)', borderRadius:7,
                     padding:'7px 10px', fontSize:'13px', background:'var(--surface)',
@@ -2663,7 +2671,13 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
                   {showAdminKey ? 'הסתר' : 'הצג'}
                 </button>
               </div>
-              {adminKey && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן זה בלבד</div>}
+              <button className="btn btn-primary" style={{marginTop:8,width:'100%',fontSize:'13px'}}
+                disabled={adminDraft.trim() === (adminKey || '')}
+                onClick={saveAdminKey}>
+                שמור מפתח
+              </button>
+              {adminSaved && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ המפתח נשמר</div>}
+              {!adminSaved && adminKey && adminDraft.trim() === adminKey && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן זה בלבד</div>}
             </div>
           </div>
         </div>
@@ -3835,7 +3849,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
         apiKey={anthropicKey}
         onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); }}
         adminKey={adminKey}
-        onAdminKeyChange={key => { setAdminKey(key); localStorage.setItem('supabase-admin-key', key); }} />
+        onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         month={currentMonth}

@@ -69,12 +69,32 @@ const getBase = (dayStr, settings) => {
   }
   return (wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS;
 };
+// זהה ללוגיקה של המשבץ: משמרת מיוחדת (חג/זמנית) מחליפה את משמרות הבסיס ביום שלה
+// ובימי ההמשך שלה (daysSpan), ומשמרות בסיס רב-יומיות מסומנות כהמשך בימים הבאים
 const shiftTypesFor = (s, settings) => {
   const special = settings?.special || [];
   const directSpecial = special.filter(sp => sp.date === s);
-  if (directSpecial.length) return directSpecial;
-  return getBase(s, settings);
+  const contSpecial = [];
+  special.forEach(sp => {
+    const span = sp.daysSpan || 1;
+    for (let i = 1; i < span; i++) {
+      if (addDays(sp.date, i) === s) contSpecial.push({ ...sp, continuation: true, originDate: sp.date });
+    }
+  });
+  if (directSpecial.length || contSpecial.length) return [...directSpecial, ...contSpecial];
+  const base = getBase(s, settings);
+  const contRegular = [];
+  for (let i = 1; i <= 2; i++) {
+    const prev = addDays(s, -i);
+    getBase(prev, settings).filter(sh => (sh.daysSpan || 1) > i).forEach(sh => {
+      if (!contRegular.find(c => c.id === sh.id && c.originDate === prev)) {
+        contRegular.push({ ...sh, continuation: true, originDate: prev });
+      }
+    });
+  }
+  return [...base, ...contRegular];
 };
+const shortDate = (s) => { const d = parseDate(s); return `${d.getDate()}/${d.getMonth() + 1}`; };
 const shiftDefOf = (s, shiftId, settings) => {
   const direct = shiftTypesFor(s, settings).find(x => x.id === shiftId);
   if (direct) return direct;
@@ -768,7 +788,9 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   }, [published]);
   const settings = published[ym]?.shift_settings || globalSettings || lastPubSettings;
   const selDs = `${ym}-${pad(sel)}`;
-  const dayShifts = shiftTypesFor(selDs, settings).filter(s => !s.continuation);
+  const dayShiftsAll = shiftTypesFor(selDs, settings);
+  const dayShifts = dayShiftsAll.filter(s => !s.continuation);       // ניתנות לסימון ביום זה
+  const contShifts = dayShiftsAll.filter(s => s.continuation);       // המשך משמרת רב-יומית — מידע בלבד
 
   const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', dirty: false }), ...patch } }));
 
@@ -933,7 +955,14 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
               </div>
             );
           })}
-          {!dayShifts.length && <div style={{ fontSize: 12, color: '#A09C94' }}>לא הוגדרו משמרות ליום זה.</div>}
+          {contShifts.map(sh => (
+            <div key={'cont-' + sh.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: 'oklch(0.96 0.04 80)', border: '1px dashed oklch(0.72 0.1 70)' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotOf(sh.id), flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 800 }}>{sh.name}</span>
+              <span style={{ fontSize: 11, color: '#8A867F' }}>נמשכת מ־{shortDate(sh.originDate)} — לסימון בחרו את יום ההתחלה</span>
+            </div>
+          ))}
+          {!dayShifts.length && !contShifts.length && <div style={{ fontSize: 12, color: '#A09C94' }}>לא הוגדרו משמרות ליום זה.</div>}
         </div>
       </>)}
 

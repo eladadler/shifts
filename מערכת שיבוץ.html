@@ -189,6 +189,7 @@
   .slot-dragging { opacity: 0.4; }
   .slot-reorder-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
   .slot-blocked { opacity: 0.45; outline: 2px dashed oklch(0.62 0.16 25); outline-offset: -2px; cursor: not-allowed; }
+  .slot-preferred { border-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in oklab, var(--ok) 30%, transparent); }
 
   /* ---------- צ'יפ עובד ---------- */
   .chip {
@@ -1497,8 +1498,10 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, isCont
   const slotDragActive = slotDragKey != null;
   const isBeingDragged = slotDragKey === slotKey;
   // עובד שנגרר ל-slot זה חסום (ביקש לא זמין) — מונעים שיבוץ
-  const blocked = !slotDragActive && draggingEmp &&
-    window.ShiftData?.availabilityOn(draggingEmp, dStr, shift.id) === 'unavailable';
+  const slotAv = !slotDragActive && draggingEmp
+    ? window.ShiftData?.availabilityOn(draggingEmp, dStr, shift.id) : null;
+  const blocked = slotAv === 'unavailable';
+  const preferred = slotAv === 'high';
 
   const handleDrop = (e) => {
     e.preventDefault(); e.stopPropagation(); setOver(false);
@@ -1516,7 +1519,7 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, isCont
 
   return (
     <div
-      className={`slot ${stateCls}` + (over && editable ? (slotDragActive ? ' slot-reorder-over' : ' slot-over') : '') + (isContinuation ? ' slot-continuation' : '') + (isBeingDragged ? ' slot-dragging' : '') + (blocked ? ' slot-blocked' : '')}
+      className={`slot ${stateCls}` + (over && editable ? (slotDragActive ? ' slot-reorder-over' : ' slot-over') : '') + (isContinuation ? ' slot-continuation' : '') + (isBeingDragged ? ' slot-dragging' : '') + (blocked ? ' slot-blocked' : '') + (preferred ? ' slot-preferred' : '')}
       onDragOver={(e) => {
         if (!editable) return;
         if (slotDragActive) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (!isBeingDragged) setOver(true); return; }

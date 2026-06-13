@@ -3487,6 +3487,9 @@ function App() {
       // ממשק לאפליקציית העובדים: סנכרון עובדים + קליטת בקשות שהוגשו
       window.__db.syncEmployees?.(loadedEmployees);
       refreshEmployeeRequests();
+      // סנכרון מפתח Anthropic ל-Supabase אם קיים ב-localStorage (למען אפליקציית העובדים)
+      const existingKey = localStorage.getItem('anthropic-api-key');
+      if (existingKey) window.__db.saveAnthropicKey(existingKey);
     }).catch(() => { setSyncStatus('error'); isFirstLoad.current = false; });
   }, []);
 

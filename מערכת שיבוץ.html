@@ -188,6 +188,7 @@
   .slot-head-grab:active { cursor: grabbing; }
   .slot-dragging { opacity: 0.4; }
   .slot-reorder-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+  .slot-blocked { opacity: 0.45; outline: 2px dashed oklch(0.62 0.16 25); outline-offset: -2px; cursor: not-allowed; }
 
   /* ---------- צ'יפ עובד ---------- */
   .chip {
@@ -1495,6 +1496,9 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, isCont
   // גרירת משמרת (סידור מחדש) פעילה בתא הזה
   const slotDragActive = slotDragKey != null;
   const isBeingDragged = slotDragKey === slotKey;
+  // עובד שנגרר ל-slot זה חסום (ביקש לא זמין) — מונעים שיבוץ
+  const blocked = !slotDragActive && draggingEmp &&
+    window.ShiftData?.availabilityOn(draggingEmp, dStr, shift.id) === 'unavailable';
 
   const handleDrop = (e) => {
     e.preventDefault(); e.stopPropagation(); setOver(false);
@@ -1504,16 +1508,19 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, isCont
     if (!payload) return;
     if (payload.kind === 'slot') { if (onSlotDropReorder) onSlotDropReorder(); return; }
     if (atCapacity) return;
-    if (payload.kind === 'emp') onAssign(dStr, shift.id, payload.empId);
-    else if (payload.kind === 'chip') onMoveChip(payload.from, { dStr, shiftId: shift.id }, payload.empId, e.shiftKey);
+    if (payload.kind === 'emp') {
+      if (window.ShiftData?.availabilityOn(payload.empId, dStr, shift.id) === 'unavailable') return;
+      onAssign(dStr, shift.id, payload.empId);
+    } else if (payload.kind === 'chip') onMoveChip(payload.from, { dStr, shiftId: shift.id }, payload.empId, e.shiftKey);
   };
 
   return (
     <div
-      className={`slot ${stateCls}` + (over && editable ? (slotDragActive ? ' slot-reorder-over' : ' slot-over') : '') + (isContinuation ? ' slot-continuation' : '') + (isBeingDragged ? ' slot-dragging' : '')}
+      className={`slot ${stateCls}` + (over && editable ? (slotDragActive ? ' slot-reorder-over' : ' slot-over') : '') + (isContinuation ? ' slot-continuation' : '') + (isBeingDragged ? ' slot-dragging' : '') + (blocked ? ' slot-blocked' : '')}
       onDragOver={(e) => {
         if (!editable) return;
         if (slotDragActive) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (!isBeingDragged) setOver(true); return; }
+        if (blocked) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; return; }
         if (!atCapacity) { e.preventDefault(); e.dataTransfer.dropEffect = e.shiftKey ? 'copy' : 'move'; setOver(true); }
       }}
       onDragLeave={() => setOver(false)}
@@ -3718,6 +3725,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
 
   const assign = (dStr, shiftId, empId) => {
     if (!activeDraftId) return;
+    if (AD.availabilityOn(empId, dStr, shiftId) === 'unavailable') return;
     updateDraft(activeDraftId, d => {
       const day = { ...(d.schedule[dStr] || {}) };
       const cur = day[shiftId] || [];

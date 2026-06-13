@@ -176,15 +176,17 @@ function PersonChip({ id, myId, empNames }) {
   );
 }
 
-function ShiftRow({ sh, myId, empNames }) {
+function ShiftRow({ sh, myId, empNames, blocked }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 7, padding: '10px 12px', borderRadius: 10,
-      background: sh.mine ? TEAL_SOFT : (sh.special ? 'oklch(0.96 0.04 80)' : '#FBFAF8'),
-      border: sh.mine ? `1.5px solid ${TEAL}` : (sh.special ? '1px dashed oklch(0.72 0.1 70)' : '1px solid #ECEAE5') }}>
+      background: blocked ? 'oklch(0.97 0.01 25)' : (sh.mine ? TEAL_SOFT : (sh.special ? 'oklch(0.96 0.04 80)' : '#FBFAF8')),
+      border: blocked ? '1px solid oklch(0.82 0.08 25)' : (sh.mine ? `1.5px solid ${TEAL}` : (sh.special ? '1px dashed oklch(0.72 0.1 70)' : '1px solid #ECEAE5')),
+      opacity: blocked ? 0.65 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: sh.dot, flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: 800, color: INK }}>{sh.label}</span>
         <span style={{ fontSize: 12, color: '#8A867F' }}>{sh.time}</span>
+        {blocked && <span style={{ fontSize: 11, fontWeight: 700, color: 'oklch(0.5 0.18 25)', background: 'oklch(0.93 0.06 25)', borderRadius: 999, padding: '2px 8px', marginRight: 'auto' }}>⚠ סימנת לא זמינ.ה</span>}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {sh.people.map(p => <PersonChip key={p} id={p} myId={myId} empNames={empNames} />)}
@@ -453,7 +455,7 @@ function App() {
     <Shell me={me} firstName={firstName} email={session.user.email} menuOpen={menuOpen} setMenuOpen={setMenuOpen} onLogout={logout}
       tab={tab} setTab={setTab}>
       {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} />}
-      {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} goReq={() => setTab('requests')} />}
+      {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} serverReqs={serverReqs} goReq={() => setTab('requests')} />}
       {tab === 'requests' && <RequestsTab me={me} email={session.user.email} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} />}
     </Shell>
@@ -584,7 +586,7 @@ function HomeTab({ me, empNames, published, TM, goSched, goReq }) {
 }
 
 /* ============ טאב הסידור ============ */
-function ScheduleTab({ me, empNames, published, TM, goReq }) {
+function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq }) {
   const months = React.useMemo(() => {
     const set = new Set([TM, addMonths(TM, 1), ...Object.keys(published)]);
     return [...set].sort();
@@ -598,6 +600,8 @@ function ScheduleTab({ me, empNames, published, TM, goReq }) {
   const todayNum = ym === TM ? Number(today.split('-')[2]) : null;
 
   const days = React.useMemo(() => pub ? buildMonthDays(ym, pub, me.id, empNames) : [], [pub, ym, me.id]);
+  const unavailableArr = (serverReqs[ym] || {}).unavailable || [];
+  const isUnavailable = (ds, shiftId) => unavailableArr.some(v => v === ds || v === ds + '@' + shiftId);
   const [selDay, setSelDay] = React.useState(todayNum || 1);
   const [weekIdx, setWeekIdx] = React.useState(() => Math.floor(((todayNum || 1) - 1 + monthOffset(ym)) / 7));
 
@@ -688,7 +692,7 @@ function ScheduleTab({ me, empNames, published, TM, goReq }) {
                 return (<>
                   <div style={{ fontSize: 14, fontWeight: 900 }}>יום {d.dayName}, {d.num} {inMonthLabel(ym)}{todayNum === d.num ? ' · היום' : ''}</div>
                   {use.length === 0 && <div style={{ fontSize: 13, color: '#8A867F' }}>{onlyMine ? 'אין לך משמרות ביום זה.' : 'אין משמרות ביום זה.'}</div>}
-                  {use.map((sh, i) => <ShiftRow key={i} sh={sh} myId={me.id} empNames={empNames} />)}
+                  {use.map((sh, i) => <ShiftRow key={i} sh={sh} myId={me.id} empNames={empNames} blocked={isUnavailable(d.ds, sh.id)} />)}
                 </>);
               })()}
             </div>
@@ -748,7 +752,7 @@ function ScheduleTab({ me, empNames, published, TM, goReq }) {
                       {use.length === 0 && <span style={{ fontSize: 12, color: '#A09C94' }}>אין משמרות</span>}
                     </div>
                   )}
-                  {expanded && use.map((sh, j) => <ShiftRow key={j} sh={sh} myId={me.id} empNames={empNames} />)}
+                  {expanded && use.map((sh, j) => <ShiftRow key={j} sh={sh} myId={me.id} empNames={empNames} blocked={isUnavailable(d.ds, sh.id)} />)}
                 </div>
               );
             })}

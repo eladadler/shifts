@@ -2616,11 +2616,23 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
   const [showAdminKey, setShowAdminKey] = React.useState(false);
   const [adminDraft, setAdminDraft] = React.useState(adminKey || '');
   const [adminSaved, setAdminSaved] = React.useState(false);
+  const [cloudSaving, setCloudSaving] = React.useState(false);
+  const [cloudSaved, setCloudSaved] = React.useState(false);
+  const [cloudErr, setCloudErr] = React.useState(false);
 
   const saveAdminKey = () => {
     onAdminKeyChange(adminDraft.trim());
     setAdminSaved(true);
     setTimeout(() => setAdminSaved(false), 2500);
+  };
+
+  const saveKeyToCloud = async () => {
+    if (!apiKey || cloudSaving) return;
+    setCloudSaving(true); setCloudSaved(false); setCloudErr(false);
+    const ok = await window.__db?.saveAnthropicKey(apiKey.trim());
+    setCloudSaving(false);
+    if (ok) { setCloudSaved(true); setTimeout(() => setCloudSaved(false), 3000); }
+    else setCloudErr(true);
   };
 
   return (
@@ -2689,7 +2701,17 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
                   {showKey ? 'הסתר' : 'הצג'}
                 </button>
               </div>
-              {apiKey && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן בלבד</div>}
+              {apiKey && (
+                <div style={{marginTop:8,display:'flex',flexDirection:'column',gap:6}}>
+                  <div style={{fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן בלבד</div>
+                  <button className="btn btn-primary" style={{fontSize:'12px',width:'100%'}}
+                    disabled={cloudSaving} onClick={saveKeyToCloud}>
+                    {cloudSaving ? 'שומר…' : '☁ שמור מפתח לענן (לאפליקציית העובדים)'}
+                  </button>
+                  {cloudSaved && <div style={{fontSize:'11px',color:'var(--ok)'}}>✓ המפתח נשמר ל-Supabase — העובדים יכולים להשתמש ב-AI</div>}
+                  {cloudErr && <div style={{fontSize:'11px',color:'var(--danger)'}}>שגיאה בשמירה לענן — בדקו חיבור לרשת</div>}
+                </div>
+              )}
             </div>
             <div>
               <div className="settings-sec-title">🔑 חשבונות עובדים — מפתח אדמין</div>

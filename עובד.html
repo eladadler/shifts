@@ -303,6 +303,7 @@ function App() {
   const [meStatus, setMeStatus] = React.useState('loading'); // loading | ok | notfound | error
   const [published, setPublished] = React.useState({});      // { 'YYYY-MM': row }
   const [globalSettings, setGlobalSettings] = React.useState(null); // הגדרות משמרות עדכניות מהמשבץ
+  const [anthropicKey, setAnthropicKey] = React.useState('');      // מפתח Anthropic — נטען מ-Supabase
   const [serverReqs, setServerReqs] = React.useState({});    // { 'YYYY-MM': row } — הבקשות שלי מהשרת
   const [localReqs, setLocalReqs] = React.useState({});      // { 'YYYY-MM': { marks, note, dirty } }
   const [tab, setTab] = React.useState('home');
@@ -336,12 +337,14 @@ function App() {
       const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes] = await Promise.all([
         sb.from('published_schedules').select('*'),
         sb.from('employee_requests').select('*').eq('emp_id', mine.id),
-        sb.from('mishmarot_state').select('data->shiftSettings').eq('id', 'main').maybeSingle(),
+        sb.from('mishmarot_state').select('data').eq('id', 'main').maybeSingle(),
       ]);
       if (e2) throw e2;
       if (e3) throw e3;
-      // הגדרות המשמרות העדכניות של המשבץ — לכרטיס פירוט היום בחודשים שטרם פורסמו
-      setGlobalSettings(settingsRes?.data?.shiftSettings || null);
+      // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
+      const stateData = settingsRes?.data?.data || {};
+      setGlobalSettings(stateData.shiftSettings || null);
+      setAnthropicKey(prev => prev || stateData.anthropicKey || '');
       const pubMap = {};
       (pubs || []).forEach(r => { pubMap[r.month] = r; });
       setPublished(pubMap);
@@ -457,7 +460,7 @@ function App() {
       {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} />}
       {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} serverReqs={serverReqs} goReq={() => setTab('requests')} />}
       {tab === 'requests' && <RequestsTab me={me} email={session.user.email} published={published} TM={TM} globalSettings={globalSettings}
-        serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} />}
+        serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey} />}
     </Shell>
   );
 }
@@ -764,7 +767,7 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq }) {
 }
 
 /* ============ טאב הגשת בקשות ============ */
-function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast }) {
+function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, anthropicKey }) {
   const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);
   const [mi, setMi] = React.useState(() => {
     // ברירת מחדל: החודש הקרוב שעדיין פתוח לבקשות
@@ -773,6 +776,8 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   });
   const [brush, setBrush] = React.useState('un');
   const [saving, setSaving] = React.useState(false);
+  const [analyzing, setAnalyzing] = React.useState(false);
+  const [aiError, setAiError] = React.useState(null);
   const [selDay, setSelDay] = React.useState(1);
   const ym = months[mi];
   const editable = !published[ym];
@@ -851,6 +856,64 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     setServerReqs(prev => ({ ...prev, [ym]: data }));
     setLocal({ dirty: false });
     showToast('הבקשות נשלחו ✓');
+  };
+
+  const analyzeText = async () => {
+    const text = (local.note || '').trim();
+    if (!text || !anthropicKey || analyzing) return;
+    setAnalyzing(true); setAiError(null);
+    try {
+      const [y, m] = ym.split('-').map(Number);
+      const nd = daysInMonth(ym);
+      const datesList = Array.from({ length: nd }, (_, i) => {
+        const ds = `${ym}-${pad(i + 1)}`;
+        return `${ds} — יום ${HEB_DAYS[weekdayOf(ds)]}`;
+      }).join('\n');
+      const shiftLine = (label, list) => label + ': ' + (list || []).map(s => `${s.id} = ${s.name} ${s.start}–${s.end}`).join(' · ');
+      const shiftsDesc = [
+        shiftLine('ימי חול (א׳–ה׳)', settings?.weekday),
+        shiftLine('שישי', settings?.friday),
+        shiftLine('שבת', settings?.saturday),
+      ].join('\n');
+      const prompt = `אתה מנתח בקשת עובד לסידור עבודה לחודש ${monthLabel(ym)} (${ym}).\n\n## תאריכי החודש וימי השבוע\n${datesList}\n\n## המשמרות הקיימות\n${shiftsDesc}\n\n## הבקשה החופשית\n"${text}"\n\n## משימה\nתרגם לתאריכים. החזר JSON בלבד:\n{\n  "unavailable": ["YYYY-MM-DD","YYYY-MM-DD@shiftId",...],\n  "high": [...],\n  "can": [...],\n  "note": "סיכום קצר בעברית"\n}\nכללים:\n- unavailable = לא יכול/לא רוצה\n- high = מבקש לעבוד\n- can = גמיש\n- יום שלם: "YYYY-MM-DD"; משמרת ספציפית: "YYYY-MM-DD@shiftId"\n- השתמש רק במזהי משמרות מהרשימה למעלה\n- כל התאריכים חייבים להיות בתוך ${ym}`;
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey.trim(),
+          'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }] }),
+      });
+      if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(err.error?.message || `HTTP ${resp.status}`); }
+      const apiData = await resp.json();
+      const raw = apiData.content?.find(b => b.type === 'text')?.text || '';
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('לא התקבל JSON תקין');
+      const result = JSON.parse(jsonMatch[0]);
+      const inMonth = (arr) => (Array.isArray(arr) ? arr.filter(v => typeof v === 'string' && v.startsWith(ym)) : []);
+      // המרה לפורמט marks: {"day": mark} או {"day": {shiftId: mark}}
+      const newMarks = { ...local.marks };
+      [['unavailable', 'un'], ['high', 'high'], ['can', 'can']].forEach(([key, mark]) => {
+        inMonth(result[key] || []).forEach(entry => {
+          const at = entry.indexOf('@');
+          const ds = at === -1 ? entry : entry.slice(0, at);
+          const sid = at === -1 ? null : entry.slice(at + 1);
+          const day = Number(ds.split('-')[2]);
+          if (!day) return;
+          if (sid) {
+            if (typeof newMarks[day] !== 'object' || !newMarks[day]) newMarks[day] = {};
+            newMarks[day] = { ...(typeof newMarks[day] === 'object' ? newMarks[day] : {}), [sid]: mark };
+          } else {
+            newMarks[day] = mark;
+          }
+        });
+      });
+      setLocal({ marks: newMarks, note: result.note || local.note, dirty: true });
+      showToast('הסימונים עודכנו ✓ — בדקו וערכו לפי הצורך');
+    } catch (err) {
+      setAiError(`שגיאת ניתוח: ${err.message}`);
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const hasMarks = Object.keys(local.marks).length > 0;
@@ -971,9 +1034,24 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       </>)}
 
       {editable && (<>
-        <textarea placeholder='הערות למשבץ — למשל: מעדיפה לילות, עד 15 בחודש אני בחו"ל' value={local.note}
-          onChange={e => setLocal({ note: e.target.value, dirty: true })}
-          style={{ border: `1.5px solid ${INK}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 68 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>בקשה חופשית</div>
+          <textarea placeholder='כתבו בקשה בשפה חופשית — למשל "לא יכול ימי שני לילה, מעדיף רביעי בוקר"' value={local.note}
+            onChange={e => { setLocal({ note: e.target.value, dirty: true }); setAiError(null); }}
+            style={{ border: `1.5px solid ${INK}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 80 }} />
+          {anthropicKey ? (
+            <div onClick={!analyzing && local.note?.trim() ? analyzeText : undefined} style={{
+              background: analyzing || !local.note?.trim() ? '#F1EFEB' : TEAL,
+              color: analyzing || !local.note?.trim() ? '#A09C94' : '#FFF',
+              borderRadius: 10, padding: '12px 0', textAlign: 'center', fontSize: 14, fontWeight: 800,
+              cursor: analyzing || !local.note?.trim() ? 'default' : 'pointer', transition: 'background 0.2s' }}>
+              {analyzing ? '⏳ מנתח…' : '⚡ נתח עם AI — עדכן יומן'}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#A09C94', textAlign: 'center', padding: '8px 0' }}>ניתוח AI לא זמין — המנהל לא הגדיר מפתח</div>
+          )}
+          {aiError && <div style={{ fontSize: 12, fontWeight: 600, color: 'oklch(0.5 0.18 25)', background: 'oklch(0.97 0.03 25)', borderRadius: 8, padding: '8px 12px' }}>{aiError}</div>}
+        </div>
         <div onClick={needSend ? submit : undefined} style={{
           background: needSend ? INK : '#FFF', color: needSend ? '#FFF' : TEAL_DARK,
           border: needSend ? `1.5px solid ${INK}` : `1.5px solid ${TEAL}`,
@@ -990,7 +1068,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
 
       {!editable && local.note && (
         <div style={{ background: '#FFF', border: '1px solid #EAE7E1', borderRadius: 12, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#8A867F' }}>הערות למשבץ</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#8A867F' }}>בקשה חופשית</div>
           <div style={{ fontSize: 14, lineHeight: 1.6 }}>{local.note}</div>
         </div>
       )}

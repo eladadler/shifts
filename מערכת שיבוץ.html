@@ -711,6 +711,16 @@
         return false;
       }
     },
+    async saveAnthropicKey(key) {
+      if (!client) return false;
+      try {
+        const { data } = await client.from('mishmarot_state').select('data').eq('id', 'main').single();
+        const merged = { ...(data?.data || {}), anthropicKey: key };
+        const { error } = await client.from('mishmarot_state').upsert({ id: 'main', data: merged, updated_at: new Date().toISOString() });
+        if (error) throw error;
+        return true;
+      } catch (e) { console.warn('saveAnthropicKey failed:', e.message); return false; }
+    },
     // ---- ניהול חשבונות עובדים — דורש מפתח service_role (נשמר בדפדפן בלבד, לא בקוד) ----
     async adminSetPassword(adminKey, email, password) {
       try {
@@ -3907,7 +3917,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
       <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
         tweaks={t} onTweakChange={setTweak}
         apiKey={anthropicKey}
-        onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); }}
+        onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); window.__db.saveAnthropicKey(key); }}
         adminKey={adminKey}
         onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }} />
 

@@ -3539,7 +3539,7 @@ function App() {
   React.useEffect(() => {
     if (generatingId) return;
     if (isFirstLoad.current) return;
-    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests };
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);

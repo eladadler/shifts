@@ -2924,10 +2924,14 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   );
 }
 
-// ---- RequestCalendar ----
-function RequestCalendar({ emp, entry, month, onUpdate, shiftSettings }) {
+// ---- RequestDetailPanel ----
+function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
   const SD = window.ShiftData;
+  const [brush, setBrush] = React.useState('un');
   const [selDay, setSelDay] = React.useState(1);
+  const [chatInput, setChatInput] = React.useState('');
+
+  React.useEffect(() => { setSelDay(1); setChatInput(''); setBrush('un'); }, [emp.id, month]);
 
   const MARK_ST = {
     un:   { bg: 'var(--danger-bg)', bd: '1.5px solid color-mix(in oklab, var(--danger) 50%, transparent)', fg: 'var(--danger)' },
@@ -2935,13 +2939,9 @@ function RequestCalendar({ emp, entry, month, onUpdate, shiftSettings }) {
     can:  { bg: 'var(--warn-bg)',   bd: '1.5px solid color-mix(in oklab, var(--warn) 50%, transparent)',   fg: 'var(--warn)' },
     none: { bg: 'var(--surface)',   bd: '1px solid var(--line)',   fg: 'var(--ink)' },
   };
-  const SHIFT_DOTS = {
-    morning: 'oklch(0.78 0.13 80)', evening: 'oklch(0.62 0.12 250)',
-    short: 'oklch(0.68 0.11 160)', night: 'oklch(0.45 0.09 290)',
-  };
+  const SHIFT_DOTS = { morning: 'oklch(0.78 0.13 80)', evening: 'oklch(0.62 0.12 250)', short: 'oklch(0.68 0.11 160)', night: 'oklch(0.45 0.09 290)' };
   const dotOf = (id) => SHIFT_DOTS[id] || 'oklch(0.62 0.14 25)';
 
-  // Convert entry arrays → marks object: { dayNum: 'un'|'high'|'can' | { shiftId: mark } }
   const marks = React.useMemo(() => {
     const m = {};
     const apply = (arr, mark) => {
@@ -2980,24 +2980,33 @@ function RequestCalendar({ emp, entry, month, onUpdate, shiftSettings }) {
     onUpdate(emp.id, { unavailable: toDates('un'), high: toDates('high'), can: toDates('can') });
   };
 
-  const setMark = (dayNum, sid, mark) => {
-    const dStr = `${month}-${SD.pad(dayNum)}`;
-    const dayShifts = SD.shiftTypesFor(dStr, shiftSettings).filter(s => !s.continuation);
+  const tapDay = (d) => {
+    setSelDay(d);
+    const cur = marks[d];
+    if (cur && typeof cur === 'object' && brush !== 'erase') return;
     const newMarks = { ...marks };
-    if (!sid) {
-      if (mark) newMarks[dayNum] = mark; else delete newMarks[dayNum];
-    } else {
-      let cur = newMarks[dayNum];
-      let obj = {};
-      if (typeof cur === 'string') dayShifts.forEach(s => { obj[s.id] = cur; });
-      else if (cur) obj = { ...cur };
-      if (mark) obj[sid] = mark; else delete obj[sid];
-      const ids = dayShifts.map(s => s.id);
-      if (!Object.keys(obj).length) delete newMarks[dayNum];
-      else if (ids.length && ids.every(id => obj[id] && obj[id] === obj[ids[0]]) && Object.keys(obj).length === ids.length)
-        newMarks[dayNum] = obj[ids[0]];
-      else newMarks[dayNum] = obj;
-    }
+    if (brush === 'erase') delete newMarks[d];
+    else newMarks[d] = brush;
+    commitMarks(newMarks);
+  };
+
+  const setShiftMark = (sid, mark) => {
+    const [sy, sm] = month.split('-').map(Number);
+    const sNDays = new Date(sy, sm, 0).getDate();
+    const sSel = Math.min(selDay, sNDays);
+    const selDs2 = `${month}-${SD.pad(sSel)}`;
+    const dayShifts = SD.shiftTypesFor(selDs2, shiftSettings).filter(s => !s.continuation);
+    const newMarks = { ...marks };
+    let cur = newMarks[sSel];
+    let obj = {};
+    if (typeof cur === 'string') dayShifts.forEach(s => { obj[s.id] = cur; });
+    else if (cur) obj = { ...cur };
+    if (mark) obj[sid] = mark; else delete obj[sid];
+    const ids = dayShifts.map(s => s.id);
+    if (!Object.keys(obj).length) delete newMarks[sSel];
+    else if (ids.length && ids.every(id => obj[id] && obj[id] === obj[ids[0]]) && Object.keys(obj).length === ids.length)
+      newMarks[sSel] = obj[ids[0]];
+    else newMarks[sSel] = obj;
     commitMarks(newMarks);
   };
 
@@ -3008,69 +3017,122 @@ function RequestCalendar({ emp, entry, month, onUpdate, shiftSettings }) {
   const selDs = `${month}-${SD.pad(sel)}`;
   const dayShifts = SD.shiftTypesFor(selDs, shiftSettings).filter(s => !s.continuation);
   const contShifts = SD.shiftTypesFor(selDs, shiftSettings).filter(s => s.continuation);
-  const HEB_DAYS_SHORT = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
+
+  const analyzed = entry && entry.analyzedAt;
+  const text = entry?.text || '';
+  const stale = analyzed && (entry.analyzedText || '') !== text.trim();
+  const hasDates = entry && ((entry.unavailable || []).length || (entry.high || []).length || (entry.can || []).length);
+
+  const sendChat = () => {
+    const msg = chatInput.trim();
+    if (!msg || chatBusy) return;
+    setChatInput('');
+    onChatRefine(emp, msg);
+  };
 
   return (
-    <div style={{display:'flex',flexDirection:'column',gap:8}}>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
-        {HEB_DAYS_SHORT.map(l => (
-          <div key={l} style={{textAlign:'center',fontSize:10.5,fontWeight:700,color:'var(--ink-3)',paddingBottom:2}}>{l}</div>
-        ))}
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
-        {Array.from({length:offset}).map((_,i) => <div key={'pad'+i} />)}
-        {Array.from({length:nDays}).map((_,i) => {
-          const d = i + 1;
-          const v = marks[d];
-          const whole = typeof v === 'string';
-          const s = MARK_ST[whole ? v : 'none'];
-          const dots = !whole && v ? Object.values(v).map(mk => MARK_ST[mk]?.fg).filter(Boolean) : [];
-          const isSel = d === sel;
-          return (
-            <div key={d} onClick={() => setSelDay(d)} style={{
-              aspectRatio:'1',borderRadius:7,background:s.bg,
-              border:isSel ? '2px solid var(--ink)' : s.bd,
-              color:s.fg,display:'flex',flexDirection:'column',
-              alignItems:'center',justifyContent:'center',gap:2,
-              fontSize:11.5,fontWeight:700,cursor:'pointer',transition:'background 0.12s,border 0.12s'}}>
-              <span>{d}</span>
-              {dots.length > 0 && (
-                <span style={{display:'flex',gap:2}}>
-                  {dots.slice(0,4).map((c,j) => <span key={j} style={{width:4,height:4,borderRadius:'50%',background:c}} />)}
-                </span>
-              )}
-            </div>
-          );
-        })}
+    <div style={{display:'flex',flexDirection:'column',gap:14,maxWidth:600}}>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',gap:10,paddingBottom:12,borderBottom:'1px solid var(--line)'}}>
+        <window.Avatar emp={emp} size={40} />
+        <div style={{flex:1}}>
+          <div style={{fontSize:17,fontWeight:800}}>{emp.name}</div>
+          {emp.role && <div style={{fontSize:12,color:'var(--ink-3)'}}>{emp.role}</div>}
+        </div>
+        {entry?.fromEmployee && (
+          <span style={{fontSize:11,fontWeight:600,color:'var(--accent)',background:'color-mix(in oklab, var(--accent) 12%, transparent)',borderRadius:999,padding:'2px 9px'}}
+            title={entry.employeeUpdatedAt ? 'הוגש: ' + new Date(entry.employeeUpdatedAt).toLocaleString('he-IL') : ''}>
+            📥 הוגש מאפליקציית העובד
+          </span>
+        )}
+        {analyzed && !stale && <span style={{fontSize:11.5,color:'var(--ok)'}}>✓ נותח</span>}
+        {stale && <span style={{fontSize:11.5,color:'var(--warn)'}}>שונה — נתחו שוב</span>}
+        {entry && (
+          <button className="btn" style={{fontSize:'11px',padding:'3px 9px',flexShrink:0}}
+            onClick={() => { if (window.confirm('למחוק את הבקשה של ' + emp.name + ' לחודש זה?')) onClearEntry(emp.id); }}>
+            מחיקה
+          </button>
+        )}
       </div>
 
-      <div style={{background:'var(--bg)',borderRadius:9,border:'1px solid var(--line)',padding:'10px 12px',display:'flex',flexDirection:'column',gap:7}}>
-        <div style={{fontSize:12.5,fontWeight:700}}>
-          יום {SD.HEB_DAYS[SD.weekdayOf(selDs)]}, {sel} {SD.monthLabel(month)}
+      {/* Brush mode selector */}
+      <div style={{display:'flex',gap:5,alignItems:'center',background:'var(--surface)',borderRadius:10,padding:'8px 12px',border:'1px solid var(--line)'}}>
+        <span style={{fontSize:11.5,color:'var(--ink-3)',flexShrink:0,marginInlineEnd:4}}>מצב סימון:</span>
+        {[['erase','✕ מחק','var(--surface)','var(--ink)'],['un','לא זמין','var(--danger-bg)','var(--danger)'],['high','מבקש לעבוד','var(--ok-bg)','var(--ok)']].map(([mode,label,bg,fg]) => {
+          const active = brush === mode;
+          return (
+            <button key={mode} onClick={() => setBrush(mode)} style={{
+              padding:'5px 11px',borderRadius:8,fontSize:12,fontWeight:700,border:'none',cursor:'pointer',
+              background:active ? bg : 'transparent',color:active ? fg : 'var(--ink-3)',
+              outline:active ? `1.5px solid ${fg}` : '1px solid transparent',transition:'all 0.12s',
+            }}>{label}</button>
+          );
+        })}
+        {hasDates && (
+          <span style={{marginInlineStart:'auto',fontSize:11.5,color:'var(--ink-3)'}}>
+            {(entry.unavailable||[]).length} לא זמין · {(entry.high||[]).length} מבקש לעבוד
+          </span>
+        )}
+      </div>
+
+      {/* Calendar */}
+      <div style={{background:'var(--surface)',borderRadius:12,border:'1px solid var(--line)',padding:'14px 12px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:8}}>
+          {['א','ב','ג','ד','ה','ו','ש'].map(l => (
+            <div key={l} style={{textAlign:'center',fontSize:11,fontWeight:700,color:'var(--ink-3)'}}>{l}</div>
+          ))}
         </div>
-        <div style={{fontSize:11,color:'var(--ink-3)'}}>לחצו על משמרת לסימון:</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+          {Array.from({length:offset}).map((_,i) => <div key={'pad'+i} />)}
+          {Array.from({length:nDays}).map((_,i) => {
+            const d = i + 1;
+            const v = marks[d];
+            const whole = typeof v === 'string';
+            const s = MARK_ST[whole ? v : 'none'];
+            const dots = !whole && v ? Object.values(v).map(mk => MARK_ST[mk]?.fg).filter(Boolean) : [];
+            const isSel = d === sel;
+            return (
+              <div key={d} onClick={() => tapDay(d)} style={{
+                aspectRatio:'1',borderRadius:9,background:s.bg,
+                border:isSel ? '2px solid var(--ink)' : s.bd,
+                color:s.fg,display:'flex',flexDirection:'column',
+                alignItems:'center',justifyContent:'center',gap:2,
+                fontSize:13,fontWeight:700,cursor:'pointer',transition:'background 0.12s,border 0.12s',
+              }}>
+                <span>{d}</span>
+                {dots.length > 0 && (
+                  <span style={{display:'flex',gap:2}}>
+                    {dots.slice(0,4).map((c,j) => <span key={j} style={{width:4,height:4,borderRadius:'50%',background:c}} />)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Day detail */}
+      <div style={{background:'var(--surface)',borderRadius:12,border:'1px solid var(--line)',padding:'12px 14px',display:'flex',flexDirection:'column',gap:8}}>
+        <div style={{fontSize:14,fontWeight:800}}>יום {SD.HEB_DAYS[SD.weekdayOf(selDs)]}, {sel} {SD.monthLabel(month)}</div>
+        <div style={{fontSize:11.5,color:'var(--ink-3)'}}>לחצו על משמרת לדיוק רמת הסימון:</div>
         {dayShifts.map(sh => {
           const dayMark = marks[sel];
           const cur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
-          const CHIPS = [[null,'—'],['un','לא זמין'],['high','מבקש לעבוד']];
           return (
-            <div key={sh.id} style={{display:'flex',alignItems:'center',gap:7,padding:'6px 8px',borderRadius:7,background:'var(--surface)',border:'1px solid var(--line)'}}>
-              <span style={{width:7,height:7,borderRadius:'50%',background:dotOf(sh.id),flexShrink:0}} />
-              <span style={{fontSize:12,fontWeight:700,whiteSpace:'nowrap'}}>{sh.name}</span>
-              <span style={{fontSize:10.5,color:'var(--ink-3)',whiteSpace:'nowrap'}}>{sh.start}–{sh.end}</span>
-              <span style={{display:'flex',gap:3,marginInlineStart:'auto',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                {CHIPS.map(([mk, label]) => {
+            <div key={sh.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:9,background:'var(--bg)',border:'1px solid var(--line)'}}>
+              <span style={{width:8,height:8,borderRadius:'50%',background:dotOf(sh.id),flexShrink:0}} />
+              <span style={{fontSize:13,fontWeight:700,whiteSpace:'nowrap'}}>{sh.name}</span>
+              <span style={{fontSize:11,color:'var(--ink-3)',whiteSpace:'nowrap'}}>{sh.start}–{sh.end}</span>
+              <span style={{display:'flex',gap:4,marginInlineStart:'auto'}}>
+                {[[null,'—'],['un','לא זמין'],['high','מבקש לעבוד']].map(([mk,label]) => {
                   const st = mk ? MARK_ST[mk] : {bg:'var(--surface)',bd:'1px solid var(--line)',fg:'var(--ink-3)'};
                   const active = cur === mk;
                   return (
-                    <span key={label} onClick={() => setMark(sel, sh.id, mk)} style={{
-                      padding:'3px 7px',borderRadius:6,fontSize:10.5,fontWeight:700,
-                      background:active ? st.bg : 'var(--surface)',
-                      color:active ? st.fg : 'var(--ink-3)',
-                      border:active ? st.bd : '1px solid var(--line)',
-                      cursor:'pointer',transition:'background 0.12s,border 0.12s'}}>
-                      {label}
-                    </span>
+                    <span key={label} onClick={() => setShiftMark(sh.id, mk)} style={{
+                      padding:'4px 9px',borderRadius:7,fontSize:11.5,fontWeight:700,
+                      background:active ? st.bg : 'var(--surface)',color:active ? st.fg : 'var(--ink-3)',
+                      border:active ? st.bd : '1px solid var(--line)',cursor:'pointer',transition:'background 0.12s,border 0.12s',
+                    }}>{label}</span>
                   );
                 })}
               </span>
@@ -3078,16 +3140,65 @@ function RequestCalendar({ emp, entry, month, onUpdate, shiftSettings }) {
           );
         })}
         {contShifts.map(sh => (
-          <div key={'cont-'+sh.id} style={{display:'flex',alignItems:'center',gap:7,padding:'6px 8px',borderRadius:7,background:'var(--warn-bg)',border:'1px dashed var(--warn)'}}>
-            <span style={{width:7,height:7,borderRadius:'50%',background:dotOf(sh.id),flexShrink:0}} />
-            <span style={{fontSize:12,fontWeight:700}}>{sh.name}</span>
-            <span style={{fontSize:10.5,color:'var(--ink-3)'}}>נמשכת מ-{SD.shortDate(sh.originDate)}</span>
+          <div key={'cont-'+sh.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:9,background:'var(--warn-bg)',border:'1px dashed var(--warn)'}}>
+            <span style={{width:8,height:8,borderRadius:'50%',background:dotOf(sh.id),flexShrink:0}} />
+            <span style={{fontSize:13,fontWeight:700}}>{sh.name}</span>
+            <span style={{fontSize:11,color:'var(--ink-3)'}}>נמשכת מ-{SD.shortDate(sh.originDate)}</span>
           </div>
         ))}
-        {!dayShifts.length && !contShifts.length && (
-          <div style={{fontSize:11.5,color:'var(--ink-3)'}}>לא הוגדרו משמרות ליום זה.</div>
-        )}
+        {!dayShifts.length && !contShifts.length && <div style={{fontSize:12,color:'var(--ink-3)'}}>לא הוגדרו משמרות ליום זה.</div>}
       </div>
+
+      {/* Free text + AI */}
+      <div style={{background:'var(--surface)',borderRadius:12,border:'1px solid var(--line)',padding:'12px 14px',display:'flex',flexDirection:'column',gap:8}}>
+        <div style={{fontSize:12,fontWeight:600,color:'var(--ink-2)'}}>בקשה חופשית — ה-AI יתרגם לסימונים ביומן:</div>
+        <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
+          <textarea
+            value={text}
+            onChange={(e) => onUpdate(emp.id, { text: e.target.value })}
+            placeholder={'למשל: "לא יכול בכל ימי שלישי, מבקש לעבוד ב-12 וב-13"'}
+            rows={3}
+            style={{flex:1,border:'1px solid var(--line)',borderRadius:8,padding:'8px 10px',fontSize:'13px',background:'var(--bg)',color:'var(--ink)',font:'inherit',outline:'none',resize:'vertical',minHeight:'60px'}} />
+          <button className="btn btn-primary" style={{fontSize:'12.5px',whiteSpace:'nowrap',flexShrink:0}}
+            disabled={analyzing || !text.trim() || !apiKey}
+            onClick={() => onAnalyze(emp)}>
+            {analyzing ? <><span className="spin">↻</span> מנתח…</> : (analyzed ? '✦ נתח שוב' : '✦ נתח עם AI')}
+          </button>
+        </div>
+        {analyzed && entry.note && <div style={{fontSize:11,color:'var(--ink-3)',borderTop:'1px dashed var(--line)',paddingTop:6}}>{entry.note}</div>}
+      </div>
+
+      {/* Chat follow-up */}
+      {analyzed && (chatHistory||[]).length > 0 && (
+        <div style={{background:'var(--surface)',borderRadius:12,border:'1px solid var(--line)',padding:'12px 14px',display:'flex',flexDirection:'column',gap:8}}>
+          <div style={{fontSize:12,fontWeight:600,color:'var(--ink-2)'}}>שיחת המשך עם ה-AI — לדיוק:</div>
+          <div style={{display:'flex',gap:6}}>
+            <input type="text" value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendChat()}
+              placeholder='למשל: "הוסף את ה-15 כלא זמין" או "הסר את ה-12"'
+              disabled={chatBusy}
+              style={{flex:1,border:'1px solid var(--line)',borderRadius:8,padding:'8px 10px',fontSize:'12.5px',background:'var(--bg)',color:'var(--ink)',font:'inherit',outline:'none'}} />
+            <button className="btn btn-primary" style={{fontSize:'12px',whiteSpace:'nowrap',flexShrink:0}}
+              disabled={chatBusy || !chatInput.trim()} onClick={sendChat}>
+              {chatBusy ? <><span className="spin">↻</span> שולח…</> : '← שלח'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && <div style={{padding:'8px 12px',background:'var(--danger-bg)',borderRadius:8,fontSize:'12.5px',color:'var(--danger)'}}>{error}</div>}
+
+      {/* Save */}
+      <button className={'btn btn-primary' + (sendOk ? ' sync-saved' : '')}
+        style={{width:'100%',fontSize:'14px',fontWeight:800,padding:'13px',justifyContent:'center',borderRadius:12}}
+        disabled={sendBusy || sendOk || !hasDates}
+        onClick={() => onSend(emp)}>
+        {sendBusy ? <><span className="spin">↻</span> שומר…</>
+          : sendOk ? '✓ נשמר בהצלחה!'
+          : '← שגר'}
+      </button>
     </div>
   );
 }
@@ -3103,16 +3214,13 @@ function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, a
     setRefreshing(false);
   };
   const [month, setMonth] = React.useState(initialMonth || SD.MONTH);
+  const [selectedEmpId, setSelectedEmpId] = React.useState(null);
   const [analyzing, setAnalyzing] = React.useState({});
   const [errors, setErrors] = React.useState({});
-  const [calOpen, setCalOpen] = React.useState({});
-  const [chatInputs, setChatInputs] = React.useState({});
   const [chatHistories, setChatHistories] = React.useState({});
   const [chatBusy, setChatBusy] = React.useState({});
   const [sendBusy, setSendBusy] = React.useState({});
   const [sendOk, setSendOk] = React.useState({});
-  const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can' };
-  const tagLabel = { unavailable: 'לא יכול', high: 'מבקש לעבוד', can: 'גמיש' };
 
   const navMonth = (dir) => {
     const [y, m] = month.split('-').map(Number);
@@ -3236,13 +3344,11 @@ ${shiftsDesc}
     }
   };
 
-  const chatRefine = async (emp) => {
-    const userMsg = (chatInputs[emp.id] || '').trim();
+  const chatRefine = async (emp, userMsg) => {
     if (!userMsg || chatBusy[emp.id]) return;
     const history = chatHistories[emp.id] || [];
     if (!history.length) return;
     setChatBusy(b => ({...b, [emp.id]: true}));
-    setChatInputs(i => ({...i, [emp.id]: ''}));
     const newHistory = [...history, { role: 'user', content: userMsg }];
     try {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -3302,164 +3408,96 @@ ${shiftsDesc}
   };
 
   const withReqCount = employees.filter(e => entryOf(e.id)).length;
+  const selectedEmp = employees.find(e => e.id === selectedEmpId) || null;
 
   return (
-    <div className="mgmt-screen">
-      <div className="mgmt-toolbar">
-        <h2 className="mgmt-title">📋 בקשות עובדים</h2>
-        <div className="month-nav" style={{marginInlineStart:16}}>
+    <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,overflow:'hidden',background:'var(--bg)'}}>
+      {/* Toolbar */}
+      <div className="mgmt-toolbar" style={{padding:'10px 20px',borderBottom:'1px solid var(--line)',flexShrink:0,background:'var(--surface)'}}>
+        <h2 className="mgmt-title">📋 בקשות</h2>
+        <div className="month-nav" style={{marginInlineStart:12}}>
           <button className="month-nav-btn" onClick={() => navMonth(-1)} title="חודש קודם">‹</button>
           <span style={{fontSize:'14px',fontWeight:600,minWidth:110,textAlign:'center'}}>{SD.monthLabel(month)}</span>
           <button className="month-nav-btn" onClick={() => navMonth(1)} title="חודש הבא">›</button>
         </div>
-        <button className="btn" style={{marginInlineStart:12,fontSize:'12.5px'}} onClick={refresh} disabled={refreshing}>
-          {refreshing ? <><span className="spin">↻</span> מרענן…</> : '↻ רענון בקשות מהעובדים'}
+        <button className="btn" style={{marginInlineStart:10,fontSize:'12px'}} onClick={refresh} disabled={refreshing}>
+          {refreshing ? <><span className="spin">↻</span> מרענן…</> : '↻ רענון'}
         </button>
-        <span style={{fontSize:'13px',color:'var(--ink-3)',marginInlineStart:'auto'}}>{withReqCount} מתוך {employees.length} עובדים עם בקשות לחודש זה</span>
+        <span style={{fontSize:'12.5px',color:'var(--ink-3)',marginInlineStart:'auto'}}>{withReqCount}/{employees.length} עם בקשות</span>
       </div>
 
-      {!employees.length ? (
-        <div style={{textAlign:'center',padding:'40px',color:'var(--ink-3)'}}>אין עובדים במערכת — הוסיפו עובדים במסך העובדים</div>
-      ) : (
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          {employees.map((emp) => {
+      {/* Split layout */}
+      <div style={{display:'flex',flex:1,minHeight:0,overflow:'hidden'}}>
+
+        {/* Detail panel — 2/3, left side in RTL */}
+        <div style={{flex:1,overflow:'auto',padding:'20px 24px',minWidth:0}}>
+          {!employees.length ? (
+            <div style={{textAlign:'center',padding:'60px 20px',color:'var(--ink-3)'}}>אין עובדים במערכת — הוסיפו עובדים במסך העובדים</div>
+          ) : selectedEmp ? (
+            <RequestDetailPanel
+              emp={selectedEmp}
+              entry={entryOf(selectedEmp.id)}
+              month={month}
+              onUpdate={updateEntry}
+              onAnalyze={analyze}
+              onChatRefine={chatRefine}
+              onClearEntry={clearEntry}
+              onSend={sendToSupabase}
+              apiKey={apiKey}
+              shiftSettings={shiftSettings}
+              analyzing={!!analyzing[selectedEmp.id]}
+              chatHistory={chatHistories[selectedEmp.id] || []}
+              chatBusy={!!chatBusy[selectedEmp.id]}
+              sendBusy={!!sendBusy[selectedEmp.id]}
+              sendOk={!!sendOk[selectedEmp.id]}
+              error={errors[selectedEmp.id] || null}
+            />
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',gap:10,color:'var(--ink-3)'}}>
+              <div style={{fontSize:36}}>👈</div>
+              <div style={{fontSize:14,fontWeight:600}}>בחרו עובד מהרשימה</div>
+              <div style={{fontSize:12}}>לצפייה ועריכת בקשות השיבוץ שלו</div>
+            </div>
+          )}
+        </div>
+
+        {/* Employee list — 1/3, right side in RTL */}
+        <div style={{width:260,flexShrink:0,overflow:'auto',borderInlineEnd:'1px solid var(--line)',background:'var(--surface)',padding:'8px 6px'}}>
+          {employees.length === 0 && (
+            <div style={{textAlign:'center',padding:'20px',color:'var(--ink-3)',fontSize:12}}>אין עובדים</div>
+          )}
+          {employees.map(emp => {
             const entry = entryOf(emp.id);
-            const text = entry?.text || '';
-            const analyzed = entry && entry.analyzedAt;
-            const fromEmployee = entry && entry.fromEmployee;
-            const stale = analyzed && (entry.analyzedText || '') !== text.trim();
-            const busy = !!analyzing[emp.id];
-            const hasDates = entry && ((entry.unavailable || []).length || (entry.high || []).length || (entry.can || []).length);
-            const tags = !entry ? [] : [
-              ...(entry.unavailable || []).map((v) => ({ v, type: 'unavailable' })),
-              ...(entry.high || []).map((v) => ({ v, type: 'high' })),
-              ...(entry.can || []).map((v) => ({ v, type: 'can' })),
-            ].sort((a, b) => a.v.localeCompare(b.v));
-
+            const hasDates = entry && ((entry.unavailable||[]).length || (entry.high||[]).length || (entry.can||[]).length);
+            const fromEmployee = entry?.fromEmployee;
+            const analyzed = entry?.analyzedAt;
+            const hasText = entry?.text?.trim();
+            const isSelected = emp.id === selectedEmpId;
             return (
-              <div key={emp.id} className="req-card" style={{background:'var(--surface)'}}>
-                <div className="req-card-head">
-                  <window.Avatar emp={emp} size={30} />
-                  <div>
-                    <div className="req-card-name">{emp.name}</div>
-                    {emp.role && <div style={{fontSize:'11.5px',color:'var(--ink-3)'}}>{emp.role}</div>}
-                  </div>
-                  {fromEmployee && (
-                    <span style={{fontSize:'11px',fontWeight:600,color:'var(--accent)',background:'color-mix(in oklab, var(--accent) 12%, transparent)',borderRadius:999,padding:'2px 9px'}}
-                      title={entry.employeeUpdatedAt ? 'הוגש: ' + new Date(entry.employeeUpdatedAt).toLocaleString('he-IL') : ''}>
-                      📥 הוגש מאפליקציית העובד
-                    </span>
-                  )}
-                  {analyzed && !stale && <span style={{marginInlineStart:'auto',fontSize:'11.5px',color:'var(--ok)'}}>✓ נותח</span>}
-                  {stale && <span style={{marginInlineStart:'auto',fontSize:'11.5px',color:'var(--warn)'}}>הטקסט שונה מאז הניתוח — נתחו שוב</span>}
+              <div key={emp.id} onClick={() => setSelectedEmpId(emp.id)} style={{
+                display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:9,cursor:'pointer',
+                background:isSelected ? 'color-mix(in oklab, var(--accent) 12%, transparent)' : 'transparent',
+                border:isSelected ? '1.5px solid color-mix(in oklab, var(--accent) 35%, transparent)' : '1.5px solid transparent',
+                marginBottom:2,transition:'background 0.12s',
+              }}>
+                <window.Avatar emp={emp} size={28} />
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.name}</div>
+                  {emp.role && <div style={{fontSize:11,color:'var(--ink-3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.role}</div>}
                 </div>
-
-                <div style={{display:'flex',gap:8,alignItems:'flex-start',marginTop:8}}>
-                  <textarea
-                    value={text}
-                    onChange={(e) => updateEntry(emp.id, { text: e.target.value })}
-                    placeholder={'הבקשה של ' + emp.name + ' לחודש זה, בשפה חופשית. למשל: "לא יכול בכל ימי שלישי, מבקש לעבוד ב-12 וב-13, גמיש בסופי שבוע"'}
-                    rows={2}
-                    style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'8px 10px',fontSize:'13px',background:'var(--bg)',color:'var(--ink)',font:'inherit',outline:'none',resize:'vertical',minHeight:'40px'}} />
-                  <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
-                    <button className="btn btn-primary" style={{fontSize:'12.5px',whiteSpace:'nowrap'}}
-                      disabled={busy || !text.trim()} onClick={() => analyze(emp)}>
-                      {busy ? <><span className="spin">↻</span> מנתח…</> : (analyzed ? '✦ נתח שוב' : '✦ נתח עם AI')}
-                    </button>
-                    {entry && (
-                      <button className="btn" style={{fontSize:'12px'}} disabled={busy}
-                        onClick={() => { if (window.confirm('למחוק את הבקשה של עובד זה לחודש זה?')) clearEntry(emp.id); }}>
-                        מחיקה
-                      </button>
-                    )}
-                  </div>
+                <div style={{flexShrink:0,textAlign:'end',minWidth:40}}>
+                  {fromEmployee && <div style={{fontSize:10,fontWeight:700,color:'var(--accent)'}}>📥 הגיש</div>}
+                  {!fromEmployee && hasDates && <div style={{fontSize:10,fontWeight:700,color:'var(--ok)'}}>✓ בקשה</div>}
+                  {!fromEmployee && !hasDates && hasText && !analyzed && <div style={{fontSize:10,color:'var(--warn)'}}>✎ טיוטה</div>}
+                  {!fromEmployee && !hasDates && hasText && analyzed && <div style={{fontSize:10,color:'var(--ok)'}}>✓ נותח</div>}
+                  {!entry && <div style={{fontSize:12,color:'var(--line)'}}>—</div>}
                 </div>
-
-                {errors[emp.id] && <div style={{marginTop:8,fontSize:'12px',color:'var(--danger)'}}>{errors[emp.id]}</div>}
-
-                {(analyzed || (fromEmployee && (hasDates || entry.note))) && (
-                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--line)'}}>
-                    <div style={{fontSize:'11px',color:'var(--ink-3)',marginBottom:6}}>
-                      {analyzed ? 'תוצאת הניתוח של ה-AI — בדקו שהתאריכים תואמים את הבקשה:' : 'הבקשה כפי שהוגשה מאפליקציית העובד:'}
-                    </div>
-                    {tags.length ? (
-                      <div className="req-tags">
-                        {tags.map(({ v, type }) => {
-                          const { d, sid } = SD.splitReqEntry(v);
-                          return (
-                            <span key={v + type} className={'req-tag av-tag ' + tagCls[type]} title={tagLabel[type]}>
-                              {SD.shortDate(d)} {SD.dayLabel(d)}{sid ? ` · ${SD.shiftNameOf(sid, shiftSettings)}` : ''} · {tagLabel[type]}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div style={{fontSize:'12px',color:'var(--ink-3)'}}>לא זוהו תאריכים ספציפיים</div>
-                    )}
-                    {entry.note && <div className="req-note" style={{marginTop:6}}>{entry.note}</div>}
-
-                    {analyzed && (
-                      <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--line)'}}>
-                        <div style={{fontSize:'11.5px',fontWeight:600,color:'var(--ink-2)',marginBottom:6}}>שיחת המשך עם ה-AI — לדיוק הניתוח:</div>
-                        <div style={{display:'flex',gap:6}}>
-                          <input
-                            type="text"
-                            value={chatInputs[emp.id] || ''}
-                            onChange={e => setChatInputs(i => ({...i, [emp.id]: e.target.value}))}
-                            onKeyDown={e => { if (e.key === 'Enter') chatRefine(emp); }}
-                            placeholder='למשל: "הוסף את ה-15 כלא זמין" או "הסר את ה-12"'
-                            disabled={chatBusy[emp.id]}
-                            style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'12.5px',background:'var(--bg)',color:'var(--ink)',font:'inherit',outline:'none'}}
-                          />
-                          <button className="btn btn-primary" style={{fontSize:'12px',whiteSpace:'nowrap'}}
-                            disabled={chatBusy[emp.id] || !(chatInputs[emp.id]||'').trim()}
-                            onClick={() => chatRefine(emp)}>
-                            {chatBusy[emp.id] ? <><span className="spin">↻</span> שולח…</> : '← שלח'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {hasDates && (
-                  <div style={{marginTop:8}}>
-                    <button className="btn" style={{width:'100%',display:'flex',justifyContent:'space-between',fontSize:'12.5px'}}
-                      onClick={() => setCalOpen(o => ({...o, [emp.id]: !o[emp.id]}))}>
-                      <span>{calOpen[emp.id] ? '▼' : '▶'} יומן לחודש זה</span>
-                      <span style={{fontSize:11,color:'var(--ink-3)',fontWeight:400}}>
-                        {(entry.unavailable||[]).length} לא זמין · {(entry.high||[]).length} מבקש לעבוד
-                      </span>
-                    </button>
-                    {calOpen[emp.id] && (
-                      <div style={{marginTop:6,padding:12,background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>
-                        <RequestCalendar
-                          emp={emp}
-                          entry={entry}
-                          month={month}
-                          onUpdate={updateEntry}
-                          shiftSettings={shiftSettings}
-                        />
-                        <div style={{marginTop:12}}>
-                          <button
-                            className={'btn btn-primary' + (sendOk[emp.id] ? ' sync-saved' : '')}
-                            style={{width:'100%',fontSize:'13px',fontWeight:700,justifyContent:'center'}}
-                            disabled={sendBusy[emp.id] || sendOk[emp.id]}
-                            onClick={() => sendToSupabase(emp)}>
-                            {sendBusy[emp.id] ? <><span className="spin">↻</span> שומר…</>
-                              : sendOk[emp.id] ? '✓ נשמר בהצלחה!'
-                              : '← שגר לעובד'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
-      )}
+
+      </div>
     </div>
   );
 }

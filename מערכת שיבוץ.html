@@ -84,6 +84,7 @@
   .st-generating { background: var(--warn-bg); color: var(--warn); }
   .st-draft { background: color-mix(in oklab, var(--accent) 12%, transparent); color: var(--accent); }
   .st-final { background: var(--ok-bg); color: var(--ok); }
+  .st-open  { background: color-mix(in oklab, oklch(0.65 0.15 200) 12%, transparent); color: oklch(0.38 0.14 200); }
   .conflict-count { font-size: 12px; font-weight: 600; color: var(--danger); background: var(--danger-bg); padding: 3px 10px; border-radius: 999px; }
   .topbar-actions { display: flex; align-items: center; gap: 8px; }
 
@@ -2925,13 +2926,18 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
 }
 
 // ---- RequestDetailPanel ----
-function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
+function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
   const SD = window.ShiftData;
+  const SE = window.ShiftEngine;
   const [brush, setBrush] = React.useState('view');
-  const [selDay, setSelDay] = React.useState(1);
+  const [selDay, setSelDay] = React.useState(() => openRange?.start || `${month}-01`);
   const [chatInput, setChatInput] = React.useState('');
 
-  React.useEffect(() => { setSelDay(1); setChatInput(''); setBrush('view'); }, [emp.id, month]);
+  React.useEffect(() => {
+    setSelDay(openRange?.start || `${month}-01`);
+    setChatInput('');
+    setBrush('view');
+  }, [emp.id, month]);
 
   const MARK_ST = {
     un:   { bg: 'var(--danger-bg)', bd: '1.5px solid color-mix(in oklab, var(--danger) 50%, transparent)', fg: 'var(--danger)' },
@@ -2942,22 +2948,22 @@ function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefi
   const SHIFT_DOTS = { morning: 'oklch(0.78 0.13 80)', evening: 'oklch(0.62 0.12 250)', short: 'oklch(0.68 0.11 160)', night: 'oklch(0.45 0.09 290)' };
   const dotOf = (id) => SHIFT_DOTS[id] || 'oklch(0.62 0.14 25)';
 
+  // marks keyed by full date string "YYYY-MM-DD"
   const marks = React.useMemo(() => {
     const m = {};
     const apply = (arr, mark) => {
       (arr || []).forEach(v => {
         const { d, sid } = SD.splitReqEntry(v);
-        const dayNum = parseInt(d.slice(8), 10);
         if (!sid) {
-          m[dayNum] = mark;
+          m[d] = mark;
         } else {
-          if (typeof m[dayNum] === 'string') {
+          if (typeof m[d] === 'string') {
             const obj = {};
-            SD.shiftTypesFor(d, shiftSettings).filter(s => !s.continuation).forEach(s => { obj[s.id] = m[dayNum]; });
-            m[dayNum] = obj;
+            SD.shiftTypesFor(d, shiftSettings).filter(s => !s.continuation).forEach(s => { obj[s.id] = m[d]; });
+            m[d] = obj;
           }
-          if (!m[dayNum] || typeof m[dayNum] === 'string') m[dayNum] = {};
-          m[dayNum][sid] = mark;
+          if (!m[d] || typeof m[d] === 'string') m[d] = {};
+          m[d][sid] = mark;
         }
       });
     };
@@ -2970,8 +2976,7 @@ function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefi
   const commitMarks = (newMarks) => {
     const toDates = (targetMark) => {
       const out = [];
-      Object.entries(newMarks).forEach(([d, v]) => {
-        const ds = `${month}-${SD.pad(Number(d))}`;
+      Object.entries(newMarks).forEach(([ds, v]) => {
         if (typeof v === 'string') { if (v === targetMark) out.push(ds); }
         else Object.entries(v || {}).forEach(([s, mk]) => { if (mk === targetMark) out.push(`${ds}@${s}`); });
       });
@@ -2980,42 +2985,40 @@ function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefi
     onUpdate(emp.id, { unavailable: toDates('un'), high: toDates('high'), can: toDates('can') });
   };
 
-  const tapDay = (d) => {
-    setSelDay(d);
+  const tapDay = (dStr) => {
+    setSelDay(dStr);
     if (brush === 'view') return;
-    const cur = marks[d];
+    const cur = marks[dStr];
     if (cur && typeof cur === 'object' && brush !== 'erase') return;
     const newMarks = { ...marks };
-    if (brush === 'erase') delete newMarks[d];
-    else newMarks[d] = brush;
+    if (brush === 'erase') delete newMarks[dStr];
+    else newMarks[dStr] = brush;
     commitMarks(newMarks);
   };
 
   const setShiftMark = (sid, mark) => {
-    const [sy, sm] = month.split('-').map(Number);
-    const sNDays = new Date(sy, sm, 0).getDate();
-    const sSel = Math.min(selDay, sNDays);
-    const selDs2 = `${month}-${SD.pad(sSel)}`;
-    const dayShifts = SD.shiftTypesFor(selDs2, shiftSettings).filter(s => !s.continuation);
+    const dayShifts = SD.shiftTypesFor(selDay, shiftSettings).filter(s => !s.continuation);
     const newMarks = { ...marks };
-    let cur = newMarks[sSel];
+    let cur = newMarks[selDay];
     let obj = {};
     if (typeof cur === 'string') dayShifts.forEach(s => { obj[s.id] = cur; });
     else if (cur) obj = { ...cur };
     if (mark) obj[sid] = mark; else delete obj[sid];
     const ids = dayShifts.map(s => s.id);
-    if (!Object.keys(obj).length) delete newMarks[sSel];
+    if (!Object.keys(obj).length) delete newMarks[selDay];
     else if (ids.length && ids.every(id => obj[id] && obj[id] === obj[ids[0]]) && Object.keys(obj).length === ids.length)
-      newMarks[sSel] = obj[ids[0]];
-    else newMarks[sSel] = obj;
+      newMarks[selDay] = obj[ids[0]];
+    else newMarks[selDay] = obj;
     commitMarks(newMarks);
   };
 
   const [y, mo] = month.split('-').map(Number);
   const nDays = new Date(y, mo, 0).getDate();
-  const offset = SD.weekdayOf(`${month}-01`);
-  const sel = Math.min(selDay, nDays);
-  const selDs = `${month}-${SD.pad(sel)}`;
+  const rangeStart = openRange?.start || `${month}-01`;
+  const rangeEnd   = openRange?.end   || `${month}-${SD.pad(nDays)}`;
+  const rangeDates = SE.listDates(rangeStart, rangeEnd);
+  const gridOffset = SD.weekdayOf(rangeStart);
+  const selDs = selDay;
   const dayShifts = SD.shiftTypesFor(selDs, shiftSettings).filter(s => !s.continuation);
   const contShifts = SD.shiftTypesFor(selDs, shiftSettings).filter(s => s.continuation);
 
@@ -3083,29 +3086,38 @@ function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefi
         {/* RIGHT column (first in DOM = right in RTL): Calendar */}
         <div style={{width:300,flexShrink:0,display:'flex',flexDirection:'column',gap:8,overflow:'auto'}}>
           <div style={{background:'var(--surface)',borderRadius:10,border:'1px solid var(--line)',padding:'10px 8px'}}>
+            {openRange && (
+              <div style={{fontSize:10,color:'oklch(0.38 0.14 200)',fontWeight:600,textAlign:'center',marginBottom:5}}>
+                {SD.shortDate(rangeStart)} – {SD.shortDate(rangeEnd)}
+              </div>
+            )}
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3,marginBottom:6}}>
               {['א','ב','ג','ד','ה','ו','ש'].map(l => (
                 <div key={l} style={{textAlign:'center',fontSize:10,fontWeight:700,color:'var(--ink-3)'}}>{l}</div>
               ))}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3}}>
-              {Array.from({length:offset}).map((_,i) => <div key={'pad'+i} />)}
-              {Array.from({length:nDays}).map((_,i) => {
-                const d = i + 1;
-                const v = marks[d];
+              {Array.from({length:gridOffset}).map((_,i) => <div key={'pad'+i} />)}
+              {rangeDates.map(dStr => {
+                const v = marks[dStr];
                 const whole = typeof v === 'string';
+                const inCurMonth = dStr.startsWith(month);
                 const s = MARK_ST[whole ? v : 'none'];
                 const dots = !whole && v ? Object.values(v).map(mk => MARK_ST[mk]?.fg).filter(Boolean) : [];
-                const isSel = d === sel;
+                const isSel = dStr === selDay;
+                const dayNum = Number(dStr.slice(8));
                 return (
-                  <div key={d} onClick={() => tapDay(d)} style={{
-                    aspectRatio:'1',borderRadius:7,background:s.bg,
-                    border:isSel ? '2px solid var(--ink)' : s.bd,
-                    color:s.fg,display:'flex',flexDirection:'column',
+                  <div key={dStr} onClick={() => tapDay(dStr)} style={{
+                    aspectRatio:'1',borderRadius:7,
+                    background: inCurMonth ? s.bg : (v ? s.bg : 'var(--bg)'),
+                    border: isSel ? '2px solid var(--ink)' : (inCurMonth ? s.bd : '1px dashed var(--line)'),
+                    color: inCurMonth ? s.fg : (v ? s.fg : 'var(--ink-3)'),
+                    display:'flex',flexDirection:'column',
                     alignItems:'center',justifyContent:'center',gap:1,
-                    fontSize:12,fontWeight:700,cursor:'pointer',transition:'background 0.1s,border 0.1s',
+                    fontSize:12,fontWeight:inCurMonth ? 700 : 500,cursor:'pointer',
+                    transition:'background 0.1s,border 0.1s',opacity:inCurMonth ? 1 : 0.7,
                   }}>
-                    <span>{d}</span>
+                    <span>{dayNum}</span>
                     {dots.length > 0 && (
                       <span style={{display:'flex',gap:1}}>
                         {dots.slice(0,4).map((c,j) => <span key={j} style={{width:3,height:3,borderRadius:'50%',background:c}} />)}
@@ -3142,7 +3154,7 @@ function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefi
 
           {/* Day detail */}
           <div style={{background:'var(--surface)',borderRadius:10,border:'1px solid var(--line)',padding:'10px 12px',display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
-            <div style={{fontSize:13,fontWeight:800}}>יום {SD.HEB_DAYS[SD.weekdayOf(selDs)]}, {sel} {SD.monthLabel(month)}</div>
+            <div style={{fontSize:13,fontWeight:800}}>יום {SD.HEB_DAYS[SD.weekdayOf(selDs)]}, {Number(selDs.slice(8))} {SD.monthLabel(selDs.slice(0,7))}</div>
             {dayShifts.map(sh => {
               const dayMark = marks[sel];
               const cur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
@@ -3235,7 +3247,7 @@ function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefi
 }
 
 // ---- RequestsScreen ----
-function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey, onRefresh }) {
+function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey, onRefresh, openRangeByMonth }) {
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
   const [refreshing, setRefreshing] = React.useState(false);
   const refresh = async () => {
@@ -3505,6 +3517,7 @@ ${shiftsDesc}
               emp={selectedEmp}
               entry={entryOf(selectedEmp.id)}
               month={month}
+              openRange={openRangeByMonth?.[month] || null}
               onUpdate={updateEntry}
               onAnalyze={analyze}
               onChatRefine={chatRefine}
@@ -3718,6 +3731,7 @@ const STATUS_META = {
   preview:    { label: 'טרם נוצרה טיוטה', cls: 'st-preview' },
   generating: { label: 'ה־AI משבץ…',      cls: 'st-generating' },
   draft:      { label: 'טיוטה',            cls: 'st-draft' },
+  open:       { label: 'פתוח לבקשות',     cls: 'st-open' },
   final:      { label: 'סידור סופי',       cls: 'st-final' },
 };
 
@@ -3964,7 +3978,12 @@ function App() {
   const currentDraft = drafts.find(d => d.id === activeDraftId) || null;
   const isGenerating = generatingId === activeDraftId;
   const status = isGenerating ? 'generating' : (currentDraft?.status || 'preview');
-  const editable = status === 'draft';
+  const editable = status === 'draft' || status === 'open';
+  const openRangeByMonth = React.useMemo(() => {
+    const map = {};
+    drafts.filter(d => d.status === 'open').forEach(d => { if (d.range) map[d.month] = d.range; });
+    return map;
+  }, [drafts]);
 
   const updateDraft = (id, fn) => setDrafts(ds => ds.map(d => d.id === id ? { ...d, ...fn(d) } : d));
 
@@ -4114,10 +4133,11 @@ ${JSON.stringify(snap.schedule, null, 2)}
     const d = drafts.find(x => x.id === id);
     setDraftStatus(id, 'final');
     if (d && dbAvailable.current && window.__db.publishSchedule) {
+      const { _status: _s, _range: _r, ...cleanSettings } = shiftSettings || {};
       window.__db.publishSchedule({
         month: d.month,
         schedule: d.schedule,
-        shift_settings: shiftSettings,
+        shift_settings: cleanSettings,
         employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
         published_at: new Date().toISOString(),
       });
@@ -4130,6 +4150,21 @@ ${JSON.stringify(snap.schedule, null, 2)}
     setDraftStatus(id, 'draft');
     if (d && dbAvailable.current && window.__db.unpublishSchedule) {
       window.__db.unpublishSchedule(d.month);
+    }
+  };
+
+  // פתח לבקשות — מפרסם טיוטה כ"פתוחה" ב-Supabase כך שעובדים יכולים להגיש בקשות
+  const openForRequests = (id) => {
+    const d = drafts.find(x => x.id === id);
+    setDraftStatus(id, 'open');
+    if (d && dbAvailable.current && window.__db.publishSchedule) {
+      window.__db.publishSchedule({
+        month: d.month,
+        schedule: {},
+        shift_settings: { ...(shiftSettings || {}), _status: 'open', _range: d.range },
+        employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
+        published_at: new Date().toISOString(),
+      });
     }
   };
 
@@ -4234,13 +4269,16 @@ ${JSON.stringify(snap.schedule, null, 2)}
               <button className="btn" onClick={() => AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth, shiftSettings)} disabled={!currentDraft || isGenerating}>
                 ייצוא
               </button>
-              {status === 'draft' && (
+              {(status === 'draft' || status === 'open') && (
                 <button className="btn btn-ai" onClick={runAI}>✦ שבץ אוטומטי</button>
               )}
               {status === 'draft' && (
+                <button className="btn" style={{borderColor:'oklch(0.38 0.14 200)',color:'oklch(0.38 0.14 200)'}} onClick={() => openForRequests(activeDraftId)}>📤 פתח לבקשות</button>
+              )}
+              {(status === 'draft' || status === 'open') && (
                 <button className="btn btn-final" onClick={() => publishDraft(activeDraftId)}>אישור ופרסום</button>
               )}
-              {status === 'final' && (
+              {(status === 'final' || status === 'open') && (
                 <button className="btn" onClick={() => unpublishDraft(activeDraftId)}>חזרה לעריכה</button>
               )}
               <button className="btn btn-primary" onClick={() => setModalOpen(true)} disabled={isGenerating}>
@@ -4260,6 +4298,11 @@ ${JSON.stringify(snap.schedule, null, 2)}
         </div>
       )}
 
+      {screen === 'calendar' && status === 'open' && (
+        <div className="final-banner" style={{background:'color-mix(in oklab, oklch(0.65 0.15 200) 10%, var(--bg))'}}>
+          הטיוטה פתוחה לבקשות עובדים — עובדים יכולים לסמן בקשות ביומן שלהם. ניתן להמשיך לערוך את השיבוץ. לחצו ״חזרה לעריכה״ לסגירה, או ״אישור ופרסום״ לנעילת הסידור.
+        </div>
+      )}
       {screen === 'calendar' && status === 'final' && (
         <div className="final-banner">הסידור פורסם לעובדים והוא נעול לעריכה. לחצו ״חזרה לעריכה״ כדי לבצע שינויים.</div>
       )}
@@ -4267,7 +4310,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
       <ShiftSettingsCtx.Provider value={shiftSettings}>
         {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} />}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
-          initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} />}
+          initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth} />}
         {screen === 'calendar'  && (
           <main className="layout">
             <section className="board">

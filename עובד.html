@@ -363,13 +363,12 @@ function App() {
               const at = entry.indexOf('@');
               const ds = at === -1 ? entry : entry.slice(0, at);
               const sid = at === -1 ? null : entry.slice(at + 1);
-              const day = Number(ds.split('-')[2]);
-              if (!day) return;
+              if (!ds) return;
               if (sid) {
-                if (typeof marks[day] !== 'object' || !marks[day]) marks[day] = {};
-                marks[day][sid] = mark;
+                if (typeof marks[ds] !== 'object' || !marks[ds]) marks[ds] = {};
+                marks[ds][sid] = mark;
               } else {
-                marks[day] = mark;
+                marks[ds] = mark;
               }
             });
           });
@@ -522,8 +521,9 @@ function HomeTab({ me, empNames, published, TM, goSched, goReq }) {
   const hero = upcoming[0] || null;
   const firstName = (me.name || '').split(' ')[0];
 
-  // הגשת בקשות פתוחה לחודש הקרוב שטרם פורסם
-  const openReqMonth = [addMonths(TM, 1), addMonths(TM, 2)].find(m => !published[m]) || (!published[TM] ? TM : null);
+  // הגשת בקשות פתוחה לחודש שטרם פורסם סופית (כולל "פתוח לבקשות")
+  const isReqOpen = (m) => !published[m] || published[m]?.shift_settings?._status === 'open';
+  const openReqMonth = [addMonths(TM, 1), addMonths(TM, 2)].find(isReqOpen) || (isReqOpen(TM) ? TM : null);
 
   return (
     <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 14, animation: 'fadeIn 0.25s' }}>
@@ -770,22 +770,42 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq }) {
 function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, anthropicKey }) {
   const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);
   const [mi, setMi] = React.useState(() => {
-    // ברירת מחדל: החודש הקרוב שעדיין פתוח לבקשות
-    const i = months.findIndex(m => m >= TM && !published[m]);
+    // ברירת מחדל: החודש הקרוב שעדיין פתוח לבקשות (כולל "פתוח לבקשות")
+    const i = months.findIndex(m => m >= TM && (!published[m] || published[m]?.shift_settings?._status === 'open'));
     return i === -1 ? months.length - 1 : i;
   });
   const [brush, setBrush] = React.useState('un');
   const [saving, setSaving] = React.useState(false);
   const [analyzing, setAnalyzing] = React.useState(false);
   const [aiError, setAiError] = React.useState(null);
-  const [selDay, setSelDay] = React.useState(1);
   const ym = months[mi];
-  const editable = !published[ym];
+  const pubRow = published[ym] || null;
+  const openStatus = pubRow?.shift_settings?._status === 'open';
+  const editable = !pubRow || openStatus;
+  const openRange = openStatus ? (pubRow?.shift_settings?._range || null) : null;
   const local = localReqs[ym] || { marks: {}, note: '', dirty: false };
   const server = serverReqs[ym] || null;
-  const offset = monthOffset(ym);
   const nDays = daysInMonth(ym);
-  const sel = Math.min(selDay, nDays);
+  const rangeStart = openRange?.start || `${ym}-01`;
+  const rangeEnd   = openRange?.end   || `${ym}-${pad(nDays)}`;
+  // listDates helper (inline to avoid dependency on external util)
+  const rangeDates = React.useMemo(() => {
+    const out = [];
+    let cur = rangeStart;
+    while (cur <= rangeEnd) {
+      out.push(cur);
+      const d = new Date(cur + 'T12:00:00');
+      d.setDate(d.getDate() + 1);
+      cur = d.toISOString().slice(0, 10);
+    }
+    return out;
+  }, [rangeStart, rangeEnd]);
+  const gridOffset = weekdayOf(rangeStart);
+  // gridOffset = weekday of first cell in calendar = weekday of rangeStart
+  const [selDay, setSelDay] = React.useState(rangeStart);
+  React.useEffect(() => { setSelDay(rangeStart); }, [ym]);
+  const selDs = selDay;
+  const sel = Number(selDs.slice(8));
 
   // הגדרות משמרות לפירוט היום: של החודש אם פורסם → העדכניות מהמשבץ → של הפרסום האחרון → ברירת מחדל
   const lastPubSettings = React.useMemo(() => {
@@ -796,7 +816,6 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     return null;
   }, [published]);
   const settings = published[ym]?.shift_settings || globalSettings || lastPubSettings;
-  const selDs = `${ym}-${pad(sel)}`;
   const dayShiftsAll = shiftTypesFor(selDs, settings);
   const dayShifts = dayShiftsAll.filter(s => !s.continuation);       // ניתנות לסימון ביום זה
   const contShifts = dayShiftsAll.filter(s => s.continuation);       // המשך משמרת רב-יומית — מידע בלבד
@@ -805,13 +824,13 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
 
   // הקשה על יום בלוח: בוחרת אותו, ובמצב עריכה גם צובעת את כל היום.
   // יום עם סימון חלקי (לפי משמרות) — הקשה רק בוחרת, כדי לא לדרוס את הדיוק; מחיקה עובדת תמיד.
-  const tapDay = (d) => {
-    setSelDay(d);
+  const tapDay = (dStr) => {
+    setSelDay(dStr);
     if (!editable) return;
-    const cur = local.marks[d];
+    const cur = local.marks[dStr];
     if (cur && typeof cur === 'object' && brush !== 'erase') return;
     const marks = { ...local.marks };
-    if (brush === 'erase') delete marks[d]; else marks[d] = brush;
+    if (brush === 'erase') delete marks[dStr]; else marks[dStr] = brush;
     setLocal({ marks, dirty: true });
   };
 
@@ -820,15 +839,15 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     if (!editable) return;
     const ids = dayShifts.map(s => s.id);
     const marks = { ...local.marks };
-    const cur = marks[sel];
+    const cur = marks[selDs];
     let obj = {};
     if (typeof cur === 'string') ids.forEach(id => { obj[id] = cur; });
     else if (cur) obj = { ...cur };
     if (mark) obj[sid] = mark; else delete obj[sid];
     const vals = ids.map(id => obj[id]);
-    if (!Object.keys(obj).length) delete marks[sel];
-    else if (ids.length && vals.every(v => v && v === vals[0]) && Object.keys(obj).length === ids.length) marks[sel] = vals[0];
-    else marks[sel] = obj;
+    if (!Object.keys(obj).length) delete marks[selDs];
+    else if (ids.length && vals.every(v => v && v === vals[0]) && Object.keys(obj).length === ids.length) marks[selDs] = vals[0];
+    else marks[selDs] = obj;
     setLocal({ marks, dirty: true });
   };
 
@@ -838,8 +857,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     // "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת בודדת
     const toDates = (mark) => {
       const out = [];
-      Object.entries(local.marks).forEach(([d, v]) => {
-        const ds = `${ym}-${pad(Number(d))}`;
+      Object.entries(local.marks).forEach(([ds, v]) => {
         if (typeof v === 'string') { if (v === mark) out.push(ds); }
         else Object.entries(v || {}).forEach(([sid, m]) => { if (m === mark) out.push(`${ds}@${sid}`); });
       });
@@ -895,20 +913,19 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       if (!jsonMatch) throw new Error('לא התקבל JSON תקין');
       const result = JSON.parse(jsonMatch[0]);
       const inMonth = (arr) => (Array.isArray(arr) ? arr.filter(v => typeof v === 'string' && v.startsWith(ym)) : []);
-      // המרה לפורמט marks: {"day": mark} או {"day": {shiftId: mark}}
+      // המרה לפורמט marks: {"YYYY-MM-DD": mark} או {"YYYY-MM-DD": {shiftId: mark}}
       const newMarks = { ...local.marks };
       [['unavailable', 'un'], ['high', 'high'], ['can', 'can']].forEach(([key, mark]) => {
         inMonth(result[key] || []).forEach(entry => {
           const at = entry.indexOf('@');
           const ds = at === -1 ? entry : entry.slice(0, at);
           const sid = at === -1 ? null : entry.slice(at + 1);
-          const day = Number(ds.split('-')[2]);
-          if (!day) return;
+          if (!ds) return;
           if (sid) {
-            if (typeof newMarks[day] !== 'object' || !newMarks[day]) newMarks[day] = {};
-            newMarks[day] = { ...(typeof newMarks[day] === 'object' ? newMarks[day] : {}), [sid]: mark };
+            if (typeof newMarks[ds] !== 'object' || !newMarks[ds]) newMarks[ds] = {};
+            newMarks[ds] = { ...(typeof newMarks[ds] === 'object' ? newMarks[ds] : {}), [sid]: mark };
           } else {
-            newMarks[day] = mark;
+            newMarks[ds] = mark;
           }
         });
       });
@@ -944,6 +961,11 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       <MonthSwitcher label={monthLabel(ym)} canPrev={mi > 0} canNext={mi < months.length - 1}
         onPrev={() => setMi(mi - 1)} onNext={() => setMi(mi + 1)} />
 
+      {editable && openRange && (
+        <div style={{ background: 'color-mix(in oklab, oklch(0.65 0.15 200) 8%, #FFF)', borderRadius: 10, padding: '9px 14px', fontSize: 12.5, fontWeight: 600, color: 'oklch(0.38 0.14 200)', border: '1px solid color-mix(in oklab, oklch(0.65 0.15 200) 25%, transparent)' }}>
+          📅 טווח הסידור: {rangeStart.slice(8)}.{rangeStart.slice(5,7)} – {rangeEnd.slice(8)}.{rangeEnd.slice(5,7)}
+        </div>
+      )}
       {editable ? (<>
         <div style={{ fontSize: 12, color: '#8A867F' }}>1. בוחרים סימון · 2. מקישים על הימים בלוח</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
@@ -968,20 +990,24 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
           {['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'].map(l => <div key={l} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#A09C94' }}>{l}</div>)}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
-          {Array.from({ length: offset }).map((_, i) => <div key={'pad' + i} />)}
-          {Array.from({ length: nDays }).map((_, i) => {
-            const d = i + 1;
-            const v = local.marks[d];
+          {Array.from({ length: gridOffset }).map((_, i) => <div key={'pad' + i} />)}
+          {rangeDates.map(dStr => {
+            const v = local.marks[dStr];
             const whole = typeof v === 'string';
+            const inCurMonth = dStr.startsWith(ym);
             const s = MARK_STATUS[whole ? v : 'none'];
-            const dots = !whole && v ? Object.values(v).map(m => MARK_STATUS[m].fg) : [];
-            const isSel = d === sel;
+            const dots = !whole && v ? Object.values(v).map(m => MARK_STATUS[m]?.fg).filter(Boolean) : [];
+            const isSel = dStr === selDs;
+            const dayNum = Number(dStr.slice(8));
             return (
-              <div key={d} onClick={() => tapDay(d)} style={{ aspectRatio: '1', borderRadius: 10, background: s.bg,
-                border: isSel ? `2px solid ${INK}` : s.bd, color: s.fg,
+              <div key={dStr} onClick={() => tapDay(dStr)} style={{ aspectRatio: '1', borderRadius: 10,
+                background: inCurMonth ? s.bg : (v ? s.bg : '#F7F5F2'),
+                border: isSel ? `2px solid ${INK}` : (inCurMonth ? s.bd : '1px dashed #D8D4CE'),
+                color: inCurMonth ? s.fg : (v ? s.fg : '#A09C94'),
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-                fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'background 0.15s, border 0.15s' }}>
-                <span>{d}</span>
+                fontSize: 13, fontWeight: inCurMonth ? 700 : 500,
+                cursor: 'pointer', transition: 'background 0.15s, border 0.15s', opacity: inCurMonth ? 1 : 0.75 }}>
+                <span>{dayNum}</span>
                 {dots.length > 0 && (
                   <span style={{ display: 'flex', gap: 2 }}>
                     {dots.slice(0, 4).map((c, j) => <span key={j} style={{ width: 5, height: 5, borderRadius: '50%', background: c }} />)}
@@ -998,7 +1024,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
 
         {/* כרטיס פירוט היום הנבחר — דיוק ברמת משמרת */}
         <div style={{ background: '#FFF', borderRadius: 14, border: '1px solid #EAE7E1', padding: 14, display: 'flex', flexDirection: 'column', gap: 9 }}>
-          <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(ym)}</div>
+          <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(selDs.slice(0, 7))}</div>
           {editable && <div style={{ fontSize: 12, color: '#8A867F' }}>דיוק לפי משמרת — בחרו סימון לכל משמרת בנפרד:</div>}
           {dayShifts.map(sh => {
             const dayMark = local.marks[sel];

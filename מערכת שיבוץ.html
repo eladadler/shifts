@@ -2927,11 +2927,11 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
 // ---- RequestDetailPanel ----
 function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
   const SD = window.ShiftData;
-  const [brush, setBrush] = React.useState('un');
+  const [brush, setBrush] = React.useState('view');
   const [selDay, setSelDay] = React.useState(1);
   const [chatInput, setChatInput] = React.useState('');
 
-  React.useEffect(() => { setSelDay(1); setChatInput(''); setBrush('un'); }, [emp.id, month]);
+  React.useEffect(() => { setSelDay(1); setChatInput(''); setBrush('view'); }, [emp.id, month]);
 
   const MARK_ST = {
     un:   { bg: 'var(--danger-bg)', bd: '1.5px solid color-mix(in oklab, var(--danger) 50%, transparent)', fg: 'var(--danger)' },
@@ -2982,6 +2982,7 @@ function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefi
 
   const tapDay = (d) => {
     setSelDay(d);
+    if (brush === 'view') return;
     const cur = marks[d];
     if (cur && typeof cur === 'object' && brush !== 'erase') return;
     const newMarks = { ...marks };
@@ -3059,10 +3060,10 @@ function RequestDetailPanel({ emp, entry, month, onUpdate, onAnalyze, onChatRefi
       {/* Brush mode */}
       <div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0,background:'var(--surface)',borderRadius:8,padding:'6px 10px',border:'1px solid var(--line)'}}>
         <span style={{fontSize:11,color:'var(--ink-3)',flexShrink:0,marginInlineEnd:3}}>סמן:</span>
-        {[['erase','✕ מחק','var(--surface)','var(--ink)'],['un','לא זמין','var(--danger-bg)','var(--danger)'],['high','מבקש לעבוד','var(--ok-bg)','var(--ok)']].map(([mode,label,bg,fg]) => {
+        {[['view','👁 צפייה','var(--surface)','var(--ink)'],['erase','✕ מחק','var(--surface)','var(--ink)'],['un','לא זמין','var(--danger-bg)','var(--danger)'],['high','מבקש לעבוד','var(--ok-bg)','var(--ok)']].map(([mode,label,bg,fg]) => {
           const active = brush === mode;
           return (
-            <button key={mode} onClick={() => setBrush(mode)} style={{
+            <button key={mode} onClick={() => setBrush(b => b === mode ? 'view' : mode)} style={{
               padding:'4px 10px',borderRadius:7,fontSize:11.5,fontWeight:700,border:'none',cursor:'pointer',
               background:active ? bg : 'transparent',color:active ? fg : 'var(--ink-3)',
               outline:active ? `1.5px solid ${fg}` : '1px solid transparent',transition:'all 0.12s',

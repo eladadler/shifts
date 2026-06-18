@@ -2680,7 +2680,7 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
             <div>
               <div className="settings-sec-title">✦ שיבוץ AI — מפתח Anthropic</div>
               <div style={{marginTop:10,fontSize:'12px',color:'var(--ink-3)',marginBottom:8,lineHeight:1.5}}>
-                נדרש לשיבוץ האוטומטי עם Claude.{' '}
+                נדרש לשיבוץ האוטומטי ולאפליקציית העובדים. לאחר הזנה לחצו ☁ שמור לענן.{' '}
                 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{color:'var(--accent)'}}>קבל מפתח</a>
               </div>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
@@ -3942,7 +3942,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
       <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
         tweaks={t} onTweakChange={setTweak}
         apiKey={anthropicKey}
-        onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); window.__db.saveAnthropicKey(key); }}
+        onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); }}
         adminKey={adminKey}
         onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }} />
 

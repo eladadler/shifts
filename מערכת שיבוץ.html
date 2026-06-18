@@ -746,6 +746,7 @@
         return { ok: false, error: e.message };
       }
     },
+    _client() { return client; },
   };
 })();
 </script>
@@ -2923,6 +2924,174 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   );
 }
 
+// ---- RequestCalendar ----
+function RequestCalendar({ emp, entry, month, onUpdate, shiftSettings }) {
+  const SD = window.ShiftData;
+  const [selDay, setSelDay] = React.useState(1);
+
+  const MARK_ST = {
+    un:   { bg: 'var(--danger-bg)', bd: '1.5px solid color-mix(in oklab, var(--danger) 50%, transparent)', fg: 'var(--danger)' },
+    high: { bg: 'var(--ok-bg)',     bd: '1.5px solid color-mix(in oklab, var(--ok) 50%, transparent)',     fg: 'var(--ok)' },
+    can:  { bg: 'var(--warn-bg)',   bd: '1.5px solid color-mix(in oklab, var(--warn) 50%, transparent)',   fg: 'var(--warn)' },
+    none: { bg: 'var(--surface)',   bd: '1px solid var(--line)',   fg: 'var(--ink)' },
+  };
+  const SHIFT_DOTS = {
+    morning: 'oklch(0.78 0.13 80)', evening: 'oklch(0.62 0.12 250)',
+    short: 'oklch(0.68 0.11 160)', night: 'oklch(0.45 0.09 290)',
+  };
+  const dotOf = (id) => SHIFT_DOTS[id] || 'oklch(0.62 0.14 25)';
+
+  // Convert entry arrays → marks object: { dayNum: 'un'|'high'|'can' | { shiftId: mark } }
+  const marks = React.useMemo(() => {
+    const m = {};
+    const apply = (arr, mark) => {
+      (arr || []).forEach(v => {
+        const { d, sid } = SD.splitReqEntry(v);
+        const dayNum = parseInt(d.slice(8), 10);
+        if (!sid) {
+          m[dayNum] = mark;
+        } else {
+          if (typeof m[dayNum] === 'string') {
+            const obj = {};
+            SD.shiftTypesFor(d, shiftSettings).filter(s => !s.continuation).forEach(s => { obj[s.id] = m[dayNum]; });
+            m[dayNum] = obj;
+          }
+          if (!m[dayNum] || typeof m[dayNum] === 'string') m[dayNum] = {};
+          m[dayNum][sid] = mark;
+        }
+      });
+    };
+    apply(entry?.unavailable, 'un');
+    apply(entry?.high, 'high');
+    apply(entry?.can, 'can');
+    return m;
+  }, [entry?.unavailable, entry?.high, entry?.can]);
+
+  const commitMarks = (newMarks) => {
+    const toDates = (targetMark) => {
+      const out = [];
+      Object.entries(newMarks).forEach(([d, v]) => {
+        const ds = `${month}-${SD.pad(Number(d))}`;
+        if (typeof v === 'string') { if (v === targetMark) out.push(ds); }
+        else Object.entries(v || {}).forEach(([s, mk]) => { if (mk === targetMark) out.push(`${ds}@${s}`); });
+      });
+      return out.sort();
+    };
+    onUpdate(emp.id, { unavailable: toDates('un'), high: toDates('high'), can: toDates('can') });
+  };
+
+  const setMark = (dayNum, sid, mark) => {
+    const dStr = `${month}-${SD.pad(dayNum)}`;
+    const dayShifts = SD.shiftTypesFor(dStr, shiftSettings).filter(s => !s.continuation);
+    const newMarks = { ...marks };
+    if (!sid) {
+      if (mark) newMarks[dayNum] = mark; else delete newMarks[dayNum];
+    } else {
+      let cur = newMarks[dayNum];
+      let obj = {};
+      if (typeof cur === 'string') dayShifts.forEach(s => { obj[s.id] = cur; });
+      else if (cur) obj = { ...cur };
+      if (mark) obj[sid] = mark; else delete obj[sid];
+      const ids = dayShifts.map(s => s.id);
+      if (!Object.keys(obj).length) delete newMarks[dayNum];
+      else if (ids.length && ids.every(id => obj[id] && obj[id] === obj[ids[0]]) && Object.keys(obj).length === ids.length)
+        newMarks[dayNum] = obj[ids[0]];
+      else newMarks[dayNum] = obj;
+    }
+    commitMarks(newMarks);
+  };
+
+  const [y, mo] = month.split('-').map(Number);
+  const nDays = new Date(y, mo, 0).getDate();
+  const offset = SD.weekdayOf(`${month}-01`);
+  const sel = Math.min(selDay, nDays);
+  const selDs = `${month}-${SD.pad(sel)}`;
+  const dayShifts = SD.shiftTypesFor(selDs, shiftSettings).filter(s => !s.continuation);
+  const contShifts = SD.shiftTypesFor(selDs, shiftSettings).filter(s => s.continuation);
+  const HEB_DAYS_SHORT = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+        {HEB_DAYS_SHORT.map(l => (
+          <div key={l} style={{textAlign:'center',fontSize:10.5,fontWeight:700,color:'var(--ink-3)',paddingBottom:2}}>{l}</div>
+        ))}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+        {Array.from({length:offset}).map((_,i) => <div key={'pad'+i} />)}
+        {Array.from({length:nDays}).map((_,i) => {
+          const d = i + 1;
+          const v = marks[d];
+          const whole = typeof v === 'string';
+          const s = MARK_ST[whole ? v : 'none'];
+          const dots = !whole && v ? Object.values(v).map(mk => MARK_ST[mk]?.fg).filter(Boolean) : [];
+          const isSel = d === sel;
+          return (
+            <div key={d} onClick={() => setSelDay(d)} style={{
+              aspectRatio:'1',borderRadius:7,background:s.bg,
+              border:isSel ? '2px solid var(--ink)' : s.bd,
+              color:s.fg,display:'flex',flexDirection:'column',
+              alignItems:'center',justifyContent:'center',gap:2,
+              fontSize:11.5,fontWeight:700,cursor:'pointer',transition:'background 0.12s,border 0.12s'}}>
+              <span>{d}</span>
+              {dots.length > 0 && (
+                <span style={{display:'flex',gap:2}}>
+                  {dots.slice(0,4).map((c,j) => <span key={j} style={{width:4,height:4,borderRadius:'50%',background:c}} />)}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{background:'var(--bg)',borderRadius:9,border:'1px solid var(--line)',padding:'10px 12px',display:'flex',flexDirection:'column',gap:7}}>
+        <div style={{fontSize:12.5,fontWeight:700}}>
+          יום {SD.HEB_DAYS[SD.weekdayOf(selDs)]}, {sel} {SD.monthLabel(month)}
+        </div>
+        <div style={{fontSize:11,color:'var(--ink-3)'}}>לחצו על משמרת לסימון:</div>
+        {dayShifts.map(sh => {
+          const dayMark = marks[sel];
+          const cur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
+          const CHIPS = [[null,'—'],['un','לא זמין'],['high','מבקש לעבוד']];
+          return (
+            <div key={sh.id} style={{display:'flex',alignItems:'center',gap:7,padding:'6px 8px',borderRadius:7,background:'var(--surface)',border:'1px solid var(--line)'}}>
+              <span style={{width:7,height:7,borderRadius:'50%',background:dotOf(sh.id),flexShrink:0}} />
+              <span style={{fontSize:12,fontWeight:700,whiteSpace:'nowrap'}}>{sh.name}</span>
+              <span style={{fontSize:10.5,color:'var(--ink-3)',whiteSpace:'nowrap'}}>{sh.start}–{sh.end}</span>
+              <span style={{display:'flex',gap:3,marginInlineStart:'auto',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                {CHIPS.map(([mk, label]) => {
+                  const st = mk ? MARK_ST[mk] : {bg:'var(--surface)',bd:'1px solid var(--line)',fg:'var(--ink-3)'};
+                  const active = cur === mk;
+                  return (
+                    <span key={label} onClick={() => setMark(sel, sh.id, mk)} style={{
+                      padding:'3px 7px',borderRadius:6,fontSize:10.5,fontWeight:700,
+                      background:active ? st.bg : 'var(--surface)',
+                      color:active ? st.fg : 'var(--ink-3)',
+                      border:active ? st.bd : '1px solid var(--line)',
+                      cursor:'pointer',transition:'background 0.12s,border 0.12s'}}>
+                      {label}
+                    </span>
+                  );
+                })}
+              </span>
+            </div>
+          );
+        })}
+        {contShifts.map(sh => (
+          <div key={'cont-'+sh.id} style={{display:'flex',alignItems:'center',gap:7,padding:'6px 8px',borderRadius:7,background:'var(--warn-bg)',border:'1px dashed var(--warn)'}}>
+            <span style={{width:7,height:7,borderRadius:'50%',background:dotOf(sh.id),flexShrink:0}} />
+            <span style={{fontSize:12,fontWeight:700}}>{sh.name}</span>
+            <span style={{fontSize:10.5,color:'var(--ink-3)'}}>נמשכת מ-{SD.shortDate(sh.originDate)}</span>
+          </div>
+        ))}
+        {!dayShifts.length && !contShifts.length && (
+          <div style={{fontSize:11.5,color:'var(--ink-3)'}}>לא הוגדרו משמרות ליום זה.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---- RequestsScreen ----
 function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey, onRefresh }) {
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
@@ -2934,8 +3103,14 @@ function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, a
     setRefreshing(false);
   };
   const [month, setMonth] = React.useState(initialMonth || SD.MONTH);
-  const [analyzing, setAnalyzing] = React.useState({});   // empId -> true
-  const [errors, setErrors] = React.useState({});          // empId -> message
+  const [analyzing, setAnalyzing] = React.useState({});
+  const [errors, setErrors] = React.useState({});
+  const [calOpen, setCalOpen] = React.useState({});
+  const [chatInputs, setChatInputs] = React.useState({});
+  const [chatHistories, setChatHistories] = React.useState({});
+  const [chatBusy, setChatBusy] = React.useState({});
+  const [sendBusy, setSendBusy] = React.useState({});
+  const [sendOk, setSendOk] = React.useState({});
   const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can' };
   const tagLabel = { unavailable: 'לא יכול', high: 'מבקש לעבוד', can: 'גמיש' };
 
@@ -3047,10 +3222,82 @@ ${shiftsDesc}
         analyzedText: text,
         analyzedAt: Date.now(),
       });
+      setChatHistories(h => ({
+        ...h,
+        [emp.id]: [
+          { role: 'user', content: prompt },
+          { role: 'assistant', content: raw },
+        ],
+      }));
     } catch (err) {
       setErrors(e => ({ ...e, [emp.id]: `שגיאת ניתוח: ${err.message}` }));
     } finally {
       setAnalyzing(a => ({ ...a, [emp.id]: false }));
+    }
+  };
+
+  const chatRefine = async (emp) => {
+    const userMsg = (chatInputs[emp.id] || '').trim();
+    if (!userMsg || chatBusy[emp.id]) return;
+    const history = chatHistories[emp.id] || [];
+    if (!history.length) return;
+    setChatBusy(b => ({...b, [emp.id]: true}));
+    setChatInputs(i => ({...i, [emp.id]: ''}));
+    const newHistory = [...history, { role: 'user', content: userMsg }];
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey.trim(),
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1024, messages: newHistory }),
+      });
+      if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error?.message || `HTTP ${resp.status}`); }
+      const data = await resp.json();
+      const raw = data.content?.find(b => b.type === 'text')?.text || '';
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('לא התקבל JSON תקין מהמודל');
+      const result = JSON.parse(jsonMatch[0]);
+      const inMonth = (arr) => (Array.isArray(arr) ? arr.filter(d => typeof d === 'string' && d.startsWith(month)) : []);
+      updateEntry(emp.id, {
+        unavailable: inMonth(result.unavailable),
+        high: inMonth(result.high),
+        can: inMonth(result.can),
+        note: result.note || '',
+      });
+      setChatHistories(h => ({...h, [emp.id]: [...newHistory, { role: 'assistant', content: raw }]}));
+    } catch (err) {
+      setErrors(e => ({...e, [emp.id]: `שגיאת שיחה: ${err.message}`}));
+    } finally {
+      setChatBusy(b => ({...b, [emp.id]: false}));
+    }
+  };
+
+  const sendToSupabase = async (emp) => {
+    const entry = entryOf(emp.id);
+    if (!entry || sendBusy[emp.id]) return;
+    setSendBusy(b => ({...b, [emp.id]: true}));
+    try {
+      const row = {
+        emp_id: emp.id, month,
+        unavailable: entry.unavailable || [],
+        high: entry.high || [],
+        can: entry.can || [],
+        note: entry.note || '',
+        updated_at: new Date().toISOString(),
+        updated_by: 'manager',
+      };
+      const { error } = await window.__db._client().from('employee_requests').upsert(row);
+      if (error) throw error;
+      setSendOk(o => ({...o, [emp.id]: true}));
+      setTimeout(() => setSendOk(o => ({...o, [emp.id]: false})), 3000);
+    } catch (err) {
+      setErrors(e => ({...e, [emp.id]: `שגיאת שמירה: ${err.message}`}));
+    } finally {
+      setSendBusy(b => ({...b, [emp.id]: false}));
     }
   };
 
@@ -3150,6 +3397,62 @@ ${shiftsDesc}
                       <div style={{fontSize:'12px',color:'var(--ink-3)'}}>לא זוהו תאריכים ספציפיים</div>
                     )}
                     {entry.note && <div className="req-note" style={{marginTop:6}}>{entry.note}</div>}
+
+                    {analyzed && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--line)'}}>
+                        <div style={{fontSize:'11.5px',fontWeight:600,color:'var(--ink-2)',marginBottom:6}}>שיחת המשך עם ה-AI — לדיוק הניתוח:</div>
+                        <div style={{display:'flex',gap:6}}>
+                          <input
+                            type="text"
+                            value={chatInputs[emp.id] || ''}
+                            onChange={e => setChatInputs(i => ({...i, [emp.id]: e.target.value}))}
+                            onKeyDown={e => { if (e.key === 'Enter') chatRefine(emp); }}
+                            placeholder='למשל: "הוסף את ה-15 כלא זמין" או "הסר את ה-12"'
+                            disabled={chatBusy[emp.id]}
+                            style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'12.5px',background:'var(--bg)',color:'var(--ink)',font:'inherit',outline:'none'}}
+                          />
+                          <button className="btn btn-primary" style={{fontSize:'12px',whiteSpace:'nowrap'}}
+                            disabled={chatBusy[emp.id] || !(chatInputs[emp.id]||'').trim()}
+                            onClick={() => chatRefine(emp)}>
+                            {chatBusy[emp.id] ? <><span className="spin">↻</span> שולח…</> : '← שלח'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {hasDates && (
+                  <div style={{marginTop:8}}>
+                    <button className="btn" style={{width:'100%',display:'flex',justifyContent:'space-between',fontSize:'12.5px'}}
+                      onClick={() => setCalOpen(o => ({...o, [emp.id]: !o[emp.id]}))}>
+                      <span>{calOpen[emp.id] ? '▼' : '▶'} יומן לחודש זה</span>
+                      <span style={{fontSize:11,color:'var(--ink-3)',fontWeight:400}}>
+                        {(entry.unavailable||[]).length} לא זמין · {(entry.high||[]).length} מבקש לעבוד
+                      </span>
+                    </button>
+                    {calOpen[emp.id] && (
+                      <div style={{marginTop:6,padding:12,background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>
+                        <RequestCalendar
+                          emp={emp}
+                          entry={entry}
+                          month={month}
+                          onUpdate={updateEntry}
+                          shiftSettings={shiftSettings}
+                        />
+                        <div style={{marginTop:12}}>
+                          <button
+                            className={'btn btn-primary' + (sendOk[emp.id] ? ' sync-saved' : '')}
+                            style={{width:'100%',fontSize:'13px',fontWeight:700,justifyContent:'center'}}
+                            disabled={sendBusy[emp.id] || sendOk[emp.id]}
+                            onClick={() => sendToSupabase(emp)}>
+                            {sendBusy[emp.id] ? <><span className="spin">↻</span> שומר…</>
+                              : sendOk[emp.id] ? '✓ נשמר בהצלחה!'
+                              : '← שגר לעובד'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

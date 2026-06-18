@@ -861,6 +861,11 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const analyzeText = async () => {
     const text = (local.note || '').trim();
     if (!text || !anthropicKey || analyzing) return;
+    const keyTrimmed = anthropicKey.trim();
+    if (!keyTrimmed.startsWith('sk-ant-')) {
+      setAiError(`מפתח לא תקין (${keyTrimmed.slice(0, 12)}…) — המנהל צריך ללחוץ ☁ שמור לענן בהגדרות`);
+      return;
+    }
     setAnalyzing(true); setAiError(null);
     try {
       const [y, m] = ym.split('-').map(Number);
@@ -878,7 +883,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       const prompt = `אתה מנתח בקשת עובד לסידור עבודה לחודש ${monthLabel(ym)} (${ym}).\n\n## תאריכי החודש וימי השבוע\n${datesList}\n\n## המשמרות הקיימות\n${shiftsDesc}\n\n## הבקשה החופשית\n"${text}"\n\n## משימה\nתרגם לתאריכים. החזר JSON בלבד:\n{\n  "unavailable": ["YYYY-MM-DD","YYYY-MM-DD@shiftId",...],\n  "high": [...],\n  "can": [...],\n  "note": "סיכום קצר בעברית"\n}\nכללים:\n- unavailable = לא יכול/לא רוצה\n- high = מבקש לעבוד\n- can = גמיש\n- יום שלם: "YYYY-MM-DD"; משמרת ספציפית: "YYYY-MM-DD@shiftId"\n- השתמש רק במזהי משמרות מהרשימה למעלה\n- כל התאריכים חייבים להיות בתוך ${ym}`;
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey.trim(),
+        headers: { 'Content-Type': 'application/json', 'x-api-key': keyTrimmed,
           'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
         body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1024,
           messages: [{ role: 'user', content: prompt }] }),

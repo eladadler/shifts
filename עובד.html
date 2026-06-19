@@ -886,19 +886,43 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     }
     setAnalyzing(true); setAiError(null);
     try {
-      const [y, m] = ym.split('-').map(Number);
-      const nd = daysInMonth(ym);
-      const datesList = Array.from({ length: nd }, (_, i) => {
-        const ds = `${ym}-${pad(i + 1)}`;
-        return `${ds} — יום ${HEB_DAYS[weekdayOf(ds)]}`;
-      }).join('\n');
+      const scheduleLabel = openRange
+        ? `הסידור (${rangeStart.slice(8)}.${rangeStart.slice(5,7)}–${rangeEnd.slice(8)}.${rangeEnd.slice(5,7)})`
+        : `חודש ${monthLabel(ym)} (${ym})`;
+      const datesList = rangeDates.map(ds => `${ds} — יום ${HEB_DAYS[weekdayOf(ds)]}`).join('\n');
       const shiftLine = (label, list) => label + ': ' + (list || []).map(s => `${s.id} = ${s.name} ${s.start}–${s.end}`).join(' · ');
       const shiftsDesc = [
         shiftLine('ימי חול (א׳–ה׳)', settings?.weekday),
         shiftLine('שישי', settings?.friday),
         shiftLine('שבת', settings?.saturday),
       ].join('\n');
-      const prompt = `אתה מנתח בקשת עובד לסידור עבודה לחודש ${monthLabel(ym)} (${ym}).\n\n## תאריכי החודש וימי השבוע\n${datesList}\n\n## המשמרות הקיימות\n${shiftsDesc}\n\n## הבקשה החופשית\n"${text}"\n\n## משימה\nתרגם לתאריכים. החזר JSON בלבד:\n{\n  "unavailable": ["YYYY-MM-DD","YYYY-MM-DD@shiftId",...],\n  "high": [...],\n  "can": [...],\n  "note": "סיכום קצר בעברית"\n}\nכללים:\n- unavailable = לא יכול/לא רוצה\n- high = מבקש לעבוד\n- can = גמיש\n- יום שלם: "YYYY-MM-DD"; משמרת ספציפית: "YYYY-MM-DD@shiftId"\n- השתמש רק במזהי משמרות מהרשימה למעלה\n- כל התאריכים חייבים להיות בתוך ${ym}`;
+      const prompt = `אתה מנתח בקשת עובד לסידור עבודה עבור ${scheduleLabel}.
+הסידור כולל ימים מחוץ לחודש הקלנדרי — כשהעובד אומר "כל ימי ראשון" או "כל החודש" הכוונה לכל הימים ברשימה למטה.
+
+## כל ימי הסידור וימי השבוע שלהם
+${datesList}
+
+## המשמרות הקיימות
+${shiftsDesc}
+
+## הבקשה החופשית
+"${text}"
+
+## משימה
+תרגם לתאריכים. החזר JSON בלבד:
+{
+  "unavailable": ["YYYY-MM-DD","YYYY-MM-DD@shiftId",...],
+  "high": [...],
+  "can": [...],
+  "note": "סיכום קצר בעברית"
+}
+כללים:
+- unavailable = לא יכול/לא רוצה
+- high = מבקש לעבוד
+- can = גמיש
+- יום שלם: "YYYY-MM-DD"; משמרת ספציפית: "YYYY-MM-DD@shiftId"
+- השתמש רק במזהי משמרות מהרשימה למעלה
+- כל התאריכים חייבים להיות מהרשימה למעלה (בין ${rangeStart} ל-${rangeEnd}) — כולל ימים מחוץ לחודש הקלנדרי`;
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': keyTrimmed,
@@ -912,11 +936,15 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('לא התקבל JSON תקין');
       const result = JSON.parse(jsonMatch[0]);
-      const inMonth = (arr) => (Array.isArray(arr) ? arr.filter(v => typeof v === 'string' && v.startsWith(ym)) : []);
+      const inRange = (arr) => (Array.isArray(arr) ? arr.filter(v => {
+        if (typeof v !== 'string') return false;
+        const ds = v.includes('@') ? v.split('@')[0] : v;
+        return ds >= rangeStart && ds <= rangeEnd;
+      }) : []);
       // המרה לפורמט marks: {"YYYY-MM-DD": mark} או {"YYYY-MM-DD": {shiftId: mark}}
       const newMarks = { ...local.marks };
       [['unavailable', 'un'], ['high', 'high'], ['can', 'can']].forEach(([key, mark]) => {
-        inMonth(result[key] || []).forEach(entry => {
+        inRange(result[key] || []).forEach(entry => {
           const at = entry.indexOf('@');
           const ds = at === -1 ? entry : entry.slice(0, at);
           const sid = at === -1 ? null : entry.slice(at + 1);

@@ -920,6 +920,18 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     } else {
       unavailable = [...unavailable, ...unmarkedDates].sort();
     }
+    // משמרות לא-מסומנות בימים עם סימון חלקי → ברירת מחדל של המצב
+    // (למשל: אם "לילה=יכול" ביום שלישי, שאר המשמרות של אותו יום נחסמות)
+    Object.entries(local.marks).forEach(([ds, v]) => {
+      if (typeof v !== 'object' || !v) return;
+      shiftTypesFor(ds, settings).filter(s => !s.continuation).forEach(sh => {
+        if (v[sh.id]) return;
+        if (reqMode === 'block') canArr.push(`${ds}@${sh.id}`);
+        else unavailable.push(`${ds}@${sh.id}`);
+      });
+    });
+    unavailable = unavailable.sort();
+    canArr = canArr.sort();
     const row = {
       emp_id: me.id, month: ym,
       unavailable, high: toDates('high'), can: canArr,
@@ -953,13 +965,6 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
         shiftLine('שישי', settings?.friday),
         shiftLine('שבת', settings?.saturday),
       ].join('\n');
-      const modeContext = reqMode === 'block'
-        ? `מצב: מסמן חסימות — העובד מסמן ימים/משמרות שלא יכול. כל יום שלא צוין = יכול לעבוד.
-• מלא בעיקר "unavailable" (ו-"high" עבור בקשות עדיפות).
-• השאר "can" ריק — ימים לא-מסומנים ייחשבו אוטומטית כ-can.`
-        : `מצב: מסמן זמינות — העובד מסמן ימים/משמרות שיכול. כל יום שלא צוין = לא זמין.
-• מלא בעיקר "can" (ו-"high" עבור בקשות עדיפות).
-• השאר "unavailable" ריק — ימים לא-מסומנים ייחשבו אוטומטית כ-unavailable.`;
       const prompt = `אתה מנתח בקשת עובד לסידור עבודה עבור ${scheduleLabel}.
 הסידור כולל ימים מחוץ לחודש הקלנדרי — כשהעובד אומר "כל ימי ראשון" או "כל החודש" הכוונה לכל הימים ברשימה למטה.
 
@@ -972,21 +977,26 @@ ${shiftsDesc}
 ## הבקשה החופשית
 "${text}"
 
-## מצב הגשת הבקשה
-${modeContext}
-
 ## משימה
-תרגם לתאריכים. החזר JSON בלבד:
+**שלב 1 — זהה מצב:**
+- avail (מסמן זמינות): העובד מציין **מתי יכול** ("יכול בשישי", "זמין בלילות") → כל מה שלא ציין = חסום
+- block (מסמן חסימות): העובד מציין **מתי לא יכול** ("לא יכול שני", "חופשה ב-15") → כל מה שלא ציין = יכול
+
+**שלב 2 — תרגם לתאריכים.** החזר JSON בלבד:
 {
+  "mode": "avail" | "block",
   "unavailable": ["YYYY-MM-DD","YYYY-MM-DD@shiftId",...],
   "high": [...],
   "can": [...],
   "note": "סיכום קצר בעברית"
 }
 כללים:
-- unavailable = לא יכול / לא זמין / לא רוצה (חופשה, מחויבות, מחלה וכו')
-- can = יכול / זמין / גמיש / אין בעיה / פנוי — שימוש כשהעובד אומר "יכול" בלי להדגיש
-- high = רק כשיש העדפה מפורשת וחזקה: "מעדיף", "ממש רוצה", "חשוב לי", "מבקש" — אם העובד אמר "יכול" בלבד, זה can ולא high
+- unavailable = לא יכול/לא זמין/לא רוצה
+- can = יכול/זמין/גמיש/פנוי
+- high = רק העדפה מפורשת וחזקה ("מעדיף","ממש רוצה") — "יכול" = can לא high
+- במצב avail: מלא can (ו-high לבקשות מועדפות). השאר unavailable ריק — הימים שלא ציינת ייחסמו אוטומטית
+- במצב block: מלא unavailable. השאר can ריק — הימים שלא ציינת ייחשבו זמינים אוטומטית
+- אם סומנה משמרת ספציפית ביום — **רק אותה משמרת** מקבלת סימון; שאר המשמרות באותו יום ייחסמו אוטומטית
 - יום שלם: "YYYY-MM-DD"; משמרת ספציפית: "YYYY-MM-DD@shiftId"
 - השתמש רק במזהי משמרות מהרשימה למעלה
 - כל התאריכים חייבים להיות מהרשימה למעלה (בין ${rangeStart} ל-${rangeEnd}) — כולל ימים מחוץ לחודש הקלנדרי`;
@@ -1024,8 +1034,13 @@ ${modeContext}
           }
         });
       });
-      setLocal({ marks: newMarks, note: result.note || local.note, dirty: true });
-      showToast('הסימונים עודכנו ✓ — בדקו וערכו לפי הצורך');
+      const aiMode = result.mode === 'avail' || result.mode === 'block' ? result.mode : null;
+      const modeChanged = aiMode && aiMode !== reqMode;
+      setLocal({ marks: newMarks, note: result.note || local.note, dirty: true, ...(aiMode ? { reqMode: aiMode } : {}) });
+      if (modeChanged) setBrush(aiMode === 'block' ? 'un' : 'can');
+      showToast(modeChanged
+        ? `AI זיהה מצב ${aiMode === 'avail' ? 'זמינות' : 'חסימות'} ועדכן ✓`
+        : 'הסימונים עודכנו ✓ — בדקו וערכו לפי הצורך');
     } catch (err) {
       setAiError(`שגיאת ניתוח: ${err.message}`);
     } finally {

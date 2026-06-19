@@ -1055,7 +1055,7 @@ ${shiftsDesc}
           <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(selDs.slice(0, 7))}</div>
           {editable && <div style={{ fontSize: 12, color: '#8A867F' }}>דיוק לפי משמרת — בחרו סימון לכל משמרת בנפרד:</div>}
           {dayShifts.map(sh => {
-            const dayMark = local.marks[sel];
+            const dayMark = local.marks[selDs];
             const cur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
             const CHIPS = [[null, '—'], ['un', 'לא'], ['high', 'מעדיף'], ['can', 'יכול']];
             return (

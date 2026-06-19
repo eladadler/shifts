@@ -3052,6 +3052,14 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
         )}
         {analyzed && !stale && <span style={{fontSize:11,color:'var(--ok)',flexShrink:0}}>✓ נותח</span>}
         {stale && <span style={{fontSize:11,color:'var(--warn)',flexShrink:0}}>שונה — נתחו שוב</span>}
+        <button className="btn" style={{fontSize:'11px',padding:'3px 9px',flexShrink:0,color:'var(--accent)',borderColor:'color-mix(in oklab, var(--accent) 40%, transparent)'}}
+          title={'פתח את אפליקציית העובד בתור ' + emp.name}
+          onClick={() => {
+            const base = window.location.href.split('?')[0].replace(/[^/]*$/, '');
+            window.open(base + 'עובד.html?impersonate=' + encodeURIComponent(emp.id), '_blank');
+          }}>
+          👁 פתח כעובד
+        </button>
         {entry && (
           <button className="btn" style={{fontSize:'11px',padding:'2px 8px',flexShrink:0}}
             onClick={() => { if (window.confirm('למחוק את הבקשה של ' + emp.name + ' לחודש זה?')) onClearEntry(emp.id); }}>

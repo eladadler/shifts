@@ -120,6 +120,9 @@ const MARK_STATUS = {
   can:  { bg: 'oklch(0.94 0.05 240)', bd: '1.5px solid oklch(0.6 0.12 240)',  fg: 'oklch(0.42 0.12 240)' },
   none: { bg: '#FFFFFF', bd: '1px solid #E7E4DF', fg: '#3A3631' },
 };
+// מזהה עובד להתחזות (אדמין בלבד) — מוגדר כ-URL param ?impersonate=<id>
+const IMPERSONATE_ID = new URLSearchParams(window.location.search).get('impersonate') || null;
+
 // Faded (implied) marks — dashed border, lighter fill, used in calendar for unmarked days
 const MARK_STATUS_FADED = {
   un:  { bg: 'oklch(0.975 0.025 25)',  bd: '1px dashed oklch(0.8 0.1 25)',   fg: 'oklch(0.72 0.1 25)' },
@@ -330,11 +333,14 @@ function App() {
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
   /* --- טעינת נתונים --- */
-  const loadAll = React.useCallback(async (email) => {
+  // byId=true → identifier הוא emp.id; byId=false (ברירת מחדל) → identifier הוא email
+  const loadAll = React.useCallback(async (identifier, byId = false) => {
     try {
       const { data: emps, error: e1 } = await sb.from('app_employees').select('*');
       if (e1) throw e1;
-      const mine = (emps || []).find(x => (x.email || '').trim().toLowerCase() === email.trim().toLowerCase());
+      const mine = byId
+        ? (emps || []).find(x => x.id === identifier)
+        : (emps || []).find(x => (x.email || '').trim().toLowerCase() === identifier.trim().toLowerCase());
       if (!mine) { setMeStatus('notfound'); return; }
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
@@ -387,15 +393,25 @@ function App() {
     }
   }, []);
 
+  // מצב התחזות: טעינה לפי emp_id במקום email
   React.useEffect(() => {
-    if (!session?.user?.email) return;
+    if (!IMPERSONATE_ID) return;
+    setMeStatus('loading');
+    loadAll(IMPERSONATE_ID, true);
+  }, [loadAll]);
+
+  React.useEffect(() => {
+    if (IMPERSONATE_ID || !session?.user?.email) return;
     setMeStatus('loading');
     loadAll(session.user.email);
   }, [session?.user?.email, loadAll]);
 
   // רענון כשהאפליקציה חוזרת לפוקוס (סידור חדש פורסם וכו')
   React.useEffect(() => {
-    const onVis = () => { if (document.visibilityState === 'visible' && session?.user?.email && meStatus === 'ok') loadAll(session.user.email); };
+    const onVis = () => {
+      if (!IMPERSONATE_ID && document.visibilityState === 'visible' && session?.user?.email && meStatus === 'ok')
+        loadAll(session.user.email);
+    };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [session, meStatus, loadAll]);
@@ -416,36 +432,43 @@ function App() {
     </div>
   );
 
-  if (session === undefined) {
+  if (session === undefined && !IMPERSONATE_ID) {
     return frame(<div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner /></div>);
   }
   if (recovery && session) {
     return frame(<NewPasswordScreen onDone={() => { setRecovery(false); showToast('הסיסמה עודכנה ✓'); }} />);
   }
-  if (!session) return frame(<LoginScreen />);
+  if (!session && !IMPERSONATE_ID) return frame(<LoginScreen />);
 
   if (meStatus === 'loading') {
     return frame(<div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
-      <Spinner /><span style={{ fontSize: 13, color: '#8A867F' }}>טוען את הנתונים שלך…</span>
+      <Spinner /><span style={{ fontSize: 13, color: '#8A867F' }}>טוען את הנתונים{IMPERSONATE_ID ? ' לאדמין' : ' שלך'}…</span>
     </div>);
   }
   if (meStatus === 'notfound' || meStatus === 'error') {
     return frame(
       <div style={{ flex: 1, padding: '76px 30px', display: 'flex', flexDirection: 'column', gap: 14, textAlign: 'center', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ width: 58, height: 58, borderRadius: 14, background: '#F1EFEB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 900, color: '#A09C94' }}>!</div>
-        {meStatus === 'notfound' ? (<>
+        {meStatus === 'notfound' && !IMPERSONATE_ID ? (<>
           <div style={{ fontSize: 17, fontWeight: 800 }}>החשבון לא משויך לעובד</div>
           <div style={{ fontSize: 14, color: '#6B6760', lineHeight: 1.6 }}>
-            התחברת בתור <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{session.user.email}</b>, אבל הכתובת הזו לא מופיעה אצל אף עובד במערכת.<br />
+            התחברת בתור <b style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{session?.user?.email}</b>, אבל הכתובת הזו לא מופיעה אצל אף עובד במערכת.<br />
             בקשו מהמנהל להזין את האימייל הזה בכרטיס העובד שלכם (מסך עובדים ← עריכה).
           </div>
         </>) : (<>
-          <div style={{ fontSize: 17, fontWeight: 800 }}>לא הצלחנו לטעון את הנתונים</div>
-          <div style={{ fontSize: 14, color: '#6B6760', lineHeight: 1.6 }}>ייתכן שהמערכת עדיין לא הוקמה (טבלאות Supabase חסרות) או שיש בעיית רשת. נסו שוב מאוחר יותר.</div>
+          <div style={{ fontSize: 17, fontWeight: 800 }}>{IMPERSONATE_ID ? 'עובד לא נמצא' : 'לא הצלחנו לטעון את הנתונים'}</div>
+          <div style={{ fontSize: 14, color: '#6B6760', lineHeight: 1.6 }}>
+            {IMPERSONATE_ID ? `עובד עם מזהה "${IMPERSONATE_ID}" לא קיים במערכת.` : 'ייתכן שהמערכת עדיין לא הוקמה (טבלאות Supabase חסרות) או שיש בעיית רשת. נסו שוב מאוחר יותר.'}
+          </div>
         </>)}
         <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-          <div onClick={() => loadAll(session.user.email)} style={{ background: INK, color: '#FFF', borderRadius: 8, padding: '11px 20px', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>נסו שוב</div>
-          <div onClick={logout} style={{ background: '#FFF', border: `1.5px solid ${INK}`, borderRadius: 8, padding: '11px 20px', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>התנתקות</div>
+          {IMPERSONATE_ID
+            ? <div onClick={() => window.close()} style={{ background: INK, color: '#FFF', borderRadius: 8, padding: '11px 20px', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>סגור</div>
+            : (<>
+              <div onClick={() => loadAll(session?.user?.email)} style={{ background: INK, color: '#FFF', borderRadius: 8, padding: '11px 20px', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>נסו שוב</div>
+              <div onClick={logout} style={{ background: '#FFF', border: `1.5px solid ${INK}`, borderRadius: 8, padding: '11px 20px', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>התנתקות</div>
+            </>)
+          }
         </div>
       </div>
     );
@@ -457,16 +480,24 @@ function App() {
   Object.values(published).forEach(p => (p.employees || []).forEach(e => { if (!empNames[e.id]) empNames[e.id] = e.name; }));
 
   const firstName = (me.name || '').split(' ')[0];
+  const emailForOps = IMPERSONATE_ID ? 'admin' : (session?.user?.email || '');
 
-  return frame(
-    <Shell me={me} firstName={firstName} email={session.user.email} menuOpen={menuOpen} setMenuOpen={setMenuOpen} onLogout={logout}
+  return frame(<>
+    {IMPERSONATE_ID && (
+      <div style={{ background: 'oklch(0.5 0.18 25)', color: '#FFF', padding: '8px 16px', fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <span>🔑 מצב אדמין · צופה בתור {me.name}</span>
+        <span onClick={() => window.close()} style={{ cursor: 'pointer', fontSize: 18, fontWeight: 900, lineHeight: 1, opacity: 0.85 }}>×</span>
+      </div>
+    )}
+    <Shell me={me} firstName={firstName} email={emailForOps} menuOpen={menuOpen} setMenuOpen={setMenuOpen}
+      onLogout={IMPERSONATE_ID ? () => window.close() : logout}
       tab={tab} setTab={setTab}>
       {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} />}
       {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} serverReqs={serverReqs} goReq={() => setTab('requests')} />}
-      {tab === 'requests' && <RequestsTab me={me} email={session.user.email} published={published} TM={TM} globalSettings={globalSettings}
+      {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey} />}
     </Shell>
-  );
+  </>);
 }
 
 /* ============ מעטפת: כותרת + טאבים ============ */

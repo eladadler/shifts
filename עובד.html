@@ -1034,6 +1034,18 @@ ${shiftsDesc}
           }
         });
       });
+      // הרחבת ימים עם סימון חלקי: משמרות לא-מסומנות מקבלות ברירת מחדל של המצב
+      // (למשל: "לילה=יכול" ב-14 → בוקר/קצר ב-14 = un אוטומטית במצב avail)
+      const finalMode = (result.mode === 'avail' || result.mode === 'block') ? result.mode : reqMode;
+      Object.entries(newMarks).forEach(([ds, v]) => {
+        if (typeof v !== 'object' || !v) return;
+        const expanded = { ...v };
+        let changed = false;
+        shiftTypesFor(ds, settings).filter(s => !s.continuation).forEach(sh => {
+          if (!expanded[sh.id]) { expanded[sh.id] = finalMode === 'block' ? 'can' : 'un'; changed = true; }
+        });
+        if (changed) newMarks[ds] = expanded;
+      });
       const aiMode = result.mode === 'avail' || result.mode === 'block' ? result.mode : null;
       const modeChanged = aiMode && aiMode !== reqMode;
       setLocal({ marks: newMarks, note: result.note || local.note, dirty: true, ...(aiMode ? { reqMode: aiMode } : {}) });

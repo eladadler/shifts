@@ -206,11 +206,11 @@ function ShiftRow({ sh, myId, empNames, blocked }) {
 function MonthSwitcher({ label, onPrev, onNext, canPrev, canNext }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#F1EFEB', borderRadius: 12, padding: 6 }}>
-      <div onClick={canPrev ? onPrev : undefined} style={{ width: 34, height: 34, borderRadius: 9, background: '#FFFFFF', border: '1px solid #E2DFD9',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, color: INK, cursor: canPrev ? 'pointer' : 'default', opacity: canPrev ? 1 : 0.3 }}>›</div>
-      <div style={{ fontSize: 16, fontWeight: 900 }}>{label}</div>
       <div onClick={canNext ? onNext : undefined} style={{ width: 34, height: 34, borderRadius: 9, background: '#FFFFFF', border: '1px solid #E2DFD9',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, color: INK, cursor: canNext ? 'pointer' : 'default', opacity: canNext ? 1 : 0.3 }}>‹</div>
+      <div style={{ fontSize: 16, fontWeight: 900 }}>{label}</div>
+      <div onClick={canPrev ? onPrev : undefined} style={{ width: 34, height: 34, borderRadius: 9, background: '#FFFFFF', border: '1px solid #E2DFD9',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, color: INK, cursor: canPrev ? 'pointer' : 'default', opacity: canPrev ? 1 : 0.3 }}>›</div>
     </div>
   );
 }

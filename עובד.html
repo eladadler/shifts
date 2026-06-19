@@ -826,7 +826,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   // יום עם סימון חלקי (לפי משמרות) — הקשה רק בוחרת, כדי לא לדרוס את הדיוק; מחיקה עובדת תמיד.
   const tapDay = (dStr) => {
     setSelDay(dStr);
-    if (!editable) return;
+    if (!editable || !brush) return;
     const cur = local.marks[dStr];
     if (cur && typeof cur === 'object' && brush !== 'erase') return;
     const marks = { ...local.marks };
@@ -995,15 +995,15 @@ ${shiftsDesc}
         </div>
       )}
       {editable ? (<>
-        <div style={{ fontSize: 12, color: '#8A867F' }}>1. בוחרים סימון · 2. מקישים על הימים בלוח</div>
+        <div style={{ fontSize: 12, color: '#8A867F' }}>{brush ? '1. בוחרים סימון · 2. מקישים על הימים בלוח' : 'לחצו על יום לצפייה — בחרו סימון כדי לערוך'}</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
           {BRUSHES.map(c => {
             const s = c.id === 'erase' ? { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' } : MARK_STATUS[c.id];
             const active = brush === c.id;
             return (
-              <div key={c.id} onClick={() => setBrush(c.id)} style={{ padding: '9px 0', borderRadius: 10, background: s.bg, color: s.fg,
+              <div key={c.id} onClick={() => setBrush(b => b === c.id ? null : c.id)} style={{ padding: '9px 0', borderRadius: 10, background: active ? s.bg : '#FFF', color: active ? s.fg : '#A09C94',
                 border: active ? `2px solid ${s.fg}` : s.bd, boxShadow: active ? '0 3px 10px rgba(30,28,24,0.16)' : 'none',
-                fontSize: 12, fontWeight: 800, textAlign: 'center', cursor: 'pointer', transition: 'box-shadow 0.15s, border 0.15s' }}>{c.label}</div>
+                fontSize: 12, fontWeight: 800, textAlign: 'center', cursor: 'pointer', transition: 'box-shadow 0.15s, border 0.15s, background 0.15s' }}>{c.label}</div>
             );
           })}
         </div>

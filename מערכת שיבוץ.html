@@ -3257,6 +3257,7 @@ function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, a
     setRefreshing(false);
   };
   const [month, setMonth] = React.useState(initialMonth || SD.MONTH);
+  const openRange = React.useMemo(() => openRangeByMonth?.[month] || null, [openRangeByMonth, month]);
   const [selectedEmpId, setSelectedEmpId] = React.useState(null);
   const [analyzing, setAnalyzing] = React.useState({});
   const [errors, setErrors] = React.useState({});
@@ -3299,11 +3300,14 @@ function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, a
     setErrors(e => ({ ...e, [emp.id]: null }));
     try {
       const [y, m] = month.split('-').map(Number);
-      const daysInMonth = new Date(y, m, 0).getDate();
-      const datesList = Array.from({ length: daysInMonth }, (_, i) => {
-        const dStr = `${month}-${SD.pad(i + 1)}`;
-        return `${dStr} — יום ${SD.dayLabel(dStr)}`;
-      }).join('\n');
+      const nDays = new Date(y, m, 0).getDate();
+      const rangeStart = openRange?.start || `${month}-01`;
+      const rangeEnd   = openRange?.end   || `${month}-${SD.pad(nDays)}`;
+      const scheduleDates = window.ShiftEngine.listDates(rangeStart, rangeEnd);
+      const datesList = scheduleDates.map(dStr => `${dStr} — יום ${SD.dayLabel(dStr)}`).join('\n');
+      const scheduleLabel = openRange
+        ? `הסידור (${SD.shortDate(rangeStart)}–${SD.shortDate(rangeEnd)})`
+        : `חודש ${SD.monthLabel(month)} (${month})`;
 
       const shiftLine = (label, list) => `${label}: ` + (list || []).map(s => `${s.id} = ${s.name} ${s.start}–${s.end}`).join(' · ');
       const shiftsDesc = [
@@ -3312,9 +3316,10 @@ function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, a
         shiftLine('שבת', shiftSettings?.saturday),
       ].join('\n');
 
-      const prompt = `אתה מנתח בקשת עובד לסידור עבודה לחודש ${SD.monthLabel(month)} (${month}).
+      const prompt = `אתה מנתח בקשת עובד לסידור עבודה עבור ${scheduleLabel}.
+הסידור כולל ימים מחוץ לחודש הקלנדרי — כשהעובד אומר "כל ימי שני" או "כל החודש" הכוונה לכל הימים ברשימה למטה.
 
-## תאריכי החודש וימי השבוע
+## כל ימי הסידור וימי השבוע שלהם
 ${datesList}
 
 ## המשמרות הקיימות (לפי סוג יום)
@@ -3337,8 +3342,8 @@ ${shiftsDesc}
 - high = ימים/משמרות שהעובד מבקש במפורש לעבוד בהם
 - can = ימים/משמרות שהעובד ציין שהוא גמיש/יכול אם צריך
 - בקשה על יום שלם (חופשה, חו"ל) — תאריך בלבד: "YYYY-MM-DD"
-- בקשה ממוקדת-משמרת (למשל "לא יכול לילות", "מעדיף בוקר ב-12") — הוסף את מזהה המשמרת: "YYYY-MM-DD@shiftId" (למשל "${month}-12@night"). השתמש רק במזהי המשמרות מהרשימה למעלה, ופרוס על כל התאריכים הרלוונטיים
-- כל התאריכים חייבים להיות בתוך ${month} ולהתאים לימי השבוע מהרשימה למעלה
+- בקשה ממוקדת-משמרת (למשל "לא יכול לילות", "מעדיף בוקר ב-12") — הוסף את מזהה המשמרת: "YYYY-MM-DD@shiftId". השתמש רק במזהי המשמרות מהרשימה למעלה, ופרוס על כל התאריכים הרלוונטיים
+- כל התאריכים חייבים להיות מהרשימה למעלה (בין ${rangeStart} ל-${rangeEnd})
 - העדפה כללית שלא ניתנת לתרגום לתאריכים או משמרות — כלול אותה ב-note בלבד`;
 
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -3364,11 +3369,15 @@ ${shiftsDesc}
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('לא התקבל JSON תקין מהמודל');
       const result = JSON.parse(jsonMatch[0]);
-      const inMonth = (arr) => (Array.isArray(arr) ? arr.filter(d => typeof d === 'string' && d.startsWith(month)) : []);
+      const inRange = (arr) => (Array.isArray(arr) ? arr.filter(d => {
+        if (typeof d !== 'string') return false;
+        const ds = d.includes('@') ? d.split('@')[0] : d;
+        return ds >= rangeStart && ds <= rangeEnd;
+      }) : []);
       updateEntry(emp.id, {
-        unavailable: inMonth(result.unavailable),
-        high: inMonth(result.high),
-        can: inMonth(result.can),
+        unavailable: inRange(result.unavailable),
+        high: inRange(result.high),
+        can: inRange(result.can),
         note: result.note || '',
         analyzedText: text,
         analyzedAt: Date.now(),
@@ -3410,11 +3419,19 @@ ${shiftsDesc}
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('לא התקבל JSON תקין מהמודל');
       const result = JSON.parse(jsonMatch[0]);
-      const inMonth = (arr) => (Array.isArray(arr) ? arr.filter(d => typeof d === 'string' && d.startsWith(month)) : []);
+      const [yr2, mo2] = month.split('-').map(Number);
+      const nd2 = new Date(yr2, mo2, 0).getDate();
+      const rs2 = openRange?.start || `${month}-01`;
+      const re2 = openRange?.end   || `${month}-${SD.pad(nd2)}`;
+      const inRange2 = (arr) => (Array.isArray(arr) ? arr.filter(d => {
+        if (typeof d !== 'string') return false;
+        const ds = d.includes('@') ? d.split('@')[0] : d;
+        return ds >= rs2 && ds <= re2;
+      }) : []);
       updateEntry(emp.id, {
-        unavailable: inMonth(result.unavailable),
-        high: inMonth(result.high),
-        can: inMonth(result.can),
+        unavailable: inRange2(result.unavailable),
+        high: inRange2(result.high),
+        can: inRange2(result.can),
         note: result.note || '',
       });
       setChatHistories(h => ({...h, [emp.id]: [...newHistory, { role: 'assistant', content: raw }]}));

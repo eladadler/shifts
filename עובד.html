@@ -120,6 +120,11 @@ const MARK_STATUS = {
   can:  { bg: 'oklch(0.94 0.05 240)', bd: '1.5px solid oklch(0.6 0.12 240)',  fg: 'oklch(0.42 0.12 240)' },
   none: { bg: '#FFFFFF', bd: '1px solid #E7E4DF', fg: '#3A3631' },
 };
+// Faded (implied) marks — dashed border, lighter fill, used in calendar for unmarked days
+const MARK_STATUS_FADED = {
+  un:  { bg: 'oklch(0.975 0.025 25)',  bd: '1px dashed oklch(0.8 0.1 25)',   fg: 'oklch(0.72 0.1 25)' },
+  can: { bg: 'oklch(0.975 0.02 240)', bd: '1px dashed oklch(0.8 0.07 240)', fg: 'oklch(0.72 0.08 240)' },
+};
 
 const fmtSentAt = (iso) => {
   if (!iso) return null;
@@ -784,6 +789,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const editable = !pubRow || openStatus;
   const openRange = openStatus ? (pubRow?.shift_settings?._range || null) : null;
   const local = localReqs[ym] || { marks: {}, note: '', dirty: false };
+  const reqMode = local.reqMode || 'block';
   const server = serverReqs[ym] || null;
   const nDays = daysInMonth(ym);
   const rangeStart = openRange?.start || `${ym}-01`;
@@ -803,7 +809,11 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const gridOffset = weekdayOf(rangeStart);
   // gridOffset = weekday of first cell in calendar = weekday of rangeStart
   const [selDay, setSelDay] = React.useState(rangeStart);
-  React.useEffect(() => { setSelDay(rangeStart); }, [ym]);
+  React.useEffect(() => {
+    setSelDay(rangeStart);
+    const mode = localReqs[ym]?.reqMode || 'block';
+    setBrush(mode === 'block' ? 'un' : 'can');
+  }, [ym]);
   const selDs = selDay;
   const sel = Number(selDs.slice(8));
 
@@ -821,6 +831,12 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const contShifts = dayShiftsAll.filter(s => s.continuation);       // המשך משמרת רב-יומית — מידע בלבד
 
   const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', dirty: false }), ...patch } }));
+
+  const setReqMode = (mode) => {
+    if (mode === reqMode) return;
+    setLocal({ reqMode: mode });
+    setBrush(mode === 'block' ? 'un' : 'can');
+  };
 
   // הקשה על יום בלוח: בוחרת אותו, ובמצב עריכה גם צובעת את כל היום.
   // יום עם סימון חלקי (לפי משמרות) — הקשה רק בוחרת, כדי לא לדרוס את הדיוק; מחיקה עובדת תמיד.
@@ -863,9 +879,19 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       });
       return out.sort();
     };
+    // הרחבת סימונים משתמעים: ימים לא-מסומנים מקבלים את הסטטוס ברירת-מחדל של המצב הנוכחי
+    const markedDs = new Set(Object.keys(local.marks));
+    const unmarkedDates = rangeDates.filter(ds => !markedDs.has(ds));
+    let unavailable = toDates('un');
+    let canArr = toDates('can');
+    if (reqMode === 'block') {
+      canArr = [...canArr, ...unmarkedDates].sort();
+    } else {
+      unavailable = [...unavailable, ...unmarkedDates].sort();
+    }
     const row = {
       emp_id: me.id, month: ym,
-      unavailable: toDates('un'), high: toDates('high'), can: toDates('can'),
+      unavailable, high: toDates('high'), can: canArr,
       note: local.note || '', updated_at: new Date().toISOString(), updated_by: email,
     };
     const { data, error } = await sb.from('employee_requests').upsert(row).select().single();
@@ -896,6 +922,13 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
         shiftLine('שישי', settings?.friday),
         shiftLine('שבת', settings?.saturday),
       ].join('\n');
+      const modeContext = reqMode === 'block'
+        ? `מצב: מסמן חסימות — העובד מסמן ימים/משמרות שלא יכול. כל יום שלא צוין = יכול לעבוד.
+• מלא בעיקר "unavailable" (ו-"high" עבור בקשות עדיפות).
+• השאר "can" ריק — ימים לא-מסומנים ייחשבו אוטומטית כ-can.`
+        : `מצב: מסמן זמינות — העובד מסמן ימים/משמרות שיכול. כל יום שלא צוין = לא זמין.
+• מלא בעיקר "can" (ו-"high" עבור בקשות עדיפות).
+• השאר "unavailable" ריק — ימים לא-מסומנים ייחשבו אוטומטית כ-unavailable.`;
       const prompt = `אתה מנתח בקשת עובד לסידור עבודה עבור ${scheduleLabel}.
 הסידור כולל ימים מחוץ לחודש הקלנדרי — כשהעובד אומר "כל ימי ראשון" או "כל החודש" הכוונה לכל הימים ברשימה למטה.
 
@@ -907,6 +940,9 @@ ${shiftsDesc}
 
 ## הבקשה החופשית
 "${text}"
+
+## מצב הגשת הבקשה
+${modeContext}
 
 ## משימה
 תרגם לתאריכים. החזר JSON בלבד:
@@ -978,10 +1014,9 @@ ${shiftsDesc}
   }, [local.marks]);
   const sentAt = fmtSentAt(server?.updated_at);
 
-  const BRUSHES = [
-    { id: 'un', label: 'לא זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' },
-    { id: 'can', label: 'יכול.ה' }, { id: 'erase', label: 'מחיקה' },
-  ];
+  const BRUSHES = reqMode === 'block'
+    ? [{ id: 'un', label: 'לא זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }, { id: 'erase', label: 'מחיקה' }]
+    : [{ id: 'can', label: 'זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }, { id: 'erase', label: 'מחיקה' }];
 
   return (
     <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.25s' }}>
@@ -995,8 +1030,25 @@ ${shiftsDesc}
         </div>
       )}
       {editable ? (<>
+        {/* בחירת מצב הגשה */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { id: 'block', label: 'מסמן חסימות', sub: 'שאר הימים = יכול' },
+            { id: 'avail', label: 'מסמן זמינות', sub: 'שאר הימים = חסום' },
+          ].map(m => {
+            const active = reqMode === m.id;
+            return (
+              <div key={m.id} onClick={() => setReqMode(m.id)} style={{ flex: 1, padding: '9px 10px', borderRadius: 10, textAlign: 'center', cursor: 'pointer',
+                background: active ? INK : '#FFF', border: active ? `2px solid ${INK}` : '1.5px solid #D8D4CE',
+                color: active ? '#FFF' : '#6B6760', transition: 'background 0.15s, border 0.15s, color 0.15s' }}>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>{m.label}</div>
+                <div style={{ fontSize: 11, marginTop: 2, opacity: active ? 0.75 : 0.65 }}>{m.sub}</div>
+              </div>
+            );
+          })}
+        </div>
         <div style={{ fontSize: 12, color: '#8A867F' }}>{brush ? '1. בוחרים סימון · 2. מקישים על הימים בלוח' : 'לחצו על יום לצפייה — בחרו סימון כדי לערוך'}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 7 }}>
           {BRUSHES.map(c => {
             const s = c.id === 'erase' ? { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' } : MARK_STATUS[c.id];
             const active = brush === c.id;
@@ -1023,15 +1075,18 @@ ${shiftsDesc}
             const v = local.marks[dStr];
             const whole = typeof v === 'string';
             const inCurMonth = dStr.startsWith(ym);
-            const s = MARK_STATUS[whole ? v : 'none'];
+            const impliedMark = !v && editable ? (reqMode === 'block' ? 'can' : 'un') : null;
+            const s = v
+              ? MARK_STATUS[whole ? v : 'none']
+              : (impliedMark ? MARK_STATUS_FADED[impliedMark] : MARK_STATUS['none']);
             const dots = !whole && v ? Object.values(v).map(m => MARK_STATUS[m]?.fg).filter(Boolean) : [];
             const isSel = dStr === selDs;
             const dayNum = Number(dStr.slice(8));
             return (
               <div key={dStr} onClick={() => tapDay(dStr)} style={{ aspectRatio: '1', borderRadius: 10,
-                background: inCurMonth ? s.bg : (v ? s.bg : '#F7F5F2'),
-                border: isSel ? `2px solid ${INK}` : (inCurMonth ? s.bd : '1px dashed #D8D4CE'),
-                color: inCurMonth ? s.fg : (v ? s.fg : '#A09C94'),
+                background: s.bg,
+                border: isSel ? `2px solid ${INK}` : s.bd,
+                color: s.fg,
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
                 fontSize: 13, fontWeight: inCurMonth ? 700 : 500,
                 cursor: 'pointer', transition: 'background 0.15s, border 0.15s', opacity: inCurMonth ? 1 : 0.75 }}>
@@ -1047,7 +1102,16 @@ ${shiftsDesc}
         </div>
         <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
           {stats.un} לא זמין · {stats.high} מעדיף · {stats.can} יכול
-          {stats.shifts > 0 && <> — {stats.days} ימים מלאים · {stats.shifts} משמרות בודדות</>}
+          {stats.shifts > 0 && <> — {stats.days} ימים מלאים · {stats.shifts} משמרות</>}
+          {editable && (() => {
+            const markedCount = Object.keys(local.marks).length;
+            const impliedCount = rangeDates.length - markedCount;
+            return impliedCount > 0 ? (
+              <span style={{ color: reqMode === 'block' ? MARK_STATUS_FADED.can.fg : MARK_STATUS_FADED.un.fg }}>
+                {' · '}{impliedCount} {reqMode === 'block' ? 'יכול (ברירת מחדל)' : 'לא זמין (ברירת מחדל)'}
+              </span>
+            ) : null;
+          })()}
         </div>
 
         {/* כרטיס פירוט היום הנבחר — דיוק ברמת משמרת */}

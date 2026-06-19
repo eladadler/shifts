@@ -53,3 +53,21 @@ create policy "open access" on employee_requests
 drop policy if exists "open access" on published_schedules;
 create policy "open access" on published_schedules
   for all to anon, authenticated using (true) with check (true);
+
+-- 4. משוב AI (אדמינים כותבים דרך מצב תחזה; שמור לשיפור פרומפטים)
+create table if not exists ai_feedback (
+  id           uuid default gen_random_uuid() primary key,
+  emp_id       text,
+  emp_name     text,
+  month        text,
+  original_text text,
+  ai_result    jsonb,
+  rating       text not null,               -- 'good' | 'bad'
+  correction   text,
+  created_at   timestamptz not null default now()
+);
+
+alter table ai_feedback enable row level security;
+drop policy if exists "open access" on ai_feedback;
+create policy "open access" on ai_feedback
+  for all to anon, authenticated using (true) with check (true);

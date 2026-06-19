@@ -814,6 +814,11 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const [saving, setSaving] = React.useState(false);
   const [analyzing, setAnalyzing] = React.useState(false);
   const [aiError, setAiError] = React.useState(null);
+  const [lastAiResult, setLastAiResult] = React.useState(null);
+  const [aiFeedback, setAiFeedback] = React.useState(null);
+  const [feedbackNote, setFeedbackNote] = React.useState('');
+  const [feedbackSaving, setFeedbackSaving] = React.useState(false);
+  const [feedbackSaved, setFeedbackSaved] = React.useState(false);
   const ym = months[mi];
   const pubRow = published[ym] || null;
   const openStatus = pubRow?.shift_settings?._status === 'open';
@@ -844,6 +849,10 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     setSelDay(rangeStart);
     const mode = localReqs[ym]?.reqMode || 'block';
     setBrush(mode === 'block' ? 'un' : 'can');
+    setLastAiResult(null);
+    setAiFeedback(null);
+    setFeedbackNote('');
+    setFeedbackSaved(false);
   }, [ym]);
   const selDs = selDay;
   const sel = Number(selDs.slice(8));
@@ -1054,10 +1063,39 @@ ${shiftsDesc}
       showToast(modeChanged
         ? `AI זיהה מצב ${aiMode === 'avail' ? 'זמינות' : 'חסימות'} ועדכן ✓`
         : 'הסימונים עודכנו ✓ — בדקו וערכו לפי הצורך');
+      if (IMPERSONATE_ID) {
+        setLastAiResult({ text, result });
+        setAiFeedback(null);
+        setFeedbackNote('');
+        setFeedbackSaved(false);
+      }
     } catch (err) {
       setAiError(`שגיאת ניתוח: ${err.message}`);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const saveFeedback = async () => {
+    if (!aiFeedback || !lastAiResult || feedbackSaving) return;
+    setFeedbackSaving(true);
+    try {
+      const { error } = await sb.from('ai_feedback').insert({
+        emp_id: me?.id,
+        emp_name: me?.name,
+        month: ym,
+        original_text: lastAiResult.text,
+        ai_result: lastAiResult.result,
+        rating: aiFeedback,
+        correction: feedbackNote.trim() || null,
+      });
+      if (error) throw error;
+      setFeedbackSaved(true);
+      setTimeout(() => setFeedbackSaved(false), 4000);
+    } catch (err) {
+      showToast('שגיאה בשמירת משוב');
+    } finally {
+      setFeedbackSaving(false);
     }
   };
 
@@ -1233,6 +1271,43 @@ ${shiftsDesc}
             <div style={{ fontSize: 12, color: '#A09C94', textAlign: 'center', padding: '8px 0' }}>ניתוח AI לא זמין — המנהל לא הגדיר מפתח</div>
           )}
           {aiError && <div style={{ fontSize: 12, fontWeight: 600, color: 'oklch(0.5 0.18 25)', background: 'oklch(0.97 0.03 25)', borderRadius: 8, padding: '8px 12px' }}>{aiError}</div>}
+          {IMPERSONATE_ID && lastAiResult && (
+            <div style={{ background: 'oklch(0.97 0.015 80)', border: '1px solid oklch(0.88 0.04 80)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>🔑 משוב אדמין — דיוק ניתוח AI:</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[['good', '👍 נכון'], ['bad', '👎 שגוי']].map(([v, label]) => {
+                  const active = aiFeedback === v;
+                  const okColor = 'oklch(0.6 0.2 140)';
+                  const errColor = 'oklch(0.7 0.15 25)';
+                  return (
+                    <div key={v} onClick={() => setAiFeedback(av => av === v ? null : v)} style={{
+                      flex: 1, padding: '9px 0', textAlign: 'center', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                      background: active ? (v === 'good' ? 'oklch(0.92 0.08 140)' : 'oklch(0.95 0.06 25)') : '#FFF',
+                      border: `1.5px solid ${active ? (v === 'good' ? okColor : errColor) : '#D8D4CE'}`,
+                      color: active ? (v === 'good' ? 'oklch(0.35 0.18 140)' : 'oklch(0.45 0.18 25)') : '#6B6760',
+                    }}>{label}</div>
+                  );
+                })}
+              </div>
+              {aiFeedback === 'bad' && (
+                <textarea value={feedbackNote} onChange={e => setFeedbackNote(e.target.value)}
+                  placeholder="מה היה שגוי? (ישמש לשיפור הפרומפט בעתיד)"
+                  style={{ border: '1.5px solid #D8D4CE', borderRadius: 8, padding: '9px 11px', fontSize: 12, resize: 'none', height: 62, background: '#FFF', color: INK, font: 'inherit' }} />
+              )}
+              {aiFeedback && !feedbackSaved && (
+                <div onClick={feedbackSaving ? undefined : saveFeedback} style={{
+                  background: INK, color: '#FFF', borderRadius: 8, padding: '10px 0',
+                  textAlign: 'center', fontSize: 13, fontWeight: 800,
+                  cursor: feedbackSaving ? 'default' : 'pointer', opacity: feedbackSaving ? 0.6 : 1,
+                }}>
+                  {feedbackSaving ? 'שומר…' : '← שמור משוב'}
+                </div>
+              )}
+              {feedbackSaved && (
+                <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: 'oklch(0.42 0.18 140)' }}>✓ המשוב נשמר — תודה!</div>
+              )}
+            </div>
+          )}
         </div>
         <div onClick={needSend ? submit : undefined} style={{
           background: needSend ? INK : '#FFF', color: needSend ? '#FFF' : TEAL_DARK,

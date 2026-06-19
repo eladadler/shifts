@@ -2611,7 +2611,7 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 }
 
 // ---- SettingsDrawer ----
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showKey, setShowKey] = React.useState(false);
@@ -2621,6 +2621,7 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
   const [cloudSaving, setCloudSaving] = React.useState(false);
   const [cloudSaved, setCloudSaved] = React.useState(false);
   const [cloudErr, setCloudErr] = React.useState(false);
+  const [newAdminEmail, setNewAdminEmail] = React.useState('');
 
   const saveAdminKey = () => {
     onAdminKeyChange(adminDraft.trim());
@@ -2747,6 +2748,33 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
               </button>
               {adminSaved && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ המפתח נשמר</div>}
               {!adminSaved && adminKey && adminDraft.trim() === adminKey && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן זה בלבד</div>}
+            </div>
+            <div>
+              <div className="settings-sec-title">👑 אדמינים</div>
+              <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:10,lineHeight:1.5}}>
+                אדמינים יכולים לפתוח פרופיל עובד במצב תחזה ולראות פאנל משוב AI.
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                {(admins || []).map(email => (
+                  <div key={email} style={{display:'flex',alignItems:'center',gap:7,padding:'6px 9px',borderRadius:7,background:'var(--bg)',border:'1px solid var(--line)'}}>
+                    <span style={{fontSize:'12px',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{email}</span>
+                    {(admins || []).length > 1 && (
+                      <span onClick={() => onAdminsChange(prev => prev.filter(e => e !== email))}
+                        style={{cursor:'pointer',color:'var(--danger)',fontWeight:900,fontSize:15,lineHeight:1,padding:'0 3px',flexShrink:0,opacity:0.75}}>×</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{display:'flex',gap:6,marginTop:8}}>
+                <input type="email" value={newAdminEmail} onChange={e => setNewAdminEmail(e.target.value)}
+                  placeholder="אימייל אדמין חדש"
+                  onKeyDown={e => { if (e.key === 'Enter') { const t2 = newAdminEmail.trim().toLowerCase(); if (t2 && !(admins||[]).includes(t2)) { onAdminsChange(p => [...p, t2]); setNewAdminEmail(''); } } }}
+                  style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'6px 9px',fontSize:'12px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none'}} />
+                <button className="btn" style={{padding:'5px 11px',fontSize:'12px',flexShrink:0}}
+                  onClick={() => { const t2 = newAdminEmail.trim().toLowerCase(); if (!t2 || (admins||[]).includes(t2)) return; onAdminsChange(p => [...p, t2]); setNewAdminEmail(''); }}>
+                  + הוסף
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -3986,6 +4014,7 @@ function App() {
   const [employees, setEmployees] = React.useState(() => saved?.employees || [...AD.EMPLOYEES]);
   // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
   const [requests, setRequests] = React.useState(() => saved?.requests || {});
+  const [admins, setAdmins] = React.useState(() => saved?.admins || ['eladadler@gmail.com']);
   const [selectedDate, setSelectedDate] = React.useState(null);
   const [draggingEmp, setDraggingEmp] = React.useState(null);
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -4092,7 +4121,7 @@ function App() {
   React.useEffect(() => {
     if (generatingId) return;
     if (isFirstLoad.current) return;
-    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey };
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -4505,7 +4534,8 @@ ${JSON.stringify(snap.schedule, null, 2)}
         apiKey={anthropicKey}
         onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); }}
         adminKey={adminKey}
-        onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }} />
+        onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }}
+        admins={admins} onAdminsChange={setAdmins} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         month={currentMonth}

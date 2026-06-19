@@ -3164,7 +3164,7 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
           <div style={{background:'var(--surface)',borderRadius:10,border:'1px solid var(--line)',padding:'10px 12px',display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
             <div style={{fontSize:13,fontWeight:800}}>יום {SD.HEB_DAYS[SD.weekdayOf(selDs)]}, {Number(selDs.slice(8))} {SD.monthLabel(selDs.slice(0,7))}</div>
             {dayShifts.map(sh => {
-              const dayMark = marks[sel];
+              const dayMark = marks[selDs];
               const cur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
               return (
                 <div key={sh.id} style={{display:'flex',alignItems:'center',gap:6,padding:'5px 8px',borderRadius:7,background:'var(--bg)',border:'1px solid var(--line)'}}>

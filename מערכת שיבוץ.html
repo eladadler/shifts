@@ -2926,17 +2926,21 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
 }
 
 // ---- RequestDetailPanel ----
-function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
+function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, onUpdateStanding, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
   const SD = window.ShiftData;
   const SE = window.ShiftEngine;
   const [brush, setBrush] = React.useState('view');
   const [selDay, setSelDay] = React.useState(() => openRange?.start || `${month}-01`);
   const [chatInput, setChatInput] = React.useState('');
+  const [showStanding, setShowStanding] = React.useState(false);
+  const [newRule, setNewRule] = React.useState({ weekday: 1, shiftId: '', mark: 'un' });
 
   React.useEffect(() => {
     setSelDay(openRange?.start || `${month}-01`);
     setChatInput('');
     setBrush('view');
+    setShowStanding(false);
+    setNewRule({ weekday: 1, shiftId: '', mark: 'un' });
   }, [emp.id, month]);
 
   const MARK_ST = {
@@ -3026,6 +3030,54 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
   const text = entry?.text || '';
   const stale = analyzed && (entry.analyzedText || '') !== text.trim();
   const hasDates = entry && ((entry.unavailable || []).length || (entry.high || []).length || (entry.can || []).length);
+
+  // Standing requests
+  const standingReqs = emp.standingReqs || [];
+  const allShifts = React.useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    ['weekday', 'friday', 'saturday'].forEach(type => {
+      (shiftSettings?.[type] || []).forEach(s => {
+        if (!s.continuation && !seen.has(s.id)) { seen.add(s.id); list.push(s); }
+      });
+    });
+    return list;
+  }, [shiftSettings]);
+
+  const addRule = () => {
+    const rule = { id: 'sr-' + Date.now(), weekday: newRule.weekday, shiftId: newRule.shiftId || null, mark: newRule.mark };
+    if (onUpdateStanding) onUpdateStanding(emp.id, [...standingReqs, rule]);
+    setNewRule({ weekday: 1, shiftId: '', mark: 'un' });
+  };
+
+  const removeRule = (id) => {
+    if (onUpdateStanding) onUpdateStanding(emp.id, standingReqs.filter(r => r.id !== id));
+  };
+
+  const applyStanding = () => {
+    if (!standingReqs.length) return;
+    const newMarks = { ...marks };
+    rangeDates.forEach(ds => {
+      const wd = SD.weekdayOf(ds);
+      standingReqs.filter(r => r.weekday === wd).forEach(rule => {
+        if (!rule.shiftId) {
+          newMarks[ds] = rule.mark;
+        } else {
+          const dsShifts = SD.shiftTypesFor(ds, shiftSettings).filter(s => !s.continuation);
+          let cur = newMarks[ds];
+          let obj = {};
+          if (typeof cur === 'string') dsShifts.forEach(s => { obj[s.id] = cur; });
+          else if (cur) obj = { ...cur };
+          obj[rule.shiftId] = rule.mark;
+          const ids = dsShifts.map(s => s.id);
+          if (ids.length && ids.every(id => obj[id] === obj[ids[0]]) && Object.keys(obj).length === ids.length)
+            newMarks[ds] = obj[ids[0]];
+          else newMarks[ds] = obj;
+        }
+      });
+    });
+    commitMarks(newMarks);
+  };
 
   const sendChat = () => {
     const msg = chatInput.trim();
@@ -3248,6 +3300,67 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
               : '← שגר'}
           </button>
 
+          {/* Standing Requests */}
+          {onUpdateStanding && (
+            <div style={{background:'var(--surface)',borderRadius:10,border:'1px solid var(--line)',flexShrink:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',cursor:'pointer',userSelect:'none'}} onClick={() => setShowStanding(s => !s)}>
+                <span style={{fontSize:13,fontWeight:700}}>📌 בקשות קבועות</span>
+                {standingReqs.length > 0 && (
+                  <span style={{fontSize:11,color:'var(--ok)',fontWeight:600,background:'var(--ok-bg)',borderRadius:999,padding:'1px 7px'}}>
+                    {standingReqs.length}
+                  </span>
+                )}
+                <span style={{marginInlineStart:'auto',fontSize:11,color:'var(--ink-3)'}}>{showStanding ? '▲' : '▼'}</span>
+              </div>
+              {showStanding && (
+                <div style={{borderTop:'1px solid var(--line)',padding:'10px 12px',display:'flex',flexDirection:'column',gap:7}}>
+                  {standingReqs.length === 0 && (
+                    <div style={{fontSize:11.5,color:'var(--ink-3)',textAlign:'center',padding:'4px 0'}}>אין כללים קבועים עדיין</div>
+                  )}
+                  {standingReqs.map(rule => {
+                    const markLabels = { un:'לא זמין', high:'מבקש לעבוד', can:'יכול' };
+                    const shiftName = rule.shiftId ? (allShifts.find(s => s.id === rule.shiftId)?.name || rule.shiftId) : null;
+                    return (
+                      <div key={rule.id} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 8px',borderRadius:7,background:'var(--bg)',border:'1px solid var(--line)'}}>
+                        <span style={{fontSize:11,fontWeight:700,color:MARK_ST[rule.mark]?.fg}}>{markLabels[rule.mark]}</span>
+                        <span style={{fontSize:11,color:'var(--ink-3)'}}>ביום</span>
+                        <span style={{fontSize:11,fontWeight:700}}>{SD.HEB_DAYS[rule.weekday]}</span>
+                        {shiftName && <><span style={{fontSize:11,color:'var(--ink-3)'}}>—</span><span style={{fontSize:11,fontWeight:700}}>{shiftName}</span></>}
+                        <span onClick={() => removeRule(rule.id)} style={{marginInlineStart:'auto',cursor:'pointer',fontSize:15,color:'var(--danger)',fontWeight:900,lineHeight:1,opacity:0.7,padding:'0 2px'}}>×</span>
+                      </div>
+                    );
+                  })}
+                  {/* Add rule form */}
+                  <div style={{display:'flex',gap:4,alignItems:'center',flexWrap:'wrap',paddingTop:4}}>
+                    <select value={newRule.mark} onChange={e => setNewRule(r => ({...r, mark: e.target.value}))}
+                      style={{fontSize:11.5,padding:'4px 6px',borderRadius:6,border:'1px solid var(--line)',background:'var(--bg)',color:'var(--ink)',font:'inherit'}}>
+                      <option value="un">לא זמין</option>
+                      <option value="high">מבקש לעבוד</option>
+                      <option value="can">יכול</option>
+                    </select>
+                    <span style={{fontSize:11,color:'var(--ink-3)'}}>ביום</span>
+                    <select value={newRule.weekday} onChange={e => setNewRule(r => ({...r, weekday: Number(e.target.value)}))}
+                      style={{fontSize:11.5,padding:'4px 6px',borderRadius:6,border:'1px solid var(--line)',background:'var(--bg)',color:'var(--ink)',font:'inherit'}}>
+                      {SD.HEB_DAYS.map((d,i) => <option key={i} value={i}>{d}</option>)}
+                    </select>
+                    <select value={newRule.shiftId} onChange={e => setNewRule(r => ({...r, shiftId: e.target.value}))}
+                      style={{fontSize:11.5,padding:'4px 6px',borderRadius:6,border:'1px solid var(--line)',background:'var(--bg)',color:'var(--ink)',font:'inherit'}}>
+                      <option value="">כל המשמרות</option>
+                      {allShifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <button className="btn" style={{fontSize:11.5,padding:'4px 10px',flexShrink:0}} onClick={addRule}>+ הוסף</button>
+                  </div>
+                  {standingReqs.length > 0 && (
+                    <button className="btn btn-primary" style={{fontSize:'12px',padding:'8px',width:'100%',justifyContent:'center',borderRadius:8,marginTop:2}}
+                      onClick={applyStanding}>
+                      ← החל לחודש זה
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
     </div>
@@ -3255,7 +3368,7 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
 }
 
 // ---- RequestsScreen ----
-function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey, onRefresh, openRangeByMonth }) {
+function RequestsScreen({ employees, requests, onRequestsChange, onEmployeesChange, initialMonth, apiKey, onRefresh, openRangeByMonth }) {
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
   const [refreshing, setRefreshing] = React.useState(false);
   const refresh = async () => {
@@ -3476,6 +3589,11 @@ ${shiftsDesc}
     }
   };
 
+  const updateEmpStanding = (empId, rules) => {
+    if (!onEmployeesChange) return;
+    onEmployeesChange(prev => prev.map(e => e.id === empId ? { ...e, standingReqs: rules } : e));
+  };
+
   const withReqCount = employees.filter(e => entryOf(e.id)).length;
   const selectedEmp = employees.find(e => e.id === selectedEmpId) || null;
 
@@ -3549,6 +3667,7 @@ ${shiftsDesc}
               onChatRefine={chatRefine}
               onClearEntry={clearEntry}
               onSend={sendToSupabase}
+              onUpdateStanding={onEmployeesChange ? updateEmpStanding : null}
               apiKey={apiKey}
               shiftSettings={shiftSettings}
               analyzing={!!analyzing[selectedEmp.id]}
@@ -4336,6 +4455,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
       <ShiftSettingsCtx.Provider value={shiftSettings}>
         {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} />}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
+          onEmployeesChange={setEmployees}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth} />}
         {screen === 'calendar'  && (
           <main className="layout">

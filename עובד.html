@@ -974,6 +974,28 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
         shiftLine('שישי', settings?.friday),
         shiftLine('שבת', settings?.saturday),
       ].join('\n');
+
+      // Fetch recent corrections from admin feedback — injected as few-shot examples
+      let fewShotBlock = '';
+      try {
+        const { data: fbRows } = await sb.from('ai_feedback')
+          .select('original_text, ai_result, correction')
+          .eq('rating', 'bad')
+          .not('correction', 'is', null)
+          .neq('correction', '')
+          .order('created_at', { ascending: false })
+          .limit(5);
+        if (fbRows?.length) {
+          const examples = fbRows.map((r, i) => [
+            `דוגמה ${i + 1}:`,
+            `בקשת עובד: "${r.original_text}"`,
+            `ניתוח שגוי שהוחזר: ${JSON.stringify(r.ai_result)}`,
+            `תיקון המנהל: ${r.correction}`,
+          ].join('\n')).join('\n\n');
+          fewShotBlock = `\n\n## תיקונים של המנהל על ניתוחים קודמים — למד מהם\n${examples}\n\nהימנע מאותן שגיאות בניתוח הנוכחי.`;
+        }
+      } catch (_) { /* non-critical — continue without examples */ }
+
       const prompt = `אתה מנתח בקשת עובד לסידור עבודה עבור ${scheduleLabel}.
 הסידור כולל ימים מחוץ לחודש הקלנדרי — כשהעובד אומר "כל ימי ראשון" או "כל החודש" הכוונה לכל הימים ברשימה למטה.
 
@@ -1009,7 +1031,7 @@ ${shiftsDesc}
 - כלל עסקי: בוקר קצר (short) קצר בשעה אחת בלבד מבוקר רגיל (morning). זמינות לבוקר = זמינות גם לבוקר קצר — אלא אם העובד ציין במפורש אחרת
 - יום שלם: "YYYY-MM-DD"; משמרת ספציפית: "YYYY-MM-DD@shiftId"
 - השתמש רק במזהי משמרות מהרשימה למעלה
-- כל התאריכים חייבים להיות מהרשימה למעלה (בין ${rangeStart} ל-${rangeEnd}) — כולל ימים מחוץ לחודש הקלנדרי`;
+- כל התאריכים חייבים להיות מהרשימה למעלה (בין ${rangeStart} ל-${rangeEnd}) — כולל ימים מחוץ לחודש הקלנדרי${fewShotBlock}`;
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': keyTrimmed,

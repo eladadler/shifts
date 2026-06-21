@@ -1032,19 +1032,39 @@ ${shiftsDesc}
 - יום שלם: "YYYY-MM-DD"; משמרת ספציפית: "YYYY-MM-DD@shiftId"
 - השתמש רק במזהי משמרות מהרשימה למעלה
 - כל התאריכים חייבים להיות מהרשימה למעלה (בין ${rangeStart} ל-${rangeEnd}) — כולל ימים מחוץ לחודש הקלנדרי${fewShotBlock}`;
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': keyTrimmed,
-          'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1024,
-          messages: [{ role: 'user', content: prompt }] }),
-      });
-      if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(err.error?.message || `HTTP ${resp.status}`); }
-      const apiData = await resp.json();
-      const raw = apiData.content?.find(b => b.type === 'text')?.text || '';
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('לא התקבל JSON תקין');
-      const result = JSON.parse(jsonMatch[0]);
+      const callApi = async (msgs, sys) => {
+        const body = { model: 'claude-sonnet-4-6', max_tokens: 1024, messages: msgs };
+        if (sys) body.system = sys;
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': keyTrimmed,
+            'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${r.status}`); }
+        const d = await r.json();
+        return d.content?.find(b => b.type === 'text')?.text || '';
+      };
+
+      const extractJson = (raw) => {
+        const m = raw.match(/\{[\s\S]*\}/);
+        if (!m) return null;
+        try { return JSON.parse(m[0]); } catch { return null; }
+      };
+
+      const systemMsg = 'ענה בJSON בלבד — ללא טקסט לפני או אחרי האובייקט.';
+      let raw = await callApi([{ role: 'user', content: prompt }], systemMsg);
+      let result = extractJson(raw);
+      if (!result) {
+        // retry once — ask explicitly for JSON
+        raw = await callApi([
+          { role: 'user', content: prompt },
+          { role: 'assistant', content: raw },
+          { role: 'user', content: 'החזר את התשובה כ-JSON בלבד, ללא טקסט נוסף.' },
+        ], systemMsg);
+        result = extractJson(raw);
+      }
+      if (!result) throw new Error('לא התקבל JSON תקין');
       const inRange = (arr) => (Array.isArray(arr) ? arr.filter(v => {
         if (typeof v !== 'string') return false;
         const ds = v.includes('@') ? v.split('@')[0] : v;

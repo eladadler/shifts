@@ -2681,7 +2681,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange }) {
 }
 
 // ---- RequestsScreen ----
-function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey }) {
+function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, apiKey, scheduleRange }) {
   const [month, setMonth] = React.useState(initialMonth || SD.MONTH);
   const [analyzing, setAnalyzing] = React.useState({});   // empId -> true
   const [errors, setErrors] = React.useState({});          // empId -> message
@@ -2723,14 +2723,30 @@ function RequestsScreen({ employees, requests, onRequestsChange, initialMonth, a
     try {
       const [y, m] = month.split('-').map(Number);
       const daysInMonth = new Date(y, m, 0).getDate();
-      const datesList = Array.from({ length: daysInMonth }, (_, i) => {
-        const dStr = `${month}-${SD.pad(i + 1)}`;
-        return `${dStr} — יום ${SD.dayLabel(dStr)}`;
+      const monthStart = `${month}-01`;
+      const monthEnd = `${month}-${SD.pad(daysInMonth)}`;
+
+      // Build full date range: annexed days from adjacent months (if schedule extends beyond month)
+      const rangeStart = scheduleRange?.start && scheduleRange.start < monthStart ? scheduleRange.start : monthStart;
+      const rangeEnd   = scheduleRange?.end   && scheduleRange.end   > monthEnd   ? scheduleRange.end   : monthEnd;
+      const allDates = [];
+      let cur = rangeStart;
+      while (cur <= rangeEnd) { allDates.push(cur); cur = SD.addDays(cur, 1); }
+
+      const hasAnnexed = rangeStart < monthStart || rangeEnd > monthEnd;
+      const datesList = allDates.map(dStr => {
+        const label = `${dStr} — יום ${SD.dayLabel(dStr)}`;
+        if (dStr < monthStart || dStr > monthEnd) return label + ' (מהחודש הסמוך — כלול בסידור)';
+        return label;
       }).join('\n');
+
+      const annexedNote = hasAnnexed
+        ? `\n- הסידור כולל גם ימים מחוץ לחודש ${SD.monthLabel(month)} (מסומנים "מהחודש הסמוך — כלול בסידור") — אם העובד ביקש דפוס כללי (כגון "כל ימי שני"), כלול גם את הימים הסמוכים האלה`
+        : '';
 
       const prompt = `אתה מנתח בקשת עובד לסידור עבודה לחודש ${SD.monthLabel(month)} (${month}).
 
-## תאריכי החודש וימי השבוע
+## תאריכי הסידור וימי השבוע
 ${datesList}
 
 ## הבקשה החופשית של העובד "${emp.name}"
@@ -2749,7 +2765,7 @@ ${datesList}
 - unavailable = ימים שהעובד לא יכול/לא רוצה לעבוד
 - high = ימים שהעובד מבקש במפורש לעבוד בהם
 - can = ימים שהעובד ציין שהוא גמיש/יכול אם צריך
-- כל התאריכים חייבים להיות בתוך ${month} ולהתאים לימי השבוע מהרשימה למעלה
+- כל התאריכים חייבים להיות מרשימת תאריכי הסידור למעלה${annexedNote}
 - אם הבקשה מזכירה העדפות כלליות (למשל "מעדיף לילות") שאינן תאריך ספציפי — כלול אותן ב-note בלבד`;
 
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2775,11 +2791,11 @@ ${datesList}
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('לא התקבל JSON תקין מהמודל');
       const result = JSON.parse(jsonMatch[0]);
-      const inMonth = (arr) => (Array.isArray(arr) ? arr.filter(d => typeof d === 'string' && d.startsWith(month)) : []);
+      const inRange = (arr) => (Array.isArray(arr) ? arr.filter(d => typeof d === 'string' && d >= rangeStart && d <= rangeEnd) : []);
       updateEntry(emp.id, {
-        unavailable: inMonth(result.unavailable),
-        high: inMonth(result.high),
-        can: inMonth(result.can),
+        unavailable: inRange(result.unavailable),
+        high: inRange(result.high),
+        can: inRange(result.can),
         note: result.note || '',
         analyzedText: text,
         analyzedAt: Date.now(),
@@ -3534,7 +3550,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
       <ShiftSettingsCtx.Provider value={shiftSettings}>
         {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} />}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
-          initialMonth={currentMonth} apiKey={anthropicKey} />}
+          initialMonth={currentMonth} apiKey={anthropicKey} scheduleRange={currentDraft?.range || null} />}
         {screen === 'calendar'  && (
           <main className="layout">
             <section className="board">

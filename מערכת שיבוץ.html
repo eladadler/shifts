@@ -972,9 +972,13 @@
           const alreadyIn = schedule[dStr][shift.id] || [];
           const cands = D.EMPLOYEES.filter((e) => {
             if (alreadyIn.includes(e.id)) return false;
-            if (D.availabilityOn(e.id, dStr, shift.id) === 'unavailable') return false;
+            const av = D.availabilityOn(e.id, dStr, shift.id);
+            if (av === 'unavailable') return false;
             if (counts[e.id] >= e.max) return false;
             if (shift.id === 'night' && !e.nights) return false;
+            // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש
+            const r = D.reqOf(e.id);
+            if (r?.can?.length > 0 && av !== 'can' && av !== 'high') return false;
             return true;
           });
           const clean = cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H);
@@ -4313,6 +4317,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
 6. העדף עובדים שסימנו "high" — "YYYY-MM-DD" הוא העדפה לכל היום, "YYYY-MM-DD@shiftId" הוא העדפה לאותה משמרת בלבד
 7. פזר שוויונית — אל תשבץ עובד אחד יותר מדי
 8. nightOwl:true — עדיפות גבוהה לשיבוץ לילה
+9. אם לעובד יש מערך can לא ריק — שבץ אותו רק ביום/משמרת שנמצאים ב-can או ב-high. אסור לשבץ ביום אחר גם אם אינו ב-unavailable. עדיף "חור" ריק על שיבוץ בכוח.
 
 ## פורמט תגובה — JSON בלבד, ללא הסברים נוספים
 {

@@ -4268,7 +4268,14 @@ function App() {
 
   // שיבוץ אוטומטי — Claude Sonnet 4.6
   const runAI = async () => {
-    if (!currentDraft) return;
+    if (!currentDraft) {
+      alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.');
+      return;
+    }
+    if (!currentDraft.range?.start) {
+      alert('לטיוטה אין טווח תאריכים — צור טיוטה חדשה.');
+      return;
+    }
     if (!anthropicKey.trim()) {
       alert('כדי להריץ שיבוץ אוטומטי יש להזין מפתח API של Anthropic.\nפתח הגדרות (⚙) → "שיבוץ AI — מפתח Anthropic" והזן את המפתח.');
       setSettingsDrawerOpen(true);
@@ -4366,6 +4373,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
       setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: topUp.schedule, log: finalLog } : d));
     } catch (err) {
       console.error('Claude API error:', err);
+      alert(`שגיאה בשיבוץ אוטומטי:\n${err.message}`);
       const ts = new Date().toISOString();
       setDrafts(ds => ds.map(d => d.id === id
         ? { ...d, log: [{ timestamp: ts, type: 'dilemma', message: `שגיאת AI: ${err.message}` }] }

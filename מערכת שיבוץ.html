@@ -4343,7 +4343,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
+          max_tokens: 8192,
           messages: [{ role: 'user', content: prompt }],
         }),
       });
@@ -4353,8 +4353,10 @@ ${JSON.stringify(snap.schedule, null, 2)}
       }
       const data = await resp.json();
       const text = data.content[0].text;
+      console.log('[AI response stop_reason]', data.stop_reason);
+      console.log('[AI response text]', text.slice(0, 500));
       const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('לא נמצא JSON בתגובה');
+      if (!jsonMatch) throw new Error(`לא נמצא JSON בתגובה (stop_reason: ${data.stop_reason}, תחילת תגובה: ${text.slice(0, 120)})`);
       const result = JSON.parse(jsonMatch[0]);
       if (!result.schedule) throw new Error('פורמט תגובה שגוי');
 

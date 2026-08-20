@@ -3753,7 +3753,72 @@ function HamburgerMenu({ screen, onNavigate }) {
   );
 }
 
-Object.assign(window, { ShiftsDrawer, SettingsDrawer, EmployeesScreen, RequestsScreen, HamburgerMenu });
+// ---- ScriptRunnerModal ----
+function ScriptRunnerModal({ open, onClose }) {
+  const [code, setCode] = React.useState('');
+  const [output, setOutput] = React.useState('');
+  const [running, setRunning] = React.useState(false);
+
+  const run = async () => {
+    setRunning(true);
+    const lines = [];
+    const origLog = console.log, origWarn = console.warn, origError = console.error, origTable = console.table;
+    const fmt = (...args) => args.map(a => a !== null && typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ');
+    console.log   = (...a) => { origLog(...a);   lines.push(fmt(...a));        setOutput(lines.join('\n')); };
+    console.warn  = (...a) => { origWarn(...a);  lines.push('⚠ '+fmt(...a));  setOutput(lines.join('\n')); };
+    console.error = (...a) => { origError(...a); lines.push('❌ '+fmt(...a)); setOutput(lines.join('\n')); };
+    console.table = (data) => { origTable(data);
+      if (Array.isArray(data)) lines.push(data.map((r,i)=>`${i+1}. ${Object.values(r).join(' | ')}`).join('\n'));
+      setOutput(lines.join('\n'));
+    };
+    try {
+      const fn = new Function('return (async()=>{ ' + code + ' })()');
+      await fn();
+    } catch(e) {
+      lines.push('❌ שגיאה: ' + e.message); setOutput(lines.join('\n'));
+    } finally {
+      console.log=origLog; console.warn=origWarn; console.error=origError; console.table=origTable;
+      setRunning(false);
+    }
+  };
+
+  if (!open) return null;
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{maxWidth:680,width:'95vw'}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-head">
+          <h2 className="modal-title">⚡ הרצת סקריפטים</h2>
+          <button className="icon-btn" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body" style={{display:'flex',flexDirection:'column',gap:10}}>
+          <div style={{fontSize:'12px',color:'var(--ink-3)'}}>הדבק קוד JavaScript — הקוד רץ בדף עם גישה מלאה ל-<code>window.__db</code></div>
+          <textarea value={code} onChange={e=>setCode(e.target.value)} rows={14}
+            placeholder="// הדבק כאן קוד JavaScript" spellCheck={false}
+            style={{width:'100%',boxSizing:'border-box',fontFamily:'monospace',fontSize:'12px',
+              border:'1px solid var(--line)',borderRadius:7,padding:'10px',
+              background:'var(--bg)',color:'var(--ink)',resize:'vertical',outline:'none'}} />
+          {output && (
+            <pre style={{margin:0,padding:'10px 12px',background:'var(--bg)',border:'1px solid var(--line)',
+              borderRadius:7,fontSize:'12px',maxHeight:180,overflow:'auto',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
+              {output}
+            </pre>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn" style={{fontSize:'12px',color:'var(--ink-3)'}} onClick={()=>{setCode('');setOutput('');}}>נקה</button>
+          <div className="modal-actions">
+            <button className="btn" onClick={onClose}>סגירה</button>
+            <button className="btn btn-primary" disabled={running||!code.trim()} onClick={run}>
+              {running ? <><span className="spin">↻</span> מריץ…</> : '▶ הרץ'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { ShiftsDrawer, SettingsDrawer, EmployeesScreen, RequestsScreen, HamburgerMenu, ScriptRunnerModal });
 </script>
 
 <!-- ============ GenerateDraftModal + לוג AI ============ -->
@@ -4022,6 +4087,7 @@ function App() {
   const [screen, setScreen] = React.useState('calendar');
   const [shiftsDrawerOpen, setShiftsDrawerOpen] = React.useState(false);
   const [settingsDrawerOpen, setSettingsDrawerOpen] = React.useState(false);
+  const [scriptRunnerOpen, setScriptRunnerOpen] = React.useState(false);
   const [syncStatus, setSyncStatus] = React.useState('loading'); // loading | saving | saved | error | idle
 
   const saveTimerRef = React.useRef(null);
@@ -4435,6 +4501,9 @@ ${JSON.stringify(snap.schedule, null, 2)}
             onClick={() => { setSettingsDrawerOpen(o => !o); setShiftsDrawerOpen(false); }}>
             ⚙ הגדרות
           </button>
+          <button className="topbar-nav-btn" onClick={() => setScriptRunnerOpen(true)} title="הרצת סקריפטים">
+            ⚡ סקריפטים
+          </button>
           {screen === 'calendar' && (
             <>
               <button className="btn" onClick={() => setLogOpen(true)} disabled={!currentDraft}>
@@ -4542,6 +4611,7 @@ ${JSON.stringify(snap.schedule, null, 2)}
         initialRange={currentDraft?.range || AE.defaultRange(currentMonth)}
         initialExcluded={[]} />
       <LogDrawer open={logOpen} log={currentDraft?.log || []} onClose={() => setLogOpen(false)} />
+      <window.ScriptRunnerModal open={scriptRunnerOpen} onClose={() => setScriptRunnerOpen(false)} />
 
       <TweaksPanel>
         <TweakSection label="צבע" />

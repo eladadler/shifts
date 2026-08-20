@@ -118,6 +118,8 @@
   .btn-final:hover:not(:disabled) { background: color-mix(in oklab, var(--ok) 88%, black); border-color: transparent; }
   .btn-ai { background: #E91E63; border-color: #E91E63; color: white; font-weight: 600; }
   .btn-ai:hover:not(:disabled) { background: #C2185B; border-color: #C2185B; }
+  .btn-smart { background: linear-gradient(135deg, #7B1FA2, #E91E63); border-color: #7B1FA2; color: white; font-weight: 600; }
+  .btn-smart:hover:not(:disabled) { background: linear-gradient(135deg, #6A1B9A, #C2185B); border-color: #6A1B9A; }
   .btn-lg { padding: 11px 22px; font-size: 15px; }
   .btn-badge { background: var(--danger); color: white; font-size: 10.5px; font-weight: 700; border-radius: 999px; min-width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; }
   .icon-btn { background: none; border: none; font-size: 20px; color: var(--ink-3); padding: 2px 8px; border-radius: 6px; }
@@ -935,12 +937,13 @@
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {} }) {
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
     const schedule = {};
     const log = [];
     const counts = {}; const lastEnd = {};
-    D.EMPLOYEES.forEach((e) => { counts[e.id] = 0; lastEnd[e.id] = null; });
+    // initialCounts: ספירת משמרות היסטורית (עבר) — מאפשרת איזון עומסים בין חודשים
+    D.EMPLOYEES.forEach((e) => { counts[e.id] = initialCounts[e.id] || 0; lastEnd[e.id] = null; });
     const now = () => new Date().toISOString();
     const addLog = (type, message) => log.push({ timestamp: now(), type, message });
 
@@ -4266,6 +4269,28 @@ function App() {
     setActiveDraftId(id);
   };
 
+  // חישוב ספירת משמרות היסטורית מ-N החודשים האחרונים
+  const calcHistoricalCounts = (monthsBack = 2) => {
+    const [y, m] = currentMonth.split('-').map(Number);
+    const pastMonths = [];
+    for (let i = 1; i <= monthsBack; i++) {
+      let pm = m - i; let py = y;
+      if (pm <= 0) { pm += 12; py -= 1; }
+      pastMonths.push(`${py}-${String(pm).padStart(2, '0')}`);
+    }
+    const counts = {};
+    drafts
+      .filter(d => pastMonths.includes(d.month) && d.schedule)
+      .forEach(d => {
+        Object.values(d.schedule).forEach(dayShifts => {
+          Object.values(dayShifts).forEach(empIds => {
+            (empIds || []).forEach(id => { counts[id] = (counts[id] || 0) + 1; });
+          });
+        });
+      });
+    return counts;
+  };
+
   // שיבוץ אלגוריתמי — ללא AI, מהיר, לא דורש מפתח API
   const runAlgo = () => {
     if (!currentDraft) { alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.'); return; }
@@ -4282,6 +4307,148 @@ function App() {
     ];
     setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: result.schedule, log } : d));
     setGeneratingId(null);
+  };
+
+  // שיבוץ חכם: שלב א׳ מחשב עם היסטוריה → שלב ב׳ AI ממטב חורים
+  const runSmart = async () => {
+    if (!currentDraft) { alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.'); return; }
+    if (!currentDraft.range?.start) { alert('לטיוטה אין טווח תאריכים — צור טיוטה חדשה.'); return; }
+    const id = activeDraftId;
+    setGeneratingId(id);
+    const ts = () => new Date().toISOString();
+    const smartLog = [];
+
+    try {
+      // --- שלב א׳: מחשב עם היסטוריה ---
+      const histCounts = calcHistoricalCounts(2);
+      const histMonths = Object.keys(histCounts).length > 0;
+      smartLog.push({ timestamp: ts(), type: 'info', message: `שלב א׳: שיבוץ אלגוריתמי${histMonths ? ' עם היסטוריית 2 חודשים' : ' (אין היסטוריה)'}` });
+
+      const algoResult = AE.generate({
+        startDate: currentDraft.range.start, endDate: currentDraft.range.end,
+        excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule,
+        shiftSettings, initialCounts: histCounts,
+      });
+      algoResult.log.filter(l => l.type !== 'info').forEach(l => smartLog.push({ ...l, timestamp: ts() }));
+
+      // בדוק אם נשארו חורים (dilemmas)
+      const holes = algoResult.log.filter(l => l.type === 'dilemma');
+      if (holes.length === 0 || !anthropicKey.trim()) {
+        if (holes.length === 0) smartLog.push({ timestamp: ts(), type: 'info', message: 'אין חורים — שלב AI לא נדרש' });
+        else smartLog.push({ timestamp: ts(), type: 'info', message: 'אין מפתח AI — שיבוץ אלגוריתמי בלבד' });
+        setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: algoResult.schedule, log: smartLog } : d));
+        return;
+      }
+
+      // --- שלב ב׳: AI ממטב חורים ---
+      smartLog.push({ timestamp: ts(), type: 'info', message: `שלב ב׳: AI ממטב ${holes.length} חורים שנותרו` });
+      setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: algoResult.schedule, log: smartLog } : d));
+
+      const empList = employees.map(e => ({
+        id: e.id, name: e.name, role: e.role, maxShifts: e.max,
+        canDoNights: !!e.nights, nightOwl: !!e.nightOwl, anchor: !!e.anchor,
+        requests: AD.reqOf(e.id) || null,
+      }));
+
+      // רק המשבצות שנשארו ריקות אחרי שלב א׳
+      const snap2 = algoResult.schedule;
+      const emptySlots = {};
+      const allDates = [];
+      let cur2 = currentDraft.range.start;
+      while (cur2 <= currentDraft.range.end) {
+        if (!(currentDraft.excluded || []).includes(cur2)) allDates.push(cur2);
+        cur2 = AD.addDays(cur2, 1);
+      }
+      allDates.forEach(d => {
+        AD.shiftTypesFor(d, shiftSettings).filter(s => !s.continuation).forEach(s => {
+          const existing = (snap2[d] || {})[s.id] || [];
+          const needed = (s.required || 1) - existing.length;
+          if (needed > 0) {
+            if (!emptySlots[d]) emptySlots[d] = {};
+            emptySlots[d][s.id] = { name: s.name, required: s.required, alreadyAssigned: existing, stillNeeded: needed, isNight: s.id === 'night' };
+          }
+        });
+      });
+
+      // ספירת שיבוצים קיימים (אחרי שלב א׳)
+      const existingCounts = {};
+      empList.forEach(e => { existingCounts[e.id] = histCounts[e.id] || 0; });
+      allDates.forEach(d => {
+        Object.values((snap2[d] || {})).forEach(arr => {
+          (arr || []).forEach(id => { if (existingCounts[id] !== undefined) existingCounts[id]++; });
+        });
+      });
+      const empWithCounts = empList.map(e => ({ ...e, shiftsAlreadyAssigned: existingCounts[e.id] || 0 }));
+
+      const prompt = `אתה מערכת שיבוץ עובדים. מלא רק את המשבצות הריקות שנשארו לאחר שיבוץ אלגוריתמי.
+היסטוריה: הספירה ב-shiftsAlreadyAssigned כוללת גם 2 חודשים אחורה — השתמש בה לאיזון עומסים.
+
+## עובדים
+${JSON.stringify(empWithCounts, null, 2)}
+
+## משבצות ריקות למילוי
+${JSON.stringify(emptySlots, null, 2)}
+
+## כללים
+1. required:N → החזר בדיוק N עובדים (stillNeeded בדיוק)
+2. אל תשבץ עובד שיש לו unavailable (YYYY-MM-DD חוסם יום, YYYY-MM-DD@shiftId חוסם משמרת)
+3. canDoNights:false → אסור בלילה (isNight:true)
+4. shiftsAlreadyAssigned + שיבוצים חדשים ≤ maxShifts
+5. העדף עובדים עם high, פזר שוויונית, nightOwl → עדיפות לילה
+6. can לא ריק → שבץ רק ב-can∪high. עדיף חור ריק על שיבוץ בכוח.
+
+## פורמט תגובה — התחל מיד עם {
+{"assignments":{"YYYY-MM-DD":{"shiftId":["empId1"]}},"log":[{"type":"info|decision|dilemma","msg":"קצר"}]}`;
+
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey.trim(),
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 4096,
+          messages: [
+            { role: 'user', content: prompt },
+            { role: 'assistant', content: '{' },
+          ],
+        }),
+      });
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error?.message || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      const rawText = '{' + data.content[0].text;
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error(`AI לא החזיר JSON (stop_reason: ${data.stop_reason})`);
+      const aiResult = JSON.parse(jsonMatch[0]);
+
+      // מיזוג: שלב א׳ + שלב ב׳
+      const merged = JSON.parse(JSON.stringify(snap2));
+      Object.entries(aiResult.assignments || {}).forEach(([d, shifts]) => {
+        if (!merged[d]) merged[d] = {};
+        Object.entries(shifts || {}).forEach(([sid, emps]) => {
+          const existing = merged[d][sid] || [];
+          merged[d][sid] = [...existing, ...(emps || []).filter(id => !existing.includes(id))];
+        });
+      });
+
+      (aiResult.log || []).forEach(l => smartLog.push({ timestamp: ts(), type: l.type || 'info', message: `[AI] ${l.msg || l.message || ''}` }));
+      smartLog.push({ timestamp: ts(), type: 'info', message: 'שיבוץ חכם הושלם (מחשב + AI)' });
+      setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: merged, log: smartLog } : d));
+
+    } catch (err) {
+      console.error('runSmart error:', err);
+      alert(`שגיאה בשיבוץ חכם:\n${err.message}`);
+      smartLog.push({ timestamp: ts(), type: 'dilemma', message: `שגיאה: ${err.message}` });
+      setDrafts(ds => ds.map(d => d.id === id ? { ...d, log: smartLog } : d));
+    } finally {
+      setGeneratingId(null);
+    }
   };
 
   // שיבוץ אוטומטי — Claude Sonnet 4.6
@@ -4577,8 +4744,9 @@ ${JSON.stringify(emptySlots, null, 2)}
                 ייצוא
               </button>
               {(status === 'draft' || status === 'open') && (<>
-                <button className="btn btn-ai" onClick={runAI} disabled={isGenerating}>✦ שבץ אוטומטי</button>
-                <button className="btn" onClick={runAlgo} disabled={isGenerating} title="שיבוץ מהיר ללא AI">⚙ שיבוץ מחשב</button>
+                <button className="btn btn-smart" onClick={runSmart} disabled={isGenerating} title="מחשב עם היסטוריה + AI לחורים">✦⚙ שיבוץ חכם</button>
+                <button className="btn btn-ai" onClick={runAI} disabled={isGenerating} title="AI בלבד">✦ שבץ AI</button>
+                <button className="btn" onClick={runAlgo} disabled={isGenerating} title="שיבוץ מהיר ללא AI">⚙ מחשב</button>
               </>)}
               {status === 'draft' && (
                 <button className="btn" style={{borderColor:'oklch(0.38 0.14 200)',color:'oklch(0.38 0.14 200)'}} onClick={() => openForRequests(activeDraftId)}>📤 פתח לבקשות</button>

@@ -1517,7 +1517,7 @@ function ShiftChip({ emp, dStr, shiftId, conflicts, editable, onRemove, onDragCh
   );
 }
 
-function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, isContinuation, onAssign, onRemove, onMoveChip, onDragChipStart, onDragEnd, slotKey, slotDragKey, onSlotDragStart, onSlotDragEnd, onSlotDropReorder }) {
+function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focusedEmpId, isContinuation, onAssign, onRemove, onMoveChip, onDragChipStart, onDragEnd, slotKey, slotDragKey, onSlotDragStart, onSlotDragEnd, onSlotDropReorder }) {
   const [over, setOver] = React.useState(false);
   const hasConflict = emps.some((id) => (conflicts[`${dStr}|${shift.id}|${id}`] || []).length);
   const required = shift.required || 1;

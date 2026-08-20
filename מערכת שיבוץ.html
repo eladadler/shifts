@@ -4266,6 +4266,24 @@ function App() {
     setActiveDraftId(id);
   };
 
+  // שיבוץ אלגוריתמי — ללא AI, מהיר, לא דורש מפתח API
+  const runAlgo = () => {
+    if (!currentDraft) { alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.'); return; }
+    const id = activeDraftId;
+    setGeneratingId(id);
+    const result = AE.generate({
+      startDate: currentDraft.range.start, endDate: currentDraft.range.end,
+      excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
+    });
+    const ts = new Date().toISOString();
+    const log = [
+      { timestamp: ts, type: 'info', message: 'שיבוץ אלגוריתמי (ללא AI) בוצע' },
+      ...result.log.filter(l => l.type !== 'info'),
+    ];
+    setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: result.schedule, log } : d));
+    setGeneratingId(null);
+  };
+
   // שיבוץ אוטומטי — Claude Sonnet 4.6
   const runAI = async () => {
     if (!currentDraft) {
@@ -4558,9 +4576,10 @@ ${JSON.stringify(emptySlots, null, 2)}
               <button className="btn" onClick={() => AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth, shiftSettings)} disabled={!currentDraft || isGenerating}>
                 ייצוא
               </button>
-              {(status === 'draft' || status === 'open') && (
-                <button className="btn btn-ai" onClick={runAI}>✦ שבץ אוטומטי</button>
-              )}
+              {(status === 'draft' || status === 'open') && (<>
+                <button className="btn btn-ai" onClick={runAI} disabled={isGenerating}>✦ שבץ אוטומטי</button>
+                <button className="btn" onClick={runAlgo} disabled={isGenerating} title="שיבוץ מהיר ללא AI">⚙ שיבוץ מחשב</button>
+              </>)}
               {status === 'draft' && (
                 <button className="btn" style={{borderColor:'oklch(0.38 0.14 200)',color:'oklch(0.38 0.14 200)'}} onClick={() => openForRequests(activeDraftId)}>📤 פתח לבקשות</button>
               )}

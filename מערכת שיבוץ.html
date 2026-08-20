@@ -4296,42 +4296,52 @@ function App() {
         if (!snap.excluded.includes(cur)) dates.push(cur);
         cur = AD.addDays(cur, 1);
       }
-      const shiftReqs = {};
+
+      // רק משבצות שעדיין ריקות (חסרות עובדים) — מקטין דרמטית את גודל הפרומפט והתגובה
+      const emptySlots = {};
       dates.forEach(d => {
-        shiftReqs[d] = AD.shiftTypesFor(d, shiftSettings)
+        AD.shiftTypesFor(d, shiftSettings)
           .filter(s => !s.continuation)
-          .map(s => ({ id: s.id, name: s.name, required: s.required, isNight: s.id === 'night' }));
+          .forEach(s => {
+            const existing = (snap.schedule[d] || {})[s.id] || [];
+            const needed = (s.required || 1) - existing.length;
+            if (needed > 0) {
+              if (!emptySlots[d]) emptySlots[d] = {};
+              emptySlots[d][s.id] = { name: s.name, required: s.required, alreadyAssigned: existing, stillNeeded: needed, isNight: s.id === 'night' };
+            }
+          });
       });
 
-      const prompt = `אתה מערכת שיבוץ עובדים. מלא משמרות ריקות (מערכי עובדים ריקים []) בלבד — אל תשנה שיבוצים שכבר קיימים.
+      // ספירת שיבוצים קיימים לכל עובד (לבקרת maxShifts)
+      const existingCounts = {};
+      empList.forEach(e => { existingCounts[e.id] = 0; });
+      dates.forEach(d => {
+        Object.values((snap.schedule[d] || {})).forEach(arr => {
+          (arr || []).forEach(id => { if (existingCounts[id] !== undefined) existingCounts[id]++; });
+        });
+      });
+      const empWithCounts = empList.map(e => ({ ...e, shiftsAlreadyAssigned: existingCounts[e.id] || 0 }));
+
+      const prompt = `אתה מערכת שיבוץ עובדים. מלא רק את המשבצות הריקות שלהלן.
 
 ## עובדים
-${JSON.stringify(empList, null, 2)}
+${JSON.stringify(empWithCounts, null, 2)}
 
-## דרישות משמרות לפי יום
-${JSON.stringify(shiftReqs, null, 2)}
+## משבצות ריקות למילוי (בלבד)
+${JSON.stringify(emptySlots, null, 2)}
 
-## שיבוצים קיימים (לא לשנות)
-${JSON.stringify(snap.schedule, null, 2)}
+## כללים
+1. required:N → החזר בדיוק N עובדים במערך (לא פחות ולא יותר מה-stillNeeded הנדרש בכל משבצת)
+2. אל תשבץ עובד שיש לו unavailable (YYYY-MM-DD חוסם יום, YYYY-MM-DD@shiftId חוסם משמרת)
+3. canDoNights:false → אסור בלילה (isNight:true)
+4. shiftsAlreadyAssigned + שיבוצים חדשים ≤ maxShifts
+5. העדף עובדים עם high (YYYY-MM-DD או YYYY-MM-DD@shiftId)
+6. פזר שוויונית
+7. nightOwl:true → עדיפות לשיבוץ לילה
+8. can לא ריק → שבץ רק ב-can∪high. עדיף חור ריק על שיבוץ בכוח.
 
-## כללים — חובה לעמוד בכולם
-1. כל משמרת עם required:N חייבת לקבל בדיוק N עובדים שונים — לא פחות, לא יותר.
-   דוגמה: required:2 → ["empId1","empId2"], required:1 → ["empId3"]
-2. אסור לשבץ עובד שיש לו unavailable בבקשות. פורמט: "YYYY-MM-DD" חוסם את כל היום, "YYYY-MM-DD@shiftId" חוסם רק את אותה משמרת באותו יום
-3. עובד עם canDoNights:false — אסור בשיבוץ לילה (isNight:true)
-4. שמור 8 שעות מנוחה בין משמרות לאותו עובד באותו יום
-5. אל תחרוג ממכסת maxShifts לעובד בסך כל הסידור
-6. העדף עובדים שסימנו "high" — "YYYY-MM-DD" הוא העדפה לכל היום, "YYYY-MM-DD@shiftId" הוא העדפה לאותה משמרת בלבד
-7. פזר שוויונית — אל תשבץ עובד אחד יותר מדי
-8. nightOwl:true — עדיפות גבוהה לשיבוץ לילה
-9. אם לעובד יש מערך can לא ריק — שבץ אותו רק ביום/משמרת שנמצאים ב-can או ב-high. אסור לשבץ ביום אחר גם אם אינו ב-unavailable. עדיף "חור" ריק על שיבוץ בכוח.
-
-## פורמט תגובה — JSON בלבד, ללא הסברים נוספים
-{
-  "schedule": { "YYYY-MM-DD": { "shiftId": ["empId1","empId2"] } },
-  "log": [{ "type": "info|decision|dilemma", "message": "הסבר קצר בעברית" }]
-}
-החזר את הסידור המלא כולל שיבוצים קיימים ללא שינוי.`;
+## פורמט תגובה — התחל מיד עם { ללא הסברים
+{"assignments":{"YYYY-MM-DD":{"shiftId":["empId1"]}},"log":[{"type":"info|decision|dilemma","msg":"קצר"}]}`;
 
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -4344,7 +4354,11 @@ ${JSON.stringify(snap.schedule, null, 2)}
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: 8192,
-          messages: [{ role: 'user', content: prompt }],
+          // prefill: מאלץ את המודל להתחיל ישר ב-JSON ללא הסברים
+          messages: [
+            { role: 'user', content: prompt },
+            { role: 'assistant', content: '{' },
+          ],
         }),
       });
       if (!resp.ok) {
@@ -4352,24 +4366,35 @@ ${JSON.stringify(snap.schedule, null, 2)}
         throw new Error(errBody.error?.message || `HTTP ${resp.status}`);
       }
       const data = await resp.json();
-      const text = data.content[0].text;
+      const rawText = '{' + data.content[0].text; // מחבר את ה-{ שהזרקנו
       console.log('[AI response stop_reason]', data.stop_reason);
-      console.log('[AI response text]', text.slice(0, 500));
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error(`לא נמצא JSON בתגובה (stop_reason: ${data.stop_reason}, תחילת תגובה: ${text.slice(0, 120)})`);
+      console.log('[AI response text]', rawText.slice(0, 300));
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error(`לא נמצא JSON בתגובה (stop_reason: ${data.stop_reason})`);
       const result = JSON.parse(jsonMatch[0]);
-      if (!result.schedule) throw new Error('פורמט תגובה שגוי');
+      if (!result.assignments) throw new Error('פורמט תגובה שגוי — חסר שדה assignments');
+
+      // מיזוג: שיבוצים קיימים + שיבוצים חדשים מה-AI
+      const mergedSchedule = JSON.parse(JSON.stringify(snap.schedule));
+      Object.entries(result.assignments || {}).forEach(([d, shifts]) => {
+        if (!mergedSchedule[d]) mergedSchedule[d] = {};
+        Object.entries(shifts || {}).forEach(([sid, emps]) => {
+          const existing = mergedSchedule[d][sid] || [];
+          const added = (emps || []).filter(id => !existing.includes(id));
+          mergedSchedule[d][sid] = [...existing, ...added];
+        });
+      });
 
       // השלמה: כל משמרת שקיבלה פחות עובדים מהנדרש — תמולא ע"י האלגוריתם
       const topUp = AE.generate({
         startDate: snap.range.start, endDate: snap.range.end,
-        excluded: snap.excluded, existingSchedule: result.schedule, shiftSettings,
+        excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
       });
 
       const ts = new Date().toISOString();
       const finalLog = [
         { timestamp: ts, type: 'info', message: 'שיבוץ AI בוצע על ידי Claude Sonnet 4.6' },
-        ...(result.log || []).map(l => ({ timestamp: ts, ...l })),
+        ...(result.log || []).map(l => ({ timestamp: ts, type: l.type || 'info', message: l.msg || l.message || '' })),
         ...topUp.log.filter(l => l.type !== 'info').map(l => ({ ...l, timestamp: ts, message: '[השלמה] ' + l.message })),
       ];
       setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: topUp.schedule, log: finalLog } : d));

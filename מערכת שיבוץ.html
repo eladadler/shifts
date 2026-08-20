@@ -4129,6 +4129,11 @@ function App() {
         setRequests(remote.requests || {});
         localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
         loadedEmployees = remote.employees || [];
+        // טען מפתח Anthropic מהענן אם אין ב-localStorage
+        if (remote.anthropicKey && !localStorage.getItem('anthropic-api-key')) {
+          setAnthropicKey(remote.anthropicKey);
+          localStorage.setItem('anthropic-api-key', remote.anthropicKey);
+        }
       }
       setSyncStatus('saved');
       isFirstLoad.current = false;
@@ -4261,6 +4266,7 @@ function App() {
   const runAI = async () => {
     if (!currentDraft) return;
     if (!anthropicKey.trim()) {
+      alert('כדי להריץ שיבוץ אוטומטי יש להזין מפתח API של Anthropic.\nפתח הגדרות (⚙) → "שיבוץ AI — מפתח Anthropic" והזן את המפתח.');
       setSettingsDrawerOpen(true);
       return;
     }

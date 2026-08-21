@@ -279,6 +279,9 @@
   .emp-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
   .emp-count { font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
   .emp-count-over { color: var(--danger); font-weight: 700; }
+  .emp-max-stepper { display: flex; align-items: center; gap: 3px; }
+  .emp-max-btn { width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--fg); font-size: 14px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
+  .emp-max-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
   .req-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
   .side-hint { font-size: 11px; color: var(--ink-3); padding: 10px 16px; border-top: 1px solid var(--line-soft); line-height: 1.6; }
 
@@ -1718,7 +1721,7 @@ Object.assign(window, { Avatar, ShiftChip, ShiftSlot, DayCard, MonthView });
 const PD = window.ShiftData;
 const PE = window.ShiftEngine;
 
-function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, editable, extraBadge, focused, onFocus }) {
+function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, editable, extraBadge, focused, onFocus, onMaxChange }) {
   const count = PE.countShifts(schedule, emp.id);
   const req = PD.reqOf(emp.id);
   const overMax = count > emp.max;
@@ -1753,7 +1756,15 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
         </div>
       </div>
       <div className="emp-side">
-        <span className={'emp-count' + (overMax ? ' emp-count-over' : '')} title="משמרות החודש / מכסה">{count} / {emp.max}</span>
+        {onMaxChange ? (
+          <div className="emp-max-stepper" title="משמרות בפועל / מכסה חודשית">
+            <button className="emp-max-btn" onClick={(e) => { e.stopPropagation(); onMaxChange(emp.id, Math.max(1, emp.max - 1)); }}>−</button>
+            <span className={'emp-count' + (overMax ? ' emp-count-over' : '')}>{count} / {emp.max}</span>
+            <button className="emp-max-btn" onClick={(e) => { e.stopPropagation(); onMaxChange(emp.id, emp.max + 1); }}>+</button>
+          </div>
+        ) : (
+          <span className={'emp-count' + (overMax ? ' emp-count-over' : '')} title="משמרות החודש / מכסה">{count} / {emp.max}</span>
+        )}
         {req && <span className="req-dot" title="הגיש/ה בקשת זמינות לחודש"></span>}
       </div>
     </div>
@@ -1952,7 +1963,7 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
       case 'add_employee': {
         if (!input.name || !String(input.name).trim()) return 'חסר שם — זהו השדה היחיד שחובה להזין';
         const id = 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-        const newEmp = { id, name: String(input.name).trim(), role: input.role || '', max: input.max ?? 16,
+        const newEmp = { id, name: String(input.name).trim(), role: input.role || '', max: input.max ?? 9,
           nights: !!input.nights, anchor: !!input.anchor, nightOwl: false,
           color: EMP_COLORS[Math.floor(Math.random() * EMP_COLORS.length)] };
         onEmployeesChange(prev => [...prev, newEmp]);
@@ -2237,7 +2248,8 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
                     onDragEmpStart={onDragEmpStart} onDragEnd={onDragEnd} editable={editable}
                     extraBadge={assigned ? <span className="assigned-badge">משובץ ✓</span> : null}
                     focused={focusedEmpId === emp.id}
-                    onFocus={(id) => onFocusEmpChange && onFocusEmpChange(focusedEmpId === id ? null : id)} />
+                    onFocus={(id) => onFocusEmpChange && onFocusEmpChange(focusedEmpId === id ? null : id)}
+                    onMaxChange={onEmployeesChange ? (empId, newMax) => onEmployeesChange(prev => prev.map(e => e.id === empId ? { ...e, max: newMax } : e)) : null} />
                 </div>
               );
             })}
@@ -4166,7 +4178,11 @@ function App() {
   const [generatingId, setGeneratingId] = React.useState(null);
   const [anthropicKey, setAnthropicKey] = React.useState(() => localStorage.getItem('anthropic-api-key') || '');
   const [adminKey, setAdminKey] = React.useState(() => localStorage.getItem('supabase-admin-key') || '');
-  const [employees, setEmployees] = React.useState(() => saved?.employees || [...AD.EMPLOYEES]);
+  const [employees, setEmployees] = React.useState(() => {
+    const emps = saved?.employees || [...AD.EMPLOYEES];
+    // נרמול: עובדים עם מכסה גבוהה מ-10 מאוזנים ל-9
+    return emps.map(e => e.max > 10 ? { ...e, max: 9 } : e);
+  });
   // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
   const [requests, setRequests] = React.useState(() => saved?.requests || {});
   const [admins, setAdmins] = React.useState(() => saved?.admins || ['eladadler@gmail.com']);

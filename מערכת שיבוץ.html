@@ -2837,6 +2837,7 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
 // ---- EmployeesScreen ----
 function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   const [emps, setEmps] = React.useState(initEmps);
+  React.useEffect(() => { setEmps(initEmps); }, [initEmps]);
   const [showForm, setShowForm] = React.useState(false);
   const [editEmp, setEditEmp] = React.useState(null);
   const [acctPw, setAcctPw] = React.useState('');
@@ -2868,7 +2869,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   };
 
   const openAdd = () => {
-    setEditEmp({ id: 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: '', role: '', email: '', color: COLORS[0], max: 16, anchor: false, nights: false });
+    setEditEmp({ id: 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: '', role: '', email: '', color: COLORS[0], max: 9, anchor: false, nights: false });
     setAcctPw(''); setAcctMsg(null);
     setShowForm(true);
   };
@@ -2907,7 +2908,11 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
               </div>
             </div>
             <span style={{fontSize:'13px',color:'var(--ink-2)'}}>{emp.role}</span>
-            <span style={{textAlign:'center',fontSize:'13px',fontWeight:600}}>{emp.max}</span>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
+              <button className="emp-max-btn" onClick={() => updateEmps(prev => prev.map(e => e.id === emp.id ? {...e, max: Math.max(1, e.max - 1)} : e))}>−</button>
+              <span style={{fontSize:'13px',fontWeight:600,minWidth:20,textAlign:'center'}}>{emp.max}</span>
+              <button className="emp-max-btn" onClick={() => updateEmps(prev => prev.map(e => e.id === emp.id ? {...e, max: e.max + 1} : e))}>+</button>
+            </div>
             <span style={{textAlign:'center',fontSize:'14px'}}>{emp.nights ? '✓' : '—'}</span>
             <div style={{display:'flex',gap:6,justifyContent:'flex-end'}}>
               <button className="btn" style={{padding:'4px 10px',fontSize:'12px'}} onClick={() => openEdit(emp)}>עריכה</button>
@@ -4233,7 +4238,7 @@ function App() {
         setDrafts(remote.drafts);
         setActiveDraftId(remote.activeDraftId || null);
         setShiftSettings(mergeSettings(remote.shiftSettings));
-        setEmployees(remote.employees || []);
+        setEmployees((remote.employees || []).map(e => e.max > 10 ? { ...e, max: 9 } : e));
         setRequests(remote.requests || {});
         localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
         loadedEmployees = remote.employees || [];

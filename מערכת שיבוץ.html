@@ -2177,7 +2177,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
   };
 
   const list = React.useMemo(() => {
-    let emps = PD.EMPLOYEES;
+    let emps = employees;
     if (tab === 'available' && selectedDate) {
       emps = emps.filter(e => PD.availabilityOn(e.id, selectedDate) !== 'unavailable');
       if (shiftFilter !== 'all') {
@@ -2193,7 +2193,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
       });
     }
     return emps;
-  }, [tab, shiftFilter, selectedDate, schedule, shiftSettings]);
+  }, [employees, tab, shiftFilter, selectedDate, schedule, shiftSettings]);
 
   return (
     <aside className="side-panel">

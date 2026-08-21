@@ -445,6 +445,9 @@
   .draft-tab-name { font-weight: 500; }
   .draft-tab.active .draft-tab-name { font-weight: 600; }
   .draft-tab-input { font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--surface-2); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 6px; outline: none; width: 110px; }
+  .draft-tab-del { display: none; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: none; background: none; color: var(--ink-3); font-size: 14px; line-height: 1; cursor: pointer; padding: 0; margin-inline-start: 2px; }
+  .draft-tab:hover .draft-tab-del { display: flex; }
+  .draft-tab-del:hover { background: var(--danger); color: #fff; }
 
   @media (max-width: 900px) {
     .side-panel { display: none; }
@@ -4138,7 +4141,7 @@ function mergeSettings(saved) {
   };
 }
 
-function DraftTab({ draft, isActive, onSelect, onRename }) {
+function DraftTab({ draft, isActive, onSelect, onRename, onDelete }) {
   const [editName, setEditName] = React.useState(null);
   const inputRef = React.useRef(null);
 
@@ -4168,6 +4171,10 @@ function DraftTab({ draft, isActive, onSelect, onRename }) {
       <span className={'status-chip ' + STATUS_META[draft.status].cls} style={{fontSize:'10px',padding:'1px 7px'}}>
         {STATUS_META[draft.status].label}
       </span>
+      {onDelete && (
+        <button className="draft-tab-del" title="מחק טיוטה"
+          onClick={(e) => { e.stopPropagation(); onDelete(draft.id); }}>×</button>
+      )}
     </div>
   );
 }
@@ -4744,6 +4751,17 @@ ${JSON.stringify(emptySlots, null, 2)}
   };
 
   const renameDraft = (id, name) => updateDraft(id, () => ({ name }));
+  const deleteDraft = (id) => {
+    if (!window.confirm('למחוק טיוטה זו לצמיתות?')) return;
+    setDrafts(prev => {
+      const next = prev.filter(d => d.id !== id);
+      if (activeDraftId === id) {
+        const sameMonth = next.filter(d => d.month === currentMonth);
+        setActiveDraftId(sameMonth.length ? sameMonth[sameMonth.length - 1].id : null);
+      }
+      return next;
+    });
+  };
   const setDraftStatus = (id, s) => updateDraft(id, () => ({ status: s }));
 
   // אישור ופרסום — מפרסם את הסידור גם לאפליקציית העובדים (published_schedules)
@@ -4916,7 +4934,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         <div className="drafts-bar">
           {monthDrafts.map(d => (
             <DraftTab key={d.id} draft={d} isActive={d.id === activeDraftId}
-              onSelect={setActiveDraftId} onRename={renameDraft} />
+              onSelect={setActiveDraftId} onRename={renameDraft} onDelete={deleteDraft} />
           ))}
         </div>
       )}

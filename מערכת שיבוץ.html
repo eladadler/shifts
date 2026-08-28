@@ -4245,7 +4245,9 @@ function App() {
         setDrafts(remote.drafts);
         setActiveDraftId(remote.activeDraftId || null);
         setShiftSettings(mergeSettings(remote.shiftSettings));
-        setEmployees((remote.employees || []).map(e => e.max > 10 ? { ...e, max: 9 } : e));
+        if (remote.employees && remote.employees.length > 0) {
+          setEmployees(remote.employees.map(e => e.max > 10 ? { ...e, max: 9 } : e));
+        }
         setRequests(remote.requests || {});
         localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
         loadedEmployees = remote.employees || [];
@@ -4312,6 +4314,7 @@ function App() {
   React.useEffect(() => {
     if (generatingId) return;
     if (isFirstLoad.current) return;
+    if (employees.length === 0) return; // אל תכתוב רשימת עובדים ריקה — שמור על נתוני Supabase
     const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;

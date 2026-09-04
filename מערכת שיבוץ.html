@@ -629,6 +629,58 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
+/* ===== VAPID / Web Push helpers ===== */
+async function generateVapidKeys() {
+  const pair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']
+  );
+  const pub = await crypto.subtle.exportKey('raw', pair.publicKey);
+  const priv = await crypto.subtle.exportKey('jwk', pair.privateKey);
+  // Encode public key as URL-safe base64 (no padding)
+  const pubB64 = btoa(String.fromCharCode(...new Uint8Array(pub)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return { publicKey: pubB64, privateKeyJwk: priv };
+}
+
+async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
+  // Build a minimal VAPID JWT (ES256) and send empty push
+  const sub = typeof subJson === 'string' ? JSON.parse(subJson) : subJson;
+  const endpoint = sub.endpoint;
+  const origin = new URL(endpoint).origin;
+
+  // JWT header + payload
+  const header = { alg: 'ES256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = { aud: origin, exp: now + 12 * 3600, sub: 'mailto:admin@mishmarot.app' };
+  const enc = (obj) => btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const sigInput = enc(header) + '.' + enc(payload);
+
+  // Import private key
+  const privKey = await crypto.subtle.importKey(
+    'jwk', vapidPrivateKeyJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']
+  );
+  const sigBytes = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    privKey,
+    new TextEncoder().encode(sigInput)
+  );
+  const sig = btoa(String.fromCharCode(...new Uint8Array(sigBytes)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const jwt = sigInput + '.' + sig;
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Authorization': `vapid t=${jwt},k=${vapidPublicKey}`,
+      'Content-Length': '0',
+      'TTL': '86400',
+    },
+  });
+  if (!res.ok && res.status !== 201) {
+    throw new Error(`Push failed: ${res.status}`);
+  }
+}
+
 (function () {
   const URL  = 'https://ajniglpdgkwnasuslsyc.supabase.co';
   const KEY  = 'sb_publishable_zMTTfShJSVqKaGRYlYoqFA_9y_5Q5hk';
@@ -734,6 +786,57 @@
         if (error) throw error;
         return true;
       } catch (e) { console.warn('saveAnthropicKey failed:', e.message); return false; }
+    },
+    async saveVapidKeys(publicKey, privateKeyJwk) {
+      if (!client) return false;
+      try {
+        const { data } = await client.from('mishmarot_state').select('data').eq('id', 'main').single();
+        const merged = { ...(data?.data || {}), vapidPublicKey: publicKey, vapidPrivateKeyJwk: privateKeyJwk };
+        const { error } = await client.from('mishmarot_state').upsert({ id: 'main', data: merged, updated_at: new Date().toISOString() });
+        if (error) throw error;
+        return true;
+      } catch (e) { console.warn('saveVapidKeys failed:', e.message); return false; }
+    },
+    async sendPushNotifications(empIds, title, body, scheduleId) {
+      if (!client) return { sent: 0, errors: 0 };
+      try {
+        // 1. Write pending_notifications rows for each employee
+        const rows = empIds.map(emp_id => ({
+          emp_id, title, body,
+          tag: scheduleId || ('notif-' + Date.now()),
+          created_at: new Date().toISOString(),
+        }));
+        const { error: insErr } = await client.from('pending_notifications').insert(rows);
+        if (insErr) throw insErr;
+
+        // 2. Fetch push subscriptions for these employees
+        const { data: subs, error: subErr } = await client.from('push_subscriptions')
+          .select('emp_id, subscription, vapid_public_key').in('emp_id', empIds);
+        if (subErr) throw subErr;
+        if (!subs || subs.length === 0) return { sent: 0, errors: 0, noSubs: true };
+
+        // 3. Get VAPID keys from state
+        const { data: stateRow } = await client.from('mishmarot_state').select('data').eq('id', 'main').single();
+        const vapidPublicKey = stateRow?.data?.vapidPublicKey;
+        const vapidPrivateKeyJwk = stateRow?.data?.vapidPrivateKeyJwk;
+        if (!vapidPublicKey || !vapidPrivateKeyJwk) return { sent: 0, errors: 0, noVapid: true };
+
+        // 4. Send empty push to each subscription via Web Push
+        let sent = 0, errors = 0;
+        for (const sub of subs) {
+          try {
+            await sendWebPush(sub.subscription, vapidPublicKey, vapidPrivateKeyJwk);
+            sent++;
+          } catch (e) {
+            console.warn('Push send failed for', sub.emp_id, e);
+            errors++;
+          }
+        }
+        return { sent, errors };
+      } catch (e) {
+        console.warn('sendPushNotifications failed:', e.message);
+        return { sent: 0, errors: 1 };
+      }
     },
     // ---- ניהול חשבונות עובדים — דורש מפתח service_role (נשמר בדפדפן בלבד, לא בקוד) ----
     async adminSetPassword(adminKey, email, password) {
@@ -2665,7 +2768,7 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 }
 
 // ---- SettingsDrawer ----
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showKey, setShowKey] = React.useState(false);
@@ -2676,6 +2779,8 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
   const [cloudSaved, setCloudSaved] = React.useState(false);
   const [cloudErr, setCloudErr] = React.useState(false);
   const [newAdminEmail, setNewAdminEmail] = React.useState('');
+  const [vapidGenerating, setVapidGenerating] = React.useState(false);
+  const [vapidMsg, setVapidMsg] = React.useState(null);
 
   const saveAdminKey = () => {
     onAdminKeyChange(adminDraft.trim());
@@ -2829,6 +2934,43 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
                   + הוסף
                 </button>
               </div>
+            </div>
+            <div>
+              <div className="settings-sec-title">🔔 התראות פוש לעובדים — VAPID</div>
+              <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:10,lineHeight:1.5}}>
+                צרו זוג מפתחות VAPID אחד לפרויקט. המפתח הציבורי נשמר לענן ועוזר לעובדים להירשם לתזכורות. לאחר יצירה אל תצרו שוב — ירשמו המנויים הקיימים.
+              </div>
+              {vapidPublicKey ? (
+                <div style={{fontSize:'11px',color:'var(--ok)',padding:'6px 10px',background:'var(--ok-bg)',borderRadius:7,wordBreak:'break-all',fontFamily:'monospace',lineHeight:1.5}}>
+                  ✓ מפתח VAPID פעיל: {vapidPublicKey.slice(0,20)}…
+                </div>
+              ) : (
+                <div style={{fontSize:'12px',color:'var(--warn)',padding:'6px 10px',background:'var(--warn-bg)',borderRadius:7}}>
+                  לא נמצאו מפתחות — לחצו לצור
+                </div>
+              )}
+              <button className="btn btn-primary" style={{marginTop:10,width:'100%',fontSize:'12px'}}
+                disabled={vapidGenerating}
+                onClick={async () => {
+                  if (vapidPublicKey && !window.confirm('מפתחות VAPID כבר קיימים. יצירה חדשה תנתק מנויים קיימים. להמשיך?')) return;
+                  setVapidGenerating(true); setVapidMsg(null);
+                  try {
+                    const keys = await generateVapidKeys();
+                    const ok = await window.__db.saveVapidKeys(keys.publicKey, keys.privateKeyJwk);
+                    if (ok) {
+                      onVapidKeysGenerated(keys.publicKey);
+                      setVapidMsg({ ok: true, text: '✓ מפתחות נוצרו ונשמרו לענן' });
+                    } else {
+                      setVapidMsg({ ok: false, text: 'שגיאה בשמירה לענן' });
+                    }
+                  } catch (e) {
+                    setVapidMsg({ ok: false, text: 'שגיאה: ' + e.message });
+                  }
+                  setVapidGenerating(false);
+                }}>
+                {vapidGenerating ? 'יוצר…' : vapidPublicKey ? '⟳ צור מפתחות חדשים' : '+ צור מפתחות VAPID'}
+              </button>
+              {vapidMsg && <div style={{marginTop:6,fontSize:'11px',color:vapidMsg.ok ? 'var(--ok)' : 'var(--danger)'}}>{vapidMsg.text}</div>}
             </div>
           </div>
         </div>
@@ -4063,7 +4205,93 @@ function LogDrawer({ open, log, onClose }) {
   );
 }
 
-Object.assign(window, { GenerateDraftModal, LogDrawer });
+// ---- SendRemindersModal ----
+function SendRemindersModal({ open, onClose, draft, employees, currentMonth }) {
+  if (!open) return null;
+  const [msg, setMsg] = React.useState('');
+  const [sending, setSending] = React.useState(false);
+  const [result, setResult] = React.useState(null);
+
+  // Build a list of (emp, shifts) for today+1d and today+1h windows
+  const now = new Date();
+  const in24h = new Date(now.getTime() + 24 * 3600 * 1000);
+  const in1h  = new Date(now.getTime() +      3600 * 1000);
+
+  const schedule = draft?.schedule || {};
+  const notifs = [];
+
+  Object.entries(schedule).forEach(([dStr, shifts]) => {
+    const [y, mo, d] = dStr.split('-').map(Number);
+    Object.entries(shifts || {}).forEach(([shiftId, empIds]) => {
+      (empIds || []).forEach(empId => {
+        const emp = (employees || []).find(e => e.id === empId);
+        if (!emp) return;
+        // We push two notification types: 24h before and 1h before.
+        // The manager triggers both; timing of the actual reminder is approximate.
+        notifs.push({ empId, empName: emp.name, dStr, shiftId });
+      });
+    });
+  });
+
+  const unique = [...new Map(notifs.map(n => [n.empId + '|' + n.dStr + '|' + n.shiftId, n])).values()];
+  const empIds = [...new Set(unique.map(n => n.empId))];
+
+  const send = async () => {
+    if (!empIds.length) return;
+    setSending(true); setResult(null);
+    try {
+      const title = msg.trim() || 'תזכורת משמרת';
+      const body = `סידור ${currentMonth} עודכן — בדקו את המשמרות שלכם`;
+      const res = await window.__db.sendPushNotifications(empIds, title, body, 'sched-' + currentMonth);
+      setResult(res);
+    } catch (e) {
+      setResult({ sent: 0, errors: 1, errMsg: e.message });
+    }
+    setSending(false);
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{maxWidth:400}} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2 className="modal-title">🔔 שלח תזכורות לעובדים</h2>
+          <button className="icon-btn" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <div style={{fontSize:'13px',color:'var(--ink-2)',marginBottom:14,lineHeight:1.6}}>
+            שולח התראת פוש לכל עובד שיש לו משמרות בסידור זה ({empIds.length} עובדים).
+            העובדים יקבלו התראה עם כותרת שתזינו, ויוכלו לפתוח את האפליקציה.
+          </div>
+          <div className="field">
+            <label className="field-label">כותרת ההתראה (אופציונלי)</label>
+            <input value={msg} onChange={e => setMsg(e.target.value)} placeholder="תזכורת משמרת"
+              style={{width:'100%',border:'1px solid var(--line)',borderRadius:7,padding:'8px 10px',fontSize:'13px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none'}} />
+          </div>
+          <div style={{marginTop:6,fontSize:'12px',color:'var(--ink-3)'}}>
+            גוף: "סידור {currentMonth} עודכן — בדקו את המשמרות שלכם"
+          </div>
+          {result && (
+            <div style={{marginTop:12,padding:'10px 12px',borderRadius:8,background:result.errors ? 'var(--warn-bg)' : 'var(--ok-bg)',fontSize:'13px'}}>
+              {result.noVapid && <span>⚠ לא נמצאו מפתחות VAPID — צרו קודם מפתחות בהגדרות</span>}
+              {result.noSubs && <span>⚠ לא נמצאו מנויים — עובדים צריכים להתחבר לפחות פעם אחת</span>}
+              {!result.noVapid && !result.noSubs && (
+                <span>{result.sent > 0 ? `✓ נשלחו ${result.sent} התראות` : ''}{result.errors > 0 ? ` ⚠ ${result.errors} שגיאות` : ''}</span>
+              )}
+            </div>
+          )}
+          <div style={{marginTop:16,display:'flex',gap:8,justifyContent:'flex-end'}}>
+            <button className="btn" onClick={onClose}>ביטול</button>
+            <button className="btn btn-primary" onClick={send} disabled={sending || !empIds.length}>
+              {sending ? 'שולח…' : `שלח ל-${empIds.length} עובדים`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { GenerateDraftModal, LogDrawer, SendRemindersModal });
 </script>
 
 <!-- ============ App — מעטפת ראשית ============ -->
@@ -4198,6 +4426,8 @@ function App() {
   // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
   const [requests, setRequests] = React.useState(() => saved?.requests || {});
   const [admins, setAdmins] = React.useState(() => saved?.admins || ['eladadler@gmail.com']);
+  const [vapidPublicKey, setVapidPublicKey] = React.useState(() => saved?.vapidPublicKey || '');
+  const [sendRemindersOpen, setSendRemindersOpen] = React.useState(false);
   const [selectedDate, setSelectedDate] = React.useState(null);
   const [draggingEmp, setDraggingEmp] = React.useState(null);
   const [focusedEmpId, setFocusedEmpId] = React.useState(null);
@@ -4256,6 +4486,8 @@ function App() {
           setAnthropicKey(remote.anthropicKey);
           localStorage.setItem('anthropic-api-key', remote.anthropicKey);
         }
+        // טען מפתח VAPID ציבורי
+        if (remote.vapidPublicKey) setVapidPublicKey(remote.vapidPublicKey);
       }
       setSyncStatus('saved');
       isFirstLoad.current = false;
@@ -4922,6 +5154,10 @@ ${JSON.stringify(emptySlots, null, 2)}
               {(status === 'draft' || status === 'open') && (
                 <button className="btn btn-final" onClick={() => publishDraft(activeDraftId)}>אישור ופרסום</button>
               )}
+              {status === 'final' && vapidPublicKey && (
+                <button className="btn" style={{borderColor:'oklch(0.55 0.18 300)',color:'oklch(0.45 0.18 300)'}}
+                  onClick={() => setSendRemindersOpen(true)}>🔔 שלח תזכורות</button>
+              )}
               {(status === 'final' || status === 'open') && (
                 <button className="btn" onClick={() => unpublishDraft(activeDraftId)}>חזרה לעריכה</button>
               )}
@@ -5006,13 +5242,17 @@ ${JSON.stringify(emptySlots, null, 2)}
         onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); }}
         adminKey={adminKey}
         onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }}
-        admins={admins} onAdminsChange={setAdmins} />
+        admins={admins} onAdminsChange={setAdmins}
+        vapidPublicKey={vapidPublicKey}
+        onVapidKeysGenerated={setVapidPublicKey} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         month={currentMonth}
         initialRange={currentDraft?.range || AE.defaultRange(currentMonth)}
         initialExcluded={[]} />
       <LogDrawer open={logOpen} log={currentDraft?.log || []} onClose={() => setLogOpen(false)} />
+      <window.SendRemindersModal open={sendRemindersOpen} onClose={() => setSendRemindersOpen(false)}
+        draft={currentDraft} employees={employees} currentMonth={currentMonth} />
       <window.ScriptRunnerModal open={scriptRunnerOpen} onClose={() => setScriptRunnerOpen(false)} />
       <window.SmartSummaryModal summary={smartSummary} onClose={() => setSmartSummary(null)} />
 

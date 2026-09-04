@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#41ABC3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="משמרות">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon.svg">
 <title>משמרות המהפכה — אזור עובדים</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,6 +27,101 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+/* ===== PWA: Service Worker + Push Notifications ===== */
+
+// ---- IndexedDB helpers (shared with SW) ----
+function _openIDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open('mishmarot', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('kv');
+    req.onsuccess = e => res(e.target.result);
+    req.onerror = rej;
+  });
+}
+async function idbSet(key, value) {
+  const db = await _openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(value, key);
+    tx.oncomplete = res; tx.onerror = rej;
+  });
+}
+async function idbGet(key) {
+  const db = await _openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readonly');
+    const req = tx.objectStore('kv').get(key);
+    req.onsuccess = () => res(req.result); req.onerror = rej;
+  });
+}
+
+// ---- VAPID helper ----
+function urlBase64ToUint8Array(b64) {
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const base64 = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+}
+
+// ---- Register SW ----
+window.__swReg = null;
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js', { scope: './' })
+      .then(reg => {
+        window.__swReg = reg;
+        // הרשמה ל-Periodic Background Sync (Chrome)
+        if ('periodicSync' in reg) {
+          reg.periodicSync.register('shift-check', { minInterval: 30 * 60 * 1000 }).catch(() => {});
+        }
+      })
+      .catch(err => console.warn('SW registration failed:', err));
+  });
+}
+
+// ---- Subscribe to push (called after login) ----
+window.subscribeToPush = async function(empId, vapidPublicKey) {
+  try {
+    if (!('Notification' in window)) return;
+    if (!('PushManager' in window)) return;
+    const reg = window.__swReg || await navigator.serviceWorker.ready;
+    if (!reg) return;
+
+    // Request permission
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return;
+
+    // Store empId in IndexedDB (the SW reads it)
+    await idbSet('empId', empId);
+
+    // Subscribe to push manager
+    const appKey = urlBase64ToUint8Array(vapidPublicKey);
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
+
+    // Save subscription to Supabase
+    const SB_URL = 'https://ajniglpdgkwnasuslsyc.supabase.co';
+    const SB_KEY = 'sb_publishable_zMTTfShJSVqKaGRYlYoqFA_9y_5Q5hk';
+    await fetch(`${SB_URL}/rest/v1/push_subscriptions`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY, 'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify({
+        emp_id: empId,
+        subscription: sub.toJSON(),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+
+    console.log('[PWA] Push subscription saved for', empId);
+    return true;
+  } catch (err) {
+    console.warn('[PWA] subscribeToPush failed:', err);
+    return false;
+  }
+};
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -356,6 +457,10 @@ function App() {
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
       setAnthropicKey(prev => prev || stateData.anthropicKey || '');
+      // PWA: subscribe to push notifications if VAPID key exists
+      if (stateData.vapidPublicKey && mine.id && window.subscribeToPush) {
+        window.subscribeToPush(mine.id, stateData.vapidPublicKey).catch(() => {});
+      }
       const pubMap = {};
       (pubs || []).forEach(r => { pubMap[r.month] = r; });
       setPublished(pubMap);

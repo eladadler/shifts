@@ -54,7 +54,39 @@ drop policy if exists "open access" on published_schedules;
 create policy "open access" on published_schedules
   for all to anon, authenticated using (true) with check (true);
 
--- 4. משוב AI (אדמינים כותבים דרך מצב תחזה; שמור לשיפור פרומפטים)
+-- 4. מנויי Push (אפליקציית העובדים כותבת; Service Worker קורא לשליחת התראות)
+create table if not exists push_subscriptions (
+  emp_id       text primary key,
+  subscription jsonb not null,              -- Web Push subscription JSON (endpoint, keys)
+  updated_at   timestamptz not null default now()
+);
+
+alter table push_subscriptions enable row level security;
+drop policy if exists "open access" on push_subscriptions;
+create policy "open access" on push_subscriptions
+  for all to anon, authenticated using (true) with check (true);
+
+-- 5. התראות ממתינות (אפליקציית המשבץ כותבת; Service Worker קורא ומסמן)
+create table if not exists pending_notifications (
+  id         uuid default gen_random_uuid() primary key,
+  emp_id     text not null,
+  title      text not null,
+  body       text not null default '',
+  tag        text not null default '',
+  created_at timestamptz not null default now(),
+  shown_at   timestamptz                    -- null = טרם הוצג; Service Worker מסמן לאחר הצגה
+);
+
+create index if not exists pending_notifications_emp_id_shown_at
+  on pending_notifications (emp_id, shown_at)
+  where shown_at is null;
+
+alter table pending_notifications enable row level security;
+drop policy if exists "open access" on pending_notifications;
+create policy "open access" on pending_notifications
+  for all to anon, authenticated using (true) with check (true);
+
+-- 6. משוב AI (אדמינים כותבים דרך מצב תחזה; שמור לשיפור פרומפטים)
 create table if not exists ai_feedback (
   id           uuid default gen_random_uuid() primary key,
   emp_id       text,

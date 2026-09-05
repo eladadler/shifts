@@ -3096,10 +3096,12 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   React.useEffect(() => {
     (async () => {
       try {
+        console.log('[DEBUG] calling fetchPendingEmployees, window.__db=', !!window.__db);
         const rows = await window.__db?.fetchPendingEmployees?.() ?? [];
+        console.log('[DEBUG] fetchPendingEmployees result:', rows);
         setPendingEmps(rows);
       } catch(e) {
-        console.warn('fetchPendingEmployees error:', e);
+        console.warn('[DEBUG] fetchPendingEmployees error:', e);
         setPendingErr(e?.message || String(e));
       }
     })();
@@ -3151,36 +3153,33 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
         <button className="btn btn-primary" style={{marginInlineStart:'auto'}} onClick={openAdd}>+ הוספת עובד</button>
       </div>
 
-      {pendingErr && (
-        <div style={{marginBottom:16,background:'var(--danger-bg,#fee)',border:'1px solid var(--danger)',borderRadius:'var(--r)',padding:'10px 14px',fontSize:'12px',color:'var(--danger)'}}>
-          ⚠️ שגיאה בטעינת ממתינים לאישור: {pendingErr}
+      <div style={{marginBottom:20,background:'var(--warn-bg,#fffbe6)',border:'1px solid var(--warn,#f0b429)',borderRadius:'var(--r)',overflow:'hidden'}}>
+        <div style={{padding:'10px 14px',fontWeight:700,fontSize:'13px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:8}}>
+          <span style={{background:'var(--warn,#f0b429)',color:'#FFF',borderRadius:6,padding:'2px 7px',fontSize:'12px',fontWeight:800}}>{pendingEmps.length}</span>
+          ממתינים לאישור
+          {pendingErr && <span style={{color:'var(--danger)',fontWeight:400,fontSize:'12px'}}>— שגיאה: {pendingErr}</span>}
         </div>
-      )}
-      {pendingEmps.length > 0 && (
-        <div style={{marginBottom:20,background:'var(--warn-bg)',border:'1px solid var(--warn)',borderRadius:'var(--r)',overflow:'hidden'}}>
-          <div style={{padding:'10px 14px',fontWeight:700,fontSize:'13px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:8}}>
-            <span style={{background:'var(--warn)',color:'#FFF',borderRadius:6,padding:'2px 7px',fontSize:'12px',fontWeight:800}}>{pendingEmps.length}</span>
-            ממתינים לאישור
-          </div>
-          {pendingEmps.map(p => (
-            <div key={p.id} style={{padding:'10px 14px',display:'flex',alignItems:'center',gap:10,borderBottom:'1px solid var(--line-soft)'}}>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:600,fontSize:'13px'}}>{p.name || '(ללא שם)'}</div>
-                <div style={{fontSize:'11.5px',color:'var(--ink-3)',direction:'ltr',textAlign:'right'}}>{p.email}</div>
-                <div style={{fontSize:'11px',color:'var(--ink-3)'}}>{new Date(p.created_at).toLocaleDateString('he-IL')}</div>
-              </div>
-              <button className="btn btn-primary" style={{padding:'5px 12px',fontSize:'12px',flexShrink:0}}
-                onClick={() => setApproveModal(p)}>אישור</button>
-              <button className="btn" style={{padding:'5px 10px',fontSize:'12px',flexShrink:0,color:'var(--danger)',borderColor:'color-mix(in oklab,var(--danger) 40%,transparent)'}}
-                onClick={async () => {
-                  if (!window.confirm(`לדחות את בקשת ${p.name || p.email}?`)) return;
-                  const ok = await window.__db.rejectPendingEmployee(p.id);
-                  if (ok) setPendingEmps(prev => prev.filter(x => x.id !== p.id));
-                }}>דחייה</button>
+        {pendingEmps.length === 0 && !pendingErr && (
+          <div style={{padding:'10px 14px',fontSize:'12px',color:'var(--ink-3)'}}>אין ממתינים לאישור</div>
+        )}
+        {pendingEmps.map(p => (
+          <div key={p.id} style={{padding:'10px 14px',display:'flex',alignItems:'center',gap:10,borderBottom:'1px solid var(--line-soft)'}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:'13px'}}>{p.name || '(ללא שם)'}</div>
+              <div style={{fontSize:'11.5px',color:'var(--ink-3)',direction:'ltr',textAlign:'right'}}>{p.email}</div>
+              <div style={{fontSize:'11px',color:'var(--ink-3)'}}>{new Date(p.created_at).toLocaleDateString('he-IL')}</div>
             </div>
-          ))}
-        </div>
-      )}
+            <button className="btn btn-primary" style={{padding:'5px 12px',fontSize:'12px',flexShrink:0}}
+              onClick={() => setApproveModal(p)}>אישור</button>
+            <button className="btn" style={{padding:'5px 10px',fontSize:'12px',flexShrink:0,color:'var(--danger)',borderColor:'color-mix(in oklab,var(--danger) 40%,transparent)'}}
+              onClick={async () => {
+                if (!window.confirm(`לדחות את בקשת ${p.name || p.email}?`)) return;
+                const ok = await window.__db.rejectPendingEmployee(p.id);
+                if (ok) setPendingEmps(prev => prev.filter(x => x.id !== p.id));
+              }}>דחייה</button>
+          </div>
+        ))}
+      </div>
 
       <div className="emp-table">
         <div className="emp-table-row emp-table-head">

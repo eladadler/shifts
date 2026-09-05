@@ -3081,7 +3081,10 @@ function ApprovePendingModal({ pending, COLORS, onClose, onApproved }) {
 }
 
 // ---- EmployeesScreen ----
-function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
+function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pendingEmps: pendingEmpsFromApp, pendingEmpsErr, onPendingChange }) {
+  const pendingEmps = pendingEmpsFromApp ?? [];
+  const pendingErr = pendingEmpsErr || null;
+  const setPendingEmps = onPendingChange || (() => {});
   const [emps, setEmps] = React.useState(initEmps);
   React.useEffect(() => { setEmps(initEmps); }, [initEmps]);
   const [showForm, setShowForm] = React.useState(false);
@@ -3089,23 +3092,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   const [acctPw, setAcctPw] = React.useState('');
   const [acctBusy, setAcctBusy] = React.useState(false);
   const [acctMsg, setAcctMsg] = React.useState(null);
-  const [pendingEmps, setPendingEmps] = React.useState([]);
-  const [pendingErr, setPendingErr] = React.useState(null);
   const [approveModal, setApproveModal] = React.useState(null); // holds the pending row being approved
-
-  React.useEffect(() => {
-    (async () => {
-      try {
-        console.log('[DEBUG] calling fetchPendingEmployees, window.__db=', !!window.__db);
-        const rows = await window.__db?.fetchPendingEmployees?.() ?? [];
-        console.log('[DEBUG] fetchPendingEmployees result:', rows);
-        setPendingEmps(rows);
-      } catch(e) {
-        console.warn('[DEBUG] fetchPendingEmployees error:', e);
-        setPendingErr(e?.message || String(e));
-      }
-    })();
-  }, []);
 
   const setAccountPassword = async () => {
     const email = (editEmp.email || '').trim();
@@ -3155,11 +3142,14 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
 
       <div style={{marginBottom:20,background:'var(--warn-bg,#fffbe6)',border:'1px solid var(--warn,#f0b429)',borderRadius:'var(--r)',overflow:'hidden'}}>
         <div style={{padding:'10px 14px',fontWeight:700,fontSize:'13px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:8}}>
-          <span style={{background:'var(--warn,#f0b429)',color:'#FFF',borderRadius:6,padding:'2px 7px',fontSize:'12px',fontWeight:800}}>{pendingEmps.length}</span>
+          <span style={{background:'var(--warn,#f0b429)',color:'#FFF',borderRadius:6,padding:'2px 7px',fontSize:'12px',fontWeight:800}}>{pendingEmpsFromApp === null ? '…' : pendingEmps.length}</span>
           ממתינים לאישור
           {pendingErr && <span style={{color:'var(--danger)',fontWeight:400,fontSize:'12px'}}>— שגיאה: {pendingErr}</span>}
         </div>
-        {pendingEmps.length === 0 && !pendingErr && (
+        {pendingEmpsFromApp === null && !pendingErr && (
+          <div style={{padding:'10px 14px',fontSize:'12px',color:'var(--ink-3)'}}>טוען…</div>
+        )}
+        {pendingEmpsFromApp !== null && pendingEmps.length === 0 && !pendingErr && (
           <div style={{padding:'10px 14px',fontSize:'12px',color:'var(--ink-3)'}}>אין ממתינים לאישור</div>
         )}
         {pendingEmps.map(p => (
@@ -4598,6 +4588,8 @@ function App() {
   const [scriptRunnerOpen, setScriptRunnerOpen] = React.useState(false);
   const [smartSummary, setSmartSummary] = React.useState(null);
   const [syncStatus, setSyncStatus] = React.useState('loading'); // loading | saving | saved | error | idle
+  const [pendingEmps, setPendingEmps] = React.useState(null); // null = לא נטען עדיין
+  const [pendingEmpsErr, setPendingEmpsErr] = React.useState(null);
 
   const saveTimerRef = React.useRef(null);
   const isFirstLoad = React.useRef(true);
@@ -4650,6 +4642,8 @@ function App() {
       }
       setSyncStatus('saved');
       isFirstLoad.current = false;
+      // טעינת ממתינים לאישור
+      window.__db.fetchPendingEmployees?.().then(rows => setPendingEmps(rows || [])).catch(e => setPendingEmpsErr(e?.message || String(e)));
       // ממשק לאפליקציית העובדים: סנכרון עובדים + קליטת בקשות שהוגשו
       window.__db.syncEmployees?.(loadedEmployees);
       refreshEmployeeRequests();
@@ -5347,7 +5341,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       )}
 
       <ShiftSettingsCtx.Provider value={shiftSettings}>
-        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} />}
+        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} pendingEmps={pendingEmps} pendingEmpsErr={pendingEmpsErr} onPendingChange={setPendingEmps} />}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
           onEmployeesChange={setEmployees}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth} />}

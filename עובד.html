@@ -322,11 +322,14 @@ function Spinner() {
 
 /* ============ מסך כניסה ============ */
 function LoginScreen({ onError }) {
+  const [mode, setMode] = React.useState('login'); // 'login' | 'register'
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [name, setName] = React.useState('');
   const [err, setErr] = React.useState(false);
   const [resetSent, setResetSent] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [registered, setRegistered] = React.useState(false);
 
   const login = async () => {
     if (busy) return;
@@ -342,38 +345,127 @@ function LoginScreen({ onError }) {
     setResetSent(true);
   };
 
+  const googleLogin = () => {
+    sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.href.split('?')[0].split('#')[0] } });
+  };
+
+  const register = async () => {
+    if (busy) return;
+    if (!name.trim() || !email.trim() || password.length < 6) { setErr(true); return; }
+    setBusy(true); setErr(false);
+    const { error } = await sb.auth.signUp({ email: email.trim(), password, options: { data: { name: name.trim() } } });
+    if (!error) {
+      await sb.from('pending_employees').upsert({ email: email.trim().toLowerCase(), name: name.trim() }, { onConflict: 'email' });
+      setBusy(false);
+      setRegistered(true);
+      return;
+    }
+    setBusy(false);
+    setErr(true);
+  };
+
+  if (registered) {
+    return (
+      <div style={{ flex: 1, padding: '76px 30px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, textAlign: 'center', animation: 'fadeIn 0.25s' }}>
+        <div style={{ fontSize: 52 }}>✉️</div>
+        <div style={{ fontSize: 22, fontWeight: 900, color: INK }}>הבקשה נשלחה!</div>
+        <div style={{ fontSize: 14, color: '#6B6760', lineHeight: 1.7, maxWidth: 280 }}>
+          בקשת ההצטרפות שלך התקבלה.<br />
+          המנהל יאשר אותה בקרוב — לאחר האישור תוכל להיכנס לאפליקציה.
+        </div>
+        <div onClick={() => { setRegistered(false); setMode('login'); setPassword(''); }}
+          style={{ background: '#FFF', border: `1.5px solid ${INK}`, borderRadius: 10, padding: '12px 24px', fontSize: 14, fontWeight: 800, cursor: 'pointer', color: INK }}>
+          חזרה לכניסה
+        </div>
+      </div>
+    );
+  }
+
+  const inputStyle = { border: `1.5px solid ${INK}`, borderRadius: 8, padding: '13px 14px', fontSize: 15, background: '#FFF', color: INK, width: '100%', fontFamily: 'inherit' };
+
   return (
     <div style={{ flex: 1, padding: '76px 30px 44px', display: 'flex', flexDirection: 'column', overflowY: 'auto', animation: 'fadeIn 0.25s' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 48 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 36 }}>
         <div style={{ width: 34, height: 34, borderRadius: 8, background: INK, color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 900 }}>מ</div>
         <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '0.02em' }}>משמרות המהפכה</div>
       </div>
-      <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.2, marginBottom: 8 }}>כניסה <span style={{ color: TEAL }}>לצוות.</span></div>
-      <div style={{ fontSize: 15, color: '#6B6760', marginBottom: 32 }}>החשבון נוצר על ידי המנהל. אין הרשמה עצמית.</div>
+      <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.2, marginBottom: 24 }}>
+        {mode === 'login' ? <>כניסה <span style={{ color: TEAL }}>לצוות.</span></> : <>הצטרפות <span style={{ color: TEAL }}>לצוות.</span></>}
+      </div>
+
+      {/* Mode toggle */}
+      <div style={{ display: 'flex', background: '#F1EFEB', borderRadius: 10, padding: 3, marginBottom: 24 }}>
+        {[['login', 'כניסה'], ['register', 'הרשמה']].map(([m, label]) => (
+          <div key={m} onClick={() => { setMode(m); setErr(false); setResetSent(false); }}
+            style={{ flex: 1, textAlign: 'center', padding: '9px 0', borderRadius: 8, fontSize: 14, fontWeight: 800, cursor: 'pointer',
+              background: mode === m ? INK : 'transparent', color: mode === m ? '#FFF' : '#8A867F', transition: 'background 0.15s, color 0.15s' }}>
+            {label}
+          </div>
+        ))}
+      </div>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Google OAuth button */}
+        <div onClick={googleLogin} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+          border: `1.5px solid ${INK}`, borderRadius: 8, padding: '12px 0', background: '#FFF', cursor: 'pointer', fontSize: 15, fontWeight: 700, color: INK }}>
+          <svg width="18" height="18" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.36-8.16 2.36-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          כניסה עם Google
+        </div>
+
+        {/* Separator */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ flex: 1, height: 1, background: '#DCD9D3' }} />
+          <span style={{ fontSize: 13, color: '#A09C94', fontWeight: 600 }}>או</span>
+          <div style={{ flex: 1, height: 1, background: '#DCD9D3' }} />
+        </div>
+
+        {mode === 'register' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 800 }}>שם מלא</span>
+            <input type="text" placeholder="שם פרטי ומשפחה" value={name} autoComplete="name"
+              onChange={e => { setName(e.target.value); setErr(false); }}
+              style={inputStyle} />
+          </div>
+        )}
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 13, fontWeight: 800 }}>אימייל</span>
           <input type="email" placeholder="dana@example.com" value={email} autoComplete="email"
             onChange={e => { setEmail(e.target.value); setErr(false); }}
-            onKeyDown={e => { if (e.key === 'Enter') login(); }}
-            style={{ border: `1.5px solid ${INK}`, borderRadius: 8, padding: '13px 14px', fontSize: 15, background: '#FFF', color: INK, direction: 'ltr', textAlign: 'right' }} />
+            onKeyDown={e => { if (e.key === 'Enter' && mode === 'login') login(); }}
+            style={{ ...inputStyle, direction: 'ltr', textAlign: 'right' }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 13, fontWeight: 800 }}>סיסמה</span>
-          <input type="password" placeholder="••••••••" value={password} autoComplete="current-password"
+          <input type="password" placeholder="••••••••" value={password}
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             onChange={e => { setPassword(e.target.value); setErr(false); }}
-            onKeyDown={e => { if (e.key === 'Enter') login(); }}
-            style={{ border: err ? '1.5px solid oklch(0.55 0.18 25)' : `1.5px solid ${INK}`, borderRadius: 8, padding: '13px 14px', fontSize: 15,
-              background: err ? 'oklch(0.98 0.01 25)' : '#FFF', color: INK }} />
-          {err && <span style={{ fontSize: 13, fontWeight: 600, color: 'oklch(0.5 0.18 25)' }}>האימייל או הסיסמה שגויים. נסו שוב או אפסו סיסמה.</span>}
+            onKeyDown={e => { if (e.key === 'Enter' && mode === 'login') login(); }}
+            style={{ ...inputStyle, border: err ? '1.5px solid oklch(0.55 0.18 25)' : `1.5px solid ${INK}`,
+              background: err ? 'oklch(0.98 0.01 25)' : '#FFF' }} />
+          {err && <span style={{ fontSize: 13, fontWeight: 600, color: 'oklch(0.5 0.18 25)' }}>
+            {mode === 'login' ? 'האימייל או הסיסמה שגויים. נסו שוב או אפסו סיסמה.' : 'יש למלא את כל השדות (לפחות 6 תווים לסיסמה).'}
+          </span>}
         </div>
-        <div onClick={login} style={{ background: INK, color: '#FFF', borderRadius: 8, padding: '14px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, cursor: 'pointer', marginTop: 8, opacity: busy ? 0.6 : 1 }}>
-          {busy ? 'רק רגע…' : 'כניסה'}
-        </div>
-        <div onClick={reset} style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: TEAL_DARK, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>שכחתי סיסמה</div>
-        {resetSent && (
-          <div style={{ textAlign: 'center', fontSize: 13, fontWeight: 600, color: 'oklch(0.45 0.1 160)', background: 'oklch(0.96 0.03 160)', borderRadius: 8, padding: '10px 12px' }}>
-            שלחנו קישור לאיפוס סיסמה לכתובת האימייל שלך ✓
+
+        {mode === 'login' ? (<>
+          <div onClick={login} style={{ background: INK, color: '#FFF', borderRadius: 8, padding: '14px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, cursor: 'pointer', marginTop: 8, opacity: busy ? 0.6 : 1 }}>
+            {busy ? 'רק רגע…' : 'כניסה'}
+          </div>
+          <div onClick={reset} style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: TEAL_DARK, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>שכחתי סיסמה</div>
+          {resetSent && (
+            <div style={{ textAlign: 'center', fontSize: 13, fontWeight: 600, color: 'oklch(0.45 0.1 160)', background: 'oklch(0.96 0.03 160)', borderRadius: 8, padding: '10px 12px' }}>
+              שלחנו קישור לאיפוס סיסמה לכתובת האימייל שלך ✓
+            </div>
+          )}
+        </>) : (
+          <div onClick={register} style={{ background: TEAL, color: '#FFF', borderRadius: 8, padding: '14px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, cursor: 'pointer', marginTop: 8, opacity: busy ? 0.6 : 1 }}>
+            {busy ? 'שולח…' : 'שליחת בקשת הצטרפות'}
           </div>
         )}
       </div>
@@ -434,14 +526,34 @@ function App() {
 
   /* --- טעינת נתונים --- */
   // byId=true → identifier הוא emp.id; byId=false (ברירת מחדל) → identifier הוא email
-  const loadAll = React.useCallback(async (identifier, byId = false) => {
+  const loadAll = React.useCallback(async (identifier, byId = false, sessionUser = null) => {
     try {
       const { data: emps, error: e1 } = await sb.from('app_employees').select('*');
       if (e1) throw e1;
       const mine = byId
         ? (emps || []).find(x => x.id === identifier)
         : (emps || []).find(x => (x.email || '').trim().toLowerCase() === identifier.trim().toLowerCase());
-      if (!mine) { setMeStatus('notfound'); return; }
+      if (!mine) {
+        if (!byId) {
+          const lookupEmail = identifier.trim().toLowerCase();
+          // בדיקה ב-pending_employees
+          const { data: pending } = await sb.from('pending_employees').select('id,status').eq('email', lookupEmail).maybeSingle();
+          if (pending) {
+            setMeStatus(pending.status === 'pending' ? 'pending' : 'notfound');
+            return;
+          }
+          // משתמש Google שאינו ברשימה — רישום אוטומטי כממתין
+          const provider = sessionUser?.app_metadata?.provider;
+          if (provider === 'google' || sessionUser?.identities?.some(i => i.provider === 'google')) {
+            const googleName = sessionUser?.user_metadata?.full_name || sessionUser?.user_metadata?.name || '';
+            await sb.from('pending_employees').upsert({ email: lookupEmail, name: googleName }, { onConflict: 'email' });
+            setMeStatus('pending');
+            return;
+          }
+        }
+        setMeStatus('notfound');
+        return;
+      }
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
 
@@ -507,14 +619,14 @@ function App() {
   React.useEffect(() => {
     if (IMPERSONATE_ID || !session?.user?.email) return;
     setMeStatus('loading');
-    loadAll(session.user.email);
+    loadAll(session.user.email, false, session.user);
   }, [session?.user?.email, loadAll]);
 
   // רענון כשהאפליקציה חוזרת לפוקוס (סידור חדש פורסם וכו')
   React.useEffect(() => {
     const onVis = () => {
       if (!IMPERSONATE_ID && document.visibilityState === 'visible' && session?.user?.email && meStatus === 'ok')
-        loadAll(session.user.email);
+        loadAll(session?.user?.email, false, session?.user);
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
@@ -582,6 +694,20 @@ function App() {
             </>)
           }
         </div>
+      </div>
+    );
+  }
+
+  if (meStatus === 'pending') {
+    return frame(
+      <div style={{ flex: 1, padding: '60px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, textAlign: 'center' }}>
+        <div style={{ fontSize: 52 }}>⏳</div>
+        <div style={{ fontSize: 19, fontWeight: 800 }}>הבקשה נשלחה!</div>
+        <div style={{ fontSize: 14, color: '#6B6760', lineHeight: 1.7, maxWidth: 280 }}>
+          בקשת ההצטרפות שלך התקבלה.<br />
+          המנהל יאשר אותה בקרוב — לאחר האישור תוכל להיכנס לאפליקציה.
+        </div>
+        <div onClick={logout} style={{ background: '#FFF', border: `1.5px solid ${INK}`, borderRadius: 10, padding: '12px 24px', fontSize: 14, fontWeight: 800, cursor: 'pointer', color: INK }}>התנתקות</div>
       </div>
     );
   }

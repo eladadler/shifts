@@ -777,6 +777,35 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return false;
       }
     },
+    async fetchPendingEmployees() {
+      if (!client) return [];
+      try {
+        const { data, error } = await client.from('pending_employees').select('*').eq('status', 'pending').order('created_at');
+        if (error) throw error;
+        return data || [];
+      } catch (e) { console.warn('fetchPendingEmployees failed:', e.message); return []; }
+    },
+    async approvePendingEmployee(pendingId, empData) {
+      if (!client) return false;
+      try {
+        const { error: e1 } = await client.from('app_employees').upsert({
+          id: empData.id, name: empData.name, email: empData.email,
+          color: empData.color || null, updated_at: new Date().toISOString()
+        });
+        if (e1) throw e1;
+        const { error: e2 } = await client.from('pending_employees').update({ status: 'approved' }).eq('id', pendingId);
+        if (e2) throw e2;
+        return true;
+      } catch (e) { console.warn('approvePendingEmployee failed:', e.message); return false; }
+    },
+    async rejectPendingEmployee(pendingId) {
+      if (!client) return false;
+      try {
+        const { error } = await client.from('pending_employees').update({ status: 'rejected' }).eq('id', pendingId);
+        if (error) throw error;
+        return true;
+      } catch (e) { console.warn('rejectPendingEmployee failed:', e.message); return false; }
+    },
     async saveAnthropicKey(key) {
       if (!client) return false;
       try {
@@ -2979,6 +3008,80 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
   );
 }
 
+// ---- ApprovePendingModal ----
+function ApprovePendingModal({ pending, COLORS, onClose, onApproved }) {
+  const [appName, setAppName] = React.useState(pending.name || '');
+  const [appRole, setAppRole] = React.useState('');
+  const [appMax, setAppMax] = React.useState(9);
+  const [appColor, setAppColor] = React.useState(COLORS[0]);
+  const [appBusy, setAppBusy] = React.useState(false);
+
+  const doApprove = async () => {
+    if (!appName.trim() || appBusy) return;
+    setAppBusy(true);
+    const newId = 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+    const ok = await window.__db.approvePendingEmployee(pending.id, { id: newId, name: appName.trim(), email: pending.email, color: appColor });
+    if (ok) {
+      onApproved({ id: newId, name: appName.trim(), email: pending.email, color: appColor, role: appRole, max: appMax, anchor: false, nights: false });
+    }
+    setAppBusy(false);
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2 className="modal-title">אישור עובד חדש</h2>
+          <button className="icon-btn" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <div className="field">
+            <label className="field-label">אימייל</label>
+            <div style={{fontSize:'13px',color:'var(--ink-2)',direction:'ltr',textAlign:'left',padding:'7px 0'}}>{pending.email}</div>
+          </div>
+          <div className="field">
+            <label className="field-label">שם <span style={{color:'var(--danger)'}}>*</span></label>
+            <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
+              value={appName} onChange={e => setAppName(e.target.value)} autoFocus />
+          </div>
+          <div className="field">
+            <label className="field-label">תפקיד</label>
+            <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
+              value={appRole} onChange={e => setAppRole(e.target.value)} placeholder="רשות" />
+          </div>
+          <div className="field">
+            <label className="field-label">מכסה חודשית</label>
+            <div className="stepper">
+              <button className="stepper-btn" onClick={() => setAppMax(m => Math.max(1, m - 1))}>−</button>
+              <span className="stepper-val">{appMax}</span>
+              <button className="stepper-btn" onClick={() => setAppMax(m => m + 1)}>+</button>
+              <span className="field-hint">משמרות לחודש</span>
+            </div>
+          </div>
+          <div className="field">
+            <label className="field-label">צבע</label>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              {COLORS.map(c => (
+                <button key={c} onClick={() => setAppColor(c)}
+                  style={{width:32,height:32,borderRadius:7,background:c,border:`2.5px solid ${appColor === c ? 'var(--ink)' : 'transparent'}`,cursor:'pointer',transition:'border-color 0.1s'}} />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <span></span>
+          <div className="modal-actions">
+            <button className="btn" onClick={onClose}>ביטול</button>
+            <button className="btn btn-primary" onClick={doApprove} disabled={appBusy}>
+              {appBusy ? 'שומר…' : 'אשר והוסף'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---- EmployeesScreen ----
 function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   const [emps, setEmps] = React.useState(initEmps);
@@ -2988,6 +3091,12 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   const [acctPw, setAcctPw] = React.useState('');
   const [acctBusy, setAcctBusy] = React.useState(false);
   const [acctMsg, setAcctMsg] = React.useState(null);
+  const [pendingEmps, setPendingEmps] = React.useState([]);
+  const [approveModal, setApproveModal] = React.useState(null); // holds the pending row being approved
+
+  React.useEffect(() => {
+    window.__db?.fetchPendingEmployees?.().then(rows => setPendingEmps(rows || []));
+  }, []);
 
   const setAccountPassword = async () => {
     const email = (editEmp.email || '').trim();
@@ -3034,6 +3143,32 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
         <h2 className="mgmt-title">👥 עובדים</h2>
         <button className="btn btn-primary" style={{marginInlineStart:'auto'}} onClick={openAdd}>+ הוספת עובד</button>
       </div>
+
+      {pendingEmps.length > 0 && (
+        <div style={{marginBottom:20,background:'var(--warn-bg)',border:'1px solid var(--warn)',borderRadius:'var(--r)',overflow:'hidden'}}>
+          <div style={{padding:'10px 14px',fontWeight:700,fontSize:'13px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:8}}>
+            <span style={{background:'var(--warn)',color:'#FFF',borderRadius:6,padding:'2px 7px',fontSize:'12px',fontWeight:800}}>{pendingEmps.length}</span>
+            ממתינים לאישור
+          </div>
+          {pendingEmps.map(p => (
+            <div key={p.id} style={{padding:'10px 14px',display:'flex',alignItems:'center',gap:10,borderBottom:'1px solid var(--line-soft)'}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:600,fontSize:'13px'}}>{p.name || '(ללא שם)'}</div>
+                <div style={{fontSize:'11.5px',color:'var(--ink-3)',direction:'ltr',textAlign:'right'}}>{p.email}</div>
+                <div style={{fontSize:'11px',color:'var(--ink-3)'}}>{new Date(p.created_at).toLocaleDateString('he-IL')}</div>
+              </div>
+              <button className="btn btn-primary" style={{padding:'5px 12px',fontSize:'12px',flexShrink:0}}
+                onClick={() => setApproveModal(p)}>אישור</button>
+              <button className="btn" style={{padding:'5px 10px',fontSize:'12px',flexShrink:0,color:'var(--danger)',borderColor:'color-mix(in oklab,var(--danger) 40%,transparent)'}}
+                onClick={async () => {
+                  if (!window.confirm(`לדחות את בקשת ${p.name || p.email}?`)) return;
+                  const ok = await window.__db.rejectPendingEmployee(p.id);
+                  if (ok) setPendingEmps(prev => prev.filter(x => x.id !== p.id));
+                }}>דחייה</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="emp-table">
         <div className="emp-table-row emp-table-head">
@@ -3149,6 +3284,19 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
             </div>
           </div>
         </div>
+      )}
+
+      {approveModal && (
+        <ApprovePendingModal
+          pending={approveModal}
+          COLORS={COLORS}
+          onClose={() => setApproveModal(null)}
+          onApproved={(newEmp) => {
+            updateEmps(prev => [...prev, newEmp]);
+            setPendingEmps(prev => prev.filter(x => x.id !== approveModal.id));
+            setApproveModal(null);
+          }}
+        />
       )}
     </div>
   );

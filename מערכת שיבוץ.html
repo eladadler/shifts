@@ -779,11 +779,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     },
     async fetchPendingEmployees() {
       if (!client) return [];
-      try {
-        const { data, error } = await client.from('pending_employees').select('*').eq('status', 'pending').order('created_at');
-        if (error) throw error;
-        return data || [];
-      } catch (e) { console.warn('fetchPendingEmployees failed:', e.message); return []; }
+      const { data, error } = await client.from('pending_employees').select('*').eq('status', 'pending').order('created_at');
+      if (error) throw error;
+      return data || [];
     },
     async approvePendingEmployee(pendingId, empData) {
       if (!client) return false;

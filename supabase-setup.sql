@@ -86,7 +86,21 @@ drop policy if exists "open access" on pending_notifications;
 create policy "open access" on pending_notifications
   for all to anon, authenticated using (true) with check (true);
 
--- 6. משוב AI (אדמינים כותבים דרך מצב תחזה; שמור לשיפור פרומפטים)
+-- 6. עובדים ממתינים לאישור (הרשמה עצמית → ממתין לאישור מנהל)
+create table if not exists pending_employees (
+  id         uuid default gen_random_uuid() primary key,
+  email      text not null unique,
+  name       text not null default '',
+  status     text not null default 'pending',  -- 'pending' | 'approved' | 'rejected'
+  created_at timestamptz not null default now()
+);
+
+alter table pending_employees enable row level security;
+drop policy if exists "open access" on pending_employees;
+create policy "open access" on pending_employees
+  for all to anon, authenticated using (true) with check (true);
+
+-- 7. משוב AI (אדמינים כותבים דרך מצב תחזה; שמור לשיפור פרומפטים)
 create table if not exists ai_feedback (
   id           uuid default gen_random_uuid() primary key,
   emp_id       text,

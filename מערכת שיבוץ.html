@@ -3092,10 +3092,19 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
   const [acctBusy, setAcctBusy] = React.useState(false);
   const [acctMsg, setAcctMsg] = React.useState(null);
   const [pendingEmps, setPendingEmps] = React.useState([]);
+  const [pendingErr, setPendingErr] = React.useState(null);
   const [approveModal, setApproveModal] = React.useState(null); // holds the pending row being approved
 
   React.useEffect(() => {
-    window.__db?.fetchPendingEmployees?.().then(rows => setPendingEmps(rows || []));
+    (async () => {
+      try {
+        const rows = await window.__db?.fetchPendingEmployees?.() ?? [];
+        setPendingEmps(rows);
+      } catch(e) {
+        console.warn('fetchPendingEmployees error:', e);
+        setPendingErr(e?.message || String(e));
+      }
+    })();
   }, []);
 
   const setAccountPassword = async () => {
@@ -3144,6 +3153,11 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey }) {
         <button className="btn btn-primary" style={{marginInlineStart:'auto'}} onClick={openAdd}>+ הוספת עובד</button>
       </div>
 
+      {pendingErr && (
+        <div style={{marginBottom:16,background:'var(--danger-bg,#fee)',border:'1px solid var(--danger)',borderRadius:'var(--r)',padding:'10px 14px',fontSize:'12px',color:'var(--danger)'}}>
+          ⚠️ שגיאה בטעינת ממתינים לאישור: {pendingErr}
+        </div>
+      )}
       {pendingEmps.length > 0 && (
         <div style={{marginBottom:20,background:'var(--warn-bg)',border:'1px solid var(--warn)',borderRadius:'var(--r)',overflow:'hidden'}}>
           <div style={{padding:'10px 14px',fontWeight:700,fontSize:'13px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:8}}>

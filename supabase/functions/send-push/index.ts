@@ -44,7 +44,14 @@ Deno.serve(async (req) => {
         sent++
       } catch (e: any) {
         console.warn('Push failed for', sub.emp_id, e)
-        errMsgs.push(e.message || String(e))
+        const msg: string = e.message || String(e)
+        // 410 = subscription expired/unsubscribed — clean up automatically
+        if (msg.includes('410')) {
+          await sb.from('push_subscriptions').delete().eq('emp_id', sub.emp_id)
+          console.log('Removed stale subscription for', sub.emp_id)
+        } else {
+          errMsgs.push(msg)
+        }
       }
     }
     return json({ sent, errors: errMsgs.length, errMsgs })

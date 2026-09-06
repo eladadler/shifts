@@ -1,14 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <rect width="192" height="192" rx="40" fill="#41ABC3"/>
-  <rect x="36" y="52" width="120" height="108" rx="12" fill="white" opacity="0.95"/>
-  <rect x="36" y="52" width="120" height="36" rx="12" fill="white" opacity="0.95"/>
-  <rect x="36" y="70" width="120" height="18" fill="white" opacity="0.95"/>
-  <rect x="60" y="36" width="12" height="28" rx="6" fill="white"/>
-  <rect x="120" y="36" width="12" height="28" rx="6" fill="white"/>
-  <rect x="52" y="112" width="20" height="20" rx="4" fill="#41ABC3" opacity="0.7"/>
-  <rect x="86" y="112" width="20" height="20" rx="4" fill="#41ABC3"/>
-  <rect x="120" y="112" width="20" height="20" rx="4" fill="#41ABC3" opacity="0.4"/>
-  <rect x="52" y="142" width="20" height="20" rx="4" fill="#41ABC3" opacity="0.4"/>
-  <rect x="86" y="142" width="20" height="20" rx="4" fill="#41ABC3" opacity="0.7"/>
-  <rect x="120" y="142" width="20" height="20" rx="4" fill="#41ABC3" opacity="0.4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <circle cx="100" cy="100" r="100" fill="white"/>
+  <!-- Teal petal - top-left -->
+  <ellipse cx="72" cy="72" rx="46" ry="26" fill="#41ABC3" transform="rotate(45 72 72)"/>
+  <!-- Pink petal - top-right -->
+  <ellipse cx="128" cy="72" rx="46" ry="26" fill="#E8345D" transform="rotate(-45 128 72)"/>
+  <!-- Pink petal - bottom-left -->
+  <ellipse cx="72" cy="128" rx="46" ry="26" fill="#E8345D" transform="rotate(-45 72 128)"/>
+  <!-- Teal petal - bottom-right -->
+  <ellipse cx="128" cy="128" rx="46" ry="26" fill="#41ABC3" transform="rotate(45 128 128)"/>
+  <!-- Pink center circle -->
+  <circle cx="100" cy="100" r="15" fill="#E8345D"/>
 </svg>

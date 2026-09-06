@@ -706,7 +706,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     async save(state) {
       if (!client) return false;
       try {
-        const { error } = await client.from(TABLE).upsert({ id: ROW, data: state, updated_at: new Date().toISOString() });
+        // Merge with existing row so keys managed elsewhere (VAPID, Anthropic) are not overwritten
+        const { data: existing } = await client.from(TABLE).select('data').eq('id', ROW).maybeSingle();
+        const merged = { ...(existing?.data || {}), ...state };
+        const { error } = await client.from(TABLE).upsert({ id: ROW, data: merged, updated_at: new Date().toISOString() });
         if (error) throw error;
         return true;
       } catch (e) {

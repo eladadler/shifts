@@ -673,12 +673,11 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     method: 'POST',
     headers: {
       'Authorization': `vapid t=${jwt},k=${vapidPublicKey}`,
-      'Content-Length': '0',
       'TTL': '86400',
     },
   });
   if (!res.ok && res.status !== 201) {
-    throw new Error(`Push failed: ${res.status}`);
+    throw new Error(`Push failed: ${res.status} ${await res.text().catch(() => '')}`);
   }
 }
 
@@ -854,20 +853,20 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         if (!vapidPublicKey || !vapidPrivateKeyJwk) return { sent: 0, errors: 0, noVapid: true };
 
         // 4. Send empty push to each subscription via Web Push
-        let sent = 0, errors = 0;
+        let sent = 0; const errMsgs = [];
         for (const sub of subs) {
           try {
             await sendWebPush(sub.subscription, vapidPublicKey, vapidPrivateKeyJwk);
             sent++;
           } catch (e) {
             console.warn('Push send failed for', sub.emp_id, e);
-            errors++;
+            errMsgs.push(e.message || String(e));
           }
         }
-        return { sent, errors };
+        return { sent, errors: errMsgs.length, errMsgs };
       } catch (e) {
         console.warn('sendPushNotifications failed:', e.message);
-        return { sent: 0, errors: 1 };
+        return { sent: 0, errors: 1, errMsgs: [e.message || String(e)] };
       }
     },
     // ---- ניהול חשבונות עובדים — דורש מפתח service_role (נשמר בדפדפן בלבד, לא בקוד) ----
@@ -4381,7 +4380,15 @@ function SendRemindersModal({ open, onClose, draft, employees, currentMonth }) {
               {result.noVapid && <span>⚠ לא נמצאו מפתחות VAPID — צרו קודם מפתחות בהגדרות</span>}
               {result.noSubs && <span>⚠ לא נמצאו מנויים — עובדים צריכים להתחבר לפחות פעם אחת</span>}
               {!result.noVapid && !result.noSubs && (
-                <span>{result.sent > 0 ? `✓ נשלחו ${result.sent} התראות` : ''}{result.errors > 0 ? ` ⚠ ${result.errors} שגיאות` : ''}</span>
+                <div>
+                  {result.sent > 0 && <div>✓ נשלחו {result.sent} התראות</div>}
+                  {result.errors > 0 && <div style={{marginTop:result.sent>0?6:0}}>
+                    ⚠ {result.errors} שגיאות:
+                    {(result.errMsgs || []).map((m, i) => (
+                      <div key={i} style={{fontSize:'11px',color:'var(--danger)',marginTop:3,wordBreak:'break-all',fontFamily:'monospace'}}>{m}</div>
+                    ))}
+                  </div>}
+                </div>
               )}
             </div>
           )}

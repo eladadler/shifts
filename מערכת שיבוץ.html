@@ -829,41 +829,24 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       } catch (e) { console.warn('saveVapidKeys failed:', e.message); return false; }
     },
     async sendPushNotifications(empIds, title, body, scheduleId) {
-      if (!client) return { sent: 0, errors: 0 };
+      // Web Push must be sent server-side (CORS blocks browser→push endpoint).
+      // Calls the Supabase Edge Function which handles both pending_notifications and actual push.
       try {
-        // 1. Write pending_notifications rows for each employee
-        const rows = empIds.map(emp_id => ({
-          emp_id, title, body,
-          tag: scheduleId || ('notif-' + Date.now()),
-          created_at: new Date().toISOString(),
-        }));
-        const { error: insErr } = await client.from('pending_notifications').insert(rows);
-        if (insErr) throw insErr;
-
-        // 2. Fetch push subscriptions for these employees
-        const { data: subs, error: subErr } = await client.from('push_subscriptions')
-          .select('emp_id, subscription').in('emp_id', empIds);
-        if (subErr) throw subErr;
-        if (!subs || subs.length === 0) return { sent: 0, errors: 0, noSubs: true };
-
-        // 3. Get VAPID keys from state
-        const { data: stateRow } = await client.from('mishmarot_state').select('data').eq('id', 'main').single();
-        const vapidPublicKey = stateRow?.data?.vapidPublicKey;
-        const vapidPrivateKeyJwk = stateRow?.data?.vapidPrivateKeyJwk;
-        if (!vapidPublicKey || !vapidPrivateKeyJwk) return { sent: 0, errors: 0, noVapid: true };
-
-        // 4. Send empty push to each subscription via Web Push
-        let sent = 0; const errMsgs = [];
-        for (const sub of subs) {
-          try {
-            await sendWebPush(sub.subscription, vapidPublicKey, vapidPrivateKeyJwk);
-            sent++;
-          } catch (e) {
-            console.warn('Push send failed for', sub.emp_id, e);
-            errMsgs.push(e.message || String(e));
-          }
+        const fnUrl = `${URL}/functions/v1/send-push`;
+        const res = await fetch(fnUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${KEY}`,
+            'apikey': KEY,
+          },
+          body: JSON.stringify({ empIds, title, body, scheduleId }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          return { sent: 0, errors: 1, errMsgs: [`HTTP ${res.status}: ${text}`] };
         }
-        return { sent, errors: errMsgs.length, errMsgs };
+        return await res.json();
       } catch (e) {
         console.warn('sendPushNotifications failed:', e.message);
         return { sent: 0, errors: 1, errMsgs: [e.message || String(e)] };

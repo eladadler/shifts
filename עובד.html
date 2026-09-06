@@ -805,6 +805,7 @@ function SettingsTab({ me, email, onLogout }) {
   // null = checking, true = subscribed, false = not subscribed
   const [pushSubscribed, setPushSubscribed] = React.useState(null);
   const [pushBusy, setPushBusy] = React.useState(false);
+  const [pushError, setPushError] = React.useState(null);
   // custom hours local edit state
   const [customHoursInput, setCustomHoursInput] = React.useState(String(prefs.alertCustomHours || 2));
   const [hoursSaved, setHoursSaved] = React.useState(false);
@@ -825,27 +826,42 @@ function SettingsTab({ me, email, onLogout }) {
     idbSet('notifPrefs', next).catch(() => {});
   };
 
-  const getVapidKey = async () => {
-    const { data: stateRow } = await supabase.createClient(SB_URL, SB_KEY)
-      .from('mishmarot_state').select('data').eq('id', 'main').maybeSingle().catch(() => ({}));
-    return stateRow?.data?.vapidPublicKey || null;
-  };
-
   const enablePush = async () => {
     setPushBusy(true);
+    setPushError(null);
     try {
+      // 1. Request permission if not yet granted
       let perm = notifPerm;
       if (perm !== 'granted') {
         perm = await Notification.requestPermission();
         setNotifPerm(perm);
       }
-      if (perm !== 'granted') { setPushBusy(false); return; }
-      const vapidKey = await getVapidKey();
-      if (vapidKey && window.subscribeToPush) {
-        await window.subscribeToPush(me.id, vapidKey);
-        setPushSubscribed(true);
+      if (perm !== 'granted') {
+        setPushError('יש לאשר הרשאת התראות בדפדפן');
+        setPushBusy(false); return;
       }
-    } catch (e) { console.warn('enablePush error', e); }
+      // 2. Get VAPID public key from Supabase
+      const { data: stateRow } = await sb.from('mishmarot_state').select('data').eq('id', 'main').maybeSingle();
+      const vapidKey = stateRow?.data?.vapidPublicKey || null;
+      if (!vapidKey) {
+        setPushError('מפתח push לא הוגדר — בקשו מהמנהל להפעיל התראות פוש בהגדרות');
+        setPushBusy(false); return;
+      }
+      // 3. Subscribe
+      if (!window.subscribeToPush) {
+        setPushError('Service Worker לא נטען — נסו לרענן את הדף');
+        setPushBusy(false); return;
+      }
+      const ok = await window.subscribeToPush(me.id, vapidKey);
+      if (ok) {
+        setPushSubscribed(true);
+      } else {
+        setPushError('ההרשמה להתראות נכשלה — נסו שוב');
+      }
+    } catch (e) {
+      console.warn('enablePush error', e);
+      setPushError('שגיאה: ' + (e?.message || String(e)));
+    }
     setPushBusy(false);
   };
 
@@ -906,6 +922,9 @@ function SettingsTab({ me, email, onLogout }) {
               disabled={pushBusy || pushSubscribed === null}
               onChange={v => v ? enablePush() : disablePush()}
             />
+          )}
+          {pushError && (
+            <div style={{ padding: '8px 16px', fontSize: 12, color: '#C05858', borderTop: '1px solid #EFEDE9', lineHeight: 1.5 }}>{pushError}</div>
           )}
           {/* Per-alert toggles — only when push is active */}
           <div style={divider}>

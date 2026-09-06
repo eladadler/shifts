@@ -569,8 +569,9 @@ function App() {
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
       setAnthropicKey(prev => prev || stateData.anthropicKey || '');
-      // PWA: subscribe to push notifications if VAPID key exists
-      if (stateData.vapidPublicKey && mine.id && window.subscribeToPush) {
+      // PWA: auto-subscribe only if user hasn't explicitly opted out
+      if (stateData.vapidPublicKey && mine.id && window.subscribeToPush
+          && !localStorage.getItem('push-opted-out')) {
         window.subscribeToPush(mine.id, stateData.vapidPublicKey).catch(() => {});
       }
       const pubMap = {};
@@ -855,6 +856,7 @@ function SettingsTab({ me, email, onLogout }) {
       }
       const ok = await window.subscribeToPush(me.id, vapidKey);
       if (ok) {
+        localStorage.removeItem('push-opted-out');
         setPushSubscribed(true);
       } else {
         setPushError('ההרשמה להתראות נכשלה — נסו שוב');
@@ -868,15 +870,18 @@ function SettingsTab({ me, email, onLogout }) {
 
   const disablePush = async () => {
     setPushBusy(true);
+    setPushError(null);
     try {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) await sub.unsubscribe();
-      // Remove from Supabase
-      await supabase.createClient(SB_URL, SB_KEY)
-        .from('push_subscriptions').delete().eq('emp_id', me.id).catch(() => {});
+      await sb.from('push_subscriptions').delete().eq('emp_id', me.id);
+      localStorage.setItem('push-opted-out', '1');
       setPushSubscribed(false);
-    } catch (e) { console.warn('disablePush error', e); }
+    } catch (e) {
+      console.warn('disablePush error', e);
+      setPushError('שגיאה בביטול ההתראות: ' + (e?.message || String(e)));
+    }
     setPushBusy(false);
   };
 

@@ -842,7 +842,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
 
         // 2. Fetch push subscriptions for these employees
         const { data: subs, error: subErr } = await client.from('push_subscriptions')
-          .select('emp_id, subscription, vapid_public_key').in('emp_id', empIds);
+          .select('emp_id, subscription').in('emp_id', empIds);
         if (subErr) throw subErr;
         if (!subs || subs.length === 0) return { sent: 0, errors: 0, noSubs: true };
 

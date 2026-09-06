@@ -893,6 +893,31 @@ function SettingsTab({ me, email, onLogout }) {
     setTimeout(() => setHoursSaved(false), 2000);
   };
 
+  const [testCountdown, setTestCountdown] = React.useState(null);
+
+  const runTestPush = () => {
+    if (testCountdown !== null) return;
+    setTestCountdown(10);
+    let n = 10;
+    const iv = setInterval(() => {
+      n--;
+      if (n <= 0) {
+        clearInterval(iv);
+        setTestCountdown(null);
+        navigator.serviceWorker.ready.then(reg =>
+          reg.showNotification('🧪 בדיקת התראה', {
+            body: 'אם אתה רואה את זה — ההתראות עובדות!',
+            icon: './icon.svg',
+            badge: './icon.svg',
+            tag: 'test-push-' + Date.now(),
+          })
+        ).catch(e => console.warn('test push failed', e));
+      } else {
+        setTestCountdown(n);
+      }
+    }, 1000);
+  };
+
   const sectionStyle = { background: '#FFF', borderRadius: 14, overflow: 'hidden', border: '1.5px solid #E8E5E0' };
   const divider = { borderTop: '1px solid #EFEDE9' };
   const pushEnabled = notifPerm === 'granted' && pushSubscribed === true;
@@ -973,6 +998,19 @@ function SettingsTab({ me, email, onLogout }) {
           התזכורות מופעלות גם כשהאפליקציה סגורה, דרך Service Worker שרץ ברקע.
         </div>
       </div>
+
+      {/* Temporary test button */}
+      {pushEnabled && (
+        <div style={{ borderRadius: 14, overflow: 'hidden', border: '2px dashed #F59E0B', background: '#FFFBEB' }}>
+          <div style={{ padding: '10px 16px 6px', fontSize: 11, fontWeight: 700, color: '#92400E', letterSpacing: '0.04em' }}>🧪 כפתור בדיקה זמני</div>
+          <button
+            onClick={runTestPush}
+            disabled={testCountdown !== null}
+            style={{ display: 'block', width: '100%', background: testCountdown !== null ? '#FDE68A' : '#F59E0B', color: '#78350F', border: 'none', padding: '13px 16px', fontSize: 14, fontWeight: 800, cursor: testCountdown !== null ? 'default' : 'pointer', textAlign: 'center' }}>
+            {testCountdown !== null ? `שולח בעוד ${testCountdown} שניות…` : 'שלח התראת בדיקה (עוד 10 שניות)'}
+          </button>
+        </div>
+      )}
 
       {/* Logout */}
       <div style={sectionStyle}>

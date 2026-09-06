@@ -3081,10 +3081,7 @@ function ApprovePendingModal({ pending, COLORS, onClose, onApproved }) {
 }
 
 // ---- EmployeesScreen ----
-function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pendingEmps: pendingEmpsFromApp, pendingEmpsErr, onPendingChange }) {
-  const pendingEmps = pendingEmpsFromApp ?? [];
-  const pendingErr = pendingEmpsErr || null;
-  const setPendingEmps = onPendingChange || (() => {});
+function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pendingEmps: _unused, onPendingChange: _unused2 }) {
   const [emps, setEmps] = React.useState(initEmps);
   React.useEffect(() => { setEmps(initEmps); }, [initEmps]);
   const [showForm, setShowForm] = React.useState(false);
@@ -3092,8 +3089,6 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
   const [acctPw, setAcctPw] = React.useState('');
   const [acctBusy, setAcctBusy] = React.useState(false);
   const [acctMsg, setAcctMsg] = React.useState(null);
-  const [approveModal, setApproveModal] = React.useState(null); // holds the pending row being approved
-
   const setAccountPassword = async () => {
     const email = (editEmp.email || '').trim();
     if (!email) { setAcctMsg({ err: true, text: 'מלאו קודם את שדה האימייל' }); return; }
@@ -3138,37 +3133,6 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
       <div className="mgmt-toolbar">
         <h2 className="mgmt-title">👥 עובדים</h2>
         <button className="btn btn-primary" style={{marginInlineStart:'auto'}} onClick={openAdd}>+ הוספת עובד</button>
-      </div>
-
-      <div style={{marginBottom:20,background:'var(--warn-bg,#fffbe6)',border:'1px solid var(--warn,#f0b429)',borderRadius:'var(--r)',overflow:'hidden'}}>
-        <div style={{padding:'10px 14px',fontWeight:700,fontSize:'13px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:8}}>
-          <span style={{background:'var(--warn,#f0b429)',color:'#FFF',borderRadius:6,padding:'2px 7px',fontSize:'12px',fontWeight:800}}>{pendingEmpsFromApp === null ? '…' : pendingEmps.length}</span>
-          ממתינים לאישור
-          {pendingErr && <span style={{color:'var(--danger)',fontWeight:400,fontSize:'12px'}}>— שגיאה: {pendingErr}</span>}
-        </div>
-        {pendingEmpsFromApp === null && !pendingErr && (
-          <div style={{padding:'10px 14px',fontSize:'12px',color:'var(--ink-3)'}}>טוען…</div>
-        )}
-        {pendingEmpsFromApp !== null && pendingEmps.length === 0 && !pendingErr && (
-          <div style={{padding:'10px 14px',fontSize:'12px',color:'var(--ink-3)'}}>אין ממתינים לאישור</div>
-        )}
-        {pendingEmps.map(p => (
-          <div key={p.id} style={{padding:'10px 14px',display:'flex',alignItems:'center',gap:10,borderBottom:'1px solid var(--line-soft)'}}>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:600,fontSize:'13px'}}>{p.name || '(ללא שם)'}</div>
-              <div style={{fontSize:'11.5px',color:'var(--ink-3)',direction:'ltr',textAlign:'right'}}>{p.email}</div>
-              <div style={{fontSize:'11px',color:'var(--ink-3)'}}>{new Date(p.created_at).toLocaleDateString('he-IL')}</div>
-            </div>
-            <button className="btn btn-primary" style={{padding:'5px 12px',fontSize:'12px',flexShrink:0}}
-              onClick={() => setApproveModal(p)}>אישור</button>
-            <button className="btn" style={{padding:'5px 10px',fontSize:'12px',flexShrink:0,color:'var(--danger)',borderColor:'color-mix(in oklab,var(--danger) 40%,transparent)'}}
-              onClick={async () => {
-                if (!window.confirm(`לדחות את בקשת ${p.name || p.email}?`)) return;
-                const ok = await window.__db.rejectPendingEmployee(p.id);
-                if (ok) setPendingEmps(prev => prev.filter(x => x.id !== p.id));
-              }}>דחייה</button>
-          </div>
-        ))}
       </div>
 
       <div className="emp-table">
@@ -3287,18 +3251,6 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
         </div>
       )}
 
-      {approveModal && (
-        <ApprovePendingModal
-          pending={approveModal}
-          COLORS={COLORS}
-          onClose={() => setApproveModal(null)}
-          onApproved={(newEmp) => {
-            updateEmps(prev => [...prev, newEmp]);
-            setPendingEmps(prev => prev.filter(x => x.id !== approveModal.id));
-            setApproveModal(null);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -4590,6 +4542,7 @@ function App() {
   const [syncStatus, setSyncStatus] = React.useState('loading'); // loading | saving | saved | error | idle
   const [pendingEmps, setPendingEmps] = React.useState(null); // null = לא נטען עדיין
   const [pendingEmpsErr, setPendingEmpsErr] = React.useState(null);
+  const [pendingApproveModal, setPendingApproveModal] = React.useState(null);
 
   const saveTimerRef = React.useRef(null);
   const isFirstLoad = React.useRef(true);
@@ -5340,8 +5293,41 @@ ${JSON.stringify(emptySlots, null, 2)}
         <div className="final-banner">הסידור פורסם לעובדים והוא נעול לעריכה. לחצו ״חזרה לעריכה״ כדי לבצע שינויים.</div>
       )}
 
+      {screen === 'employees' && (
+        <div style={{padding:'12px 28px 0',flexShrink:0}}>
+          <div style={{background:'#fffbe6',border:'2px solid #f0b429',borderRadius:10,overflow:'hidden',marginBottom:4}}>
+            <div style={{padding:'10px 14px',fontWeight:700,fontSize:'13px',borderBottom:'1px solid #e8d5a0',display:'flex',alignItems:'center',gap:8,background:'#fffbe6'}}>
+              <span style={{background:'#f0b429',color:'#FFF',borderRadius:6,padding:'2px 8px',fontSize:'12px',fontWeight:800,minWidth:20,textAlign:'center'}}>
+                {pendingEmps === null ? '…' : pendingEmps.length}
+              </span>
+              <span>ממתינים לאישור</span>
+              {pendingEmpsErr && <span style={{color:'#c0392b',fontWeight:400,fontSize:'12px',marginInlineStart:8}}>— שגיאה: {pendingEmpsErr}</span>}
+            </div>
+            {pendingEmps === null && !pendingEmpsErr && <div style={{padding:'10px 14px',fontSize:'12px',color:'#888'}}>טוען…</div>}
+            {pendingEmps !== null && pendingEmps.length === 0 && !pendingEmpsErr && <div style={{padding:'10px 14px',fontSize:'12px',color:'#888'}}>אין ממתינים לאישור</div>}
+            {(pendingEmps || []).map(p => (
+              <div key={p.id} style={{padding:'10px 14px',display:'flex',alignItems:'center',gap:10,borderBottom:'1px solid #f0e8c0',background:'#fffbe6'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:'13px',color:'#1a1a1a'}}>{p.name || '(ללא שם)'}</div>
+                  <div style={{fontSize:'11.5px',color:'#666',direction:'ltr',textAlign:'right'}}>{p.email}</div>
+                  <div style={{fontSize:'11px',color:'#888'}}>{new Date(p.created_at).toLocaleDateString('he-IL')}</div>
+                </div>
+                <button className="btn btn-primary" style={{padding:'5px 12px',fontSize:'12px',flexShrink:0}}
+                  onClick={() => setPendingApproveModal(p)}>אישור</button>
+                <button className="btn" style={{padding:'5px 10px',fontSize:'12px',flexShrink:0,color:'#c0392b',borderColor:'rgba(192,57,43,0.4)'}}
+                  onClick={async () => {
+                    if (!window.confirm('לדחות את בקשת ' + (p.name || p.email) + '?')) return;
+                    const ok = await window.__db.rejectPendingEmployee(p.id);
+                    if (ok) setPendingEmps(prev => prev.filter(x => x.id !== p.id));
+                  }}>דחייה</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <ShiftSettingsCtx.Provider value={shiftSettings}>
-        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} pendingEmps={pendingEmps} pendingEmpsErr={pendingEmpsErr} onPendingChange={setPendingEmps} />}
+        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} pendingEmps={pendingEmps} onPendingChange={setPendingEmps} />}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
           onEmployeesChange={setEmployees}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth} />}
@@ -5408,6 +5394,18 @@ ${JSON.stringify(emptySlots, null, 2)}
         draft={currentDraft} employees={employees} currentMonth={currentMonth} />
       <window.ScriptRunnerModal open={scriptRunnerOpen} onClose={() => setScriptRunnerOpen(false)} />
       <window.SmartSummaryModal summary={smartSummary} onClose={() => setSmartSummary(null)} />
+      {pendingApproveModal && (
+        <ApprovePendingModal
+          pending={pendingApproveModal}
+          COLORS={['oklch(0.62 0.14 250)','oklch(0.62 0.14 330)','oklch(0.62 0.14 160)','oklch(0.62 0.14 50)','oklch(0.62 0.14 210)','oklch(0.62 0.14 10)','oklch(0.62 0.14 290)','oklch(0.62 0.14 130)']}
+          onClose={() => setPendingApproveModal(null)}
+          onApproved={(newEmp) => {
+            setEmployees(prev => [...prev, newEmp]);
+            setPendingEmps(prev => (prev || []).filter(x => x.id !== pendingApproveModal.id));
+            setPendingApproveModal(null);
+          }}
+        />
+      )}
 
       <TweaksPanel>
         <TweakSection label="צבע" />

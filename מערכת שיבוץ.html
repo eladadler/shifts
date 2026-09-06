@@ -631,8 +631,9 @@
 <script>
 /* ===== VAPID / Web Push helpers ===== */
 async function generateVapidKeys() {
+  // VAPID JWT signing requires ECDSA P-256 (not ECDH)
   const pair = await crypto.subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']
+    { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']
   );
   const pub = await crypto.subtle.exportKey('raw', pair.publicKey);
   const priv = await crypto.subtle.exportKey('jwk', pair.privateKey);
@@ -815,11 +816,12 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       } catch (e) { console.warn('saveAnthropicKey failed:', e.message); return false; }
     },
     async saveVapidKeys(publicKey, privateKeyJwk) {
-      if (!client) return false;
+      // Use admin client if available, fall back to anon client (mishmarot_state has open RLS)
+      const c = client || supabase.createClient(URL, KEY);
       try {
-        const { data } = await client.from('mishmarot_state').select('data').eq('id', 'main').single();
+        const { data } = await c.from('mishmarot_state').select('data').eq('id', 'main').single();
         const merged = { ...(data?.data || {}), vapidPublicKey: publicKey, vapidPrivateKeyJwk: privateKeyJwk };
-        const { error } = await client.from('mishmarot_state').upsert({ id: 'main', data: merged, updated_at: new Date().toISOString() });
+        const { error } = await c.from('mishmarot_state').upsert({ id: 'main', data: merged, updated_at: new Date().toISOString() });
         if (error) throw error;
         return true;
       } catch (e) { console.warn('saveVapidKeys failed:', e.message); return false; }

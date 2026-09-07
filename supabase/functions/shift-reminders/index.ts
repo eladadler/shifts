@@ -38,8 +38,11 @@ Deno.serve(async () => {
     const prefs = sub.prefs || { alert24h: true, alertCustom: false, alertCustomHours: 2 }
     const alerts: { label: string; hours: number }[] = []
     if (prefs.alert24h) alerts.push({ label: '24h', hours: 24 })
-    if (prefs.alertCustom && Number(prefs.alertCustomHours) > 0)
-      alerts.push({ label: `${prefs.alertCustomHours}h`, hours: Number(prefs.alertCustomHours) })
+    if (prefs.alertCustom && Number(prefs.alertCustomHours) > 0) {
+      const h = Number(prefs.alertCustomHours)
+      const lbl = h >= 1 ? `${h}h` : `${Math.round(h * 60)}m`
+      alerts.push({ label: lbl, hours: h })
+    }
     if (!alerts.length) continue
 
     for (const sched of (schedules as any[])) {
@@ -66,9 +69,15 @@ Deno.serve(async () => {
               .limit(1)
             if (existing?.length) continue
 
-            const hoursUntil = Math.round((startMs - now) / 3600000)
+            const msUntil = startMs - now
             const title = 'תזכורת משמרת'
-            const body = `משמרת ${LABELS[shiftId] || shiftId} ב-${dateStr}${hoursUntil > 0 ? ` — בעוד כ-${hoursUntil} שעות` : ''}`
+            let timeStr = ''
+            if (msUntil > 0) {
+              const hoursUntil = msUntil / 3600000
+              if (hoursUntil >= 1) timeStr = ` — בעוד כ-${Math.round(hoursUntil)} שעות`
+              else timeStr = ` — בעוד כ-${Math.round(msUntil / 60000)} דקות`
+            }
+            const body = `משמרת ${LABELS[shiftId] || shiftId} ב-${dateStr}${timeStr}`
 
             await sb.from('pending_notifications').insert({ emp_id: sub.emp_id, title, body, tag })
 

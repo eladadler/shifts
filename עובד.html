@@ -808,9 +808,6 @@ function SettingsTab({ me, email, onLogout }) {
   const [pushSubscribed, setPushSubscribed] = React.useState(null);
   const [pushBusy, setPushBusy] = React.useState(false);
   const [pushError, setPushError] = React.useState(null);
-  // custom hours local edit state
-  const [customHoursInput, setCustomHoursInput] = React.useState(String(prefs.alertCustomHours || 2));
-  const [hoursSaved, setHoursSaved] = React.useState(false);
   const firstName = (me.name || '').split(' ')[0];
 
   // Check if already subscribed on mount
@@ -889,13 +886,6 @@ function SettingsTab({ me, email, onLogout }) {
     setPushBusy(false);
   };
 
-  const saveCustomHours = () => {
-    const val = Math.max(1, Math.min(48, Number(customHoursInput) || 1));
-    setCustomHoursInput(String(val));
-    updatePrefs({ alertCustomHours: val });
-    setHoursSaved(true);
-    setTimeout(() => setHoursSaved(false), 2000);
-  };
 
   const [testCountdown, setTestCountdown] = React.useState(null);
 
@@ -980,20 +970,21 @@ function SettingsTab({ me, email, onLogout }) {
               disabled={!pushEnabled}
             />
             {prefs.alertCustom && pushEnabled && (
-              <div style={{ padding: '0 16px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="number" min="1" max="48"
-                  value={customHoursInput}
-                  onChange={e => { setCustomHoursInput(e.target.value); setHoursSaved(false); }}
-                  onKeyDown={e => e.key === 'Enter' && saveCustomHours()}
-                  style={{ width: 64, border: `1.5px solid ${TEAL}`, borderRadius: 9, padding: '7px 10px', fontSize: 16, fontWeight: 800, textAlign: 'center', fontFamily: 'inherit', outline: 'none', color: INK, background: '#FFF' }}
-                />
-                <span style={{ fontSize: 13, color: '#6B6760' }}>שעות לפני המשמרת</span>
-                <button
-                  onClick={saveCustomHours}
-                  style={{ marginInlineStart: 'auto', background: hoursSaved ? '#E8F5EE' : TEAL, color: hoursSaved ? '#3A9B6F' : '#FFF', border: 'none', borderRadius: 9, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'background 0.3s' }}>
-                  {hoursSaved ? '✓ נשמר' : 'שמירה'}
-                </button>
+              <div style={{ padding: '0 16px 14px' }}>
+                <select
+                  value={prefs.alertCustomHours || 1}
+                  onChange={e => updatePrefs({ alertCustomHours: Number(e.target.value) })}
+                  style={{ width: '100%', border: `1.5px solid ${TEAL}`, borderRadius: 9, padding: '8px 12px', fontSize: 14, fontWeight: 700, fontFamily: 'inherit', outline: 'none', color: INK, background: '#FFF', cursor: 'pointer' }}
+                >
+                  <option value={0.25}>15 דקות לפני המשמרת</option>
+                  <option value={0.5}>30 דקות לפני המשמרת</option>
+                  <option value={0.75}>45 דקות לפני המשמרת</option>
+                  <option value={1}>שעה לפני המשמרת</option>
+                  <option value={2}>שעתיים לפני המשמרת</option>
+                  <option value={3}>3 שעות לפני המשמרת</option>
+                  <option value={6}>6 שעות לפני המשמרת</option>
+                  <option value={12}>12 שעות לפני המשמרת</option>
+                </select>
               </div>
             )}
           </div>

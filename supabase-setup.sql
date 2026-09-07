@@ -58,8 +58,13 @@ create policy "open access" on published_schedules
 create table if not exists push_subscriptions (
   emp_id       text primary key,
   subscription jsonb not null,              -- Web Push subscription JSON (endpoint, keys)
+  prefs        jsonb not null default '{"alert24h":true,"alertCustom":false,"alertCustomHours":2}',
   updated_at   timestamptz not null default now()
 );
+
+-- עמודת prefs לטבלה קיימת (הריצו אם כבר יצרתם את הטבלה בעבר)
+alter table push_subscriptions
+  add column if not exists prefs jsonb not null default '{"alert24h":true,"alertCustom":false,"alertCustomHours":2}';
 
 alter table push_subscriptions enable row level security;
 drop policy if exists "open access" on push_subscriptions;
@@ -99,6 +104,20 @@ alter table pending_employees enable row level security;
 drop policy if exists "open access" on pending_employees;
 create policy "open access" on pending_employees
   for all to anon, authenticated using (true) with check (true);
+
+-- 8. תזמון התראות משמרת (Cron + pg_net) — הריצו פעם אחת ב-SQL Editor
+-- create extension if not exists pg_net with schema extensions;
+-- select cron.schedule(
+--   'shift-reminders',
+--   '*/30 * * * *',
+--   $$
+--   select net.http_post(
+--     'https://ajniglpdgkwnasuslsyc.supabase.co/functions/v1/shift-reminders',
+--     '{}',
+--     '{"Content-Type":"application/json","apikey":"sb_publishable_zMTTfShJSVqKaGRYlYoqFA_9y_5Q5hk"}'
+--   );
+--   $$
+-- );
 
 -- 7. משוב AI (אדמינים כותבים דרך מצב תחזה; שמור לשיפור פרומפטים)
 create table if not exists ai_feedback (

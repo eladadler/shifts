@@ -826,6 +826,10 @@ function SettingsTab({ me, email, onLogout }) {
     setPrefs(next);
     try { localStorage.setItem(PREFS_KEY, JSON.stringify(next)); } catch {}
     idbSet('notifPrefs', next).catch(() => {});
+    // Sync to Supabase so the server-side shift-reminders function knows the alert settings
+    if (me?.id) {
+      sb.from('push_subscriptions').update({ prefs: next }).eq('emp_id', me.id).catch(() => {});
+    }
   };
 
   const enablePush = async () => {

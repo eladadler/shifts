@@ -1065,7 +1065,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {} }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {} }) {
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
     const schedule = {};
     const log = [];
@@ -1107,6 +1107,8 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             if (av === 'unavailable') return false;
             if (counts[e.id] >= e.max) return false;
             if (shift.id === 'night' && !e.nights) return false;
+            // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
+            if (initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return false;
             // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש
             const r = D.reqOf(e.id);
             if (r?.can?.length > 0 && av !== 'can' && av !== 'high') return false;
@@ -1151,7 +1153,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     return { schedule, log };
   }
 
-  function detectConflicts(schedule, shiftSettings = null) {
+  function detectConflicts(schedule, shiftSettings = null, initialLastEnd = {}) {
     const issues = {};
     const add = (d, sh, emp, msg) => {
       const k = `${d}|${sh}|${emp}`;
@@ -1182,6 +1184,12 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     Object.entries(byEmp).forEach(([empId, list]) => {
       list.sort((a, b) => a.start - b.start);
       const emp = D.empById(empId);
+      const carry = initialLastEnd[empId];
+      if (carry && list.length) {
+        const g0 = gapHours(carry, list[0].start);
+        if (g0 < 0) add(list[0].dStr, list[0].shiftId, empId, 'חפיפת שעות עם המשמרת האחרונה בחודש הקודם');
+        else if (g0 < MIN_REST_H) add(list[0].dStr, list[0].shiftId, empId, `מנוחה של ${Math.round(g0)} ש׳ בלבד מהמשמרת האחרונה בחודש הקודם (מינ׳ ${MIN_REST_H})`);
+      }
       for (let i = 1; i < list.length; i++) {
         const g = gapHours(list[i - 1].end, list[i].start);
         if (g < 0) add(list[i].dStr, list[i].shiftId, empId, 'חפיפת שעות עם משמרת אחרת');
@@ -4688,7 +4696,28 @@ function App() {
 
   const updateDraft = (id, fn) => setDrafts(ds => ds.map(d => d.id === id ? { ...d, ...fn(d) } : d));
 
-  const conflicts = React.useMemo(() => currentDraft ? AE.detectConflicts(currentDraft.schedule, shiftSettings) : {}, [currentDraft, shiftSettings]);
+  // שעת הסיום של המשמרת האחרונה בחודש הקודם, לכל עובד — חוסמת שיבוץ אוטומטי צמוד בגבול החודש
+  const carryOverEnds = React.useMemo(() => {
+    const [y, m] = currentMonth.split('-').map(Number);
+    let pm = m - 1, py = y;
+    if (pm <= 0) { pm = 12; py -= 1; }
+    const prevMonth = `${py}-${String(pm).padStart(2, '0')}`;
+    const prevDrafts = drafts.filter(d => d.month === prevMonth && d.schedule);
+    const prev = prevDrafts.find(d => d.status === 'final') || prevDrafts[prevDrafts.length - 1];
+    if (!prev) return {};
+    const ends = {};
+    Object.keys(prev.schedule).forEach(dStr => {
+      Object.entries(prev.schedule[dStr] || {}).forEach(([shiftId, empIds]) => {
+        const shift = AD.shiftDef(dStr, shiftId, shiftSettings);
+        if (!shift) return;
+        const end = AD.shiftTimes(dStr, shift).end;
+        (empIds || []).forEach(id => { if (!ends[id] || end > ends[id]) ends[id] = end; });
+      });
+    });
+    return ends;
+  }, [drafts, currentMonth, shiftSettings]);
+
+  const conflicts = React.useMemo(() => currentDraft ? AE.detectConflicts(currentDraft.schedule, shiftSettings, carryOverEnds) : {}, [currentDraft, shiftSettings, carryOverEnds]);
   const conflictCount = Object.keys(conflicts).length;
   const dilemmaCount = (currentDraft?.log || []).filter(l => l.type !== 'info').length;
 
@@ -4720,7 +4749,7 @@ function App() {
 
   // בנה סיכום שיבוץ חכם לאחר הרצה
   const buildSmartSummary = (schedule, draft, ss, aiPhase) => {
-    const conflicts = AE.detectConflicts(schedule, ss);
+    const conflicts = AE.detectConflicts(schedule, ss, carryOverEnds);
     const holes = [], unavailable = [], canViol = [], rest = [], maxOver = [];
     let totalAssigned = 0;
 
@@ -4787,6 +4816,7 @@ function App() {
     const result = AE.generate({
       startDate: currentDraft.range.start, endDate: currentDraft.range.end,
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
+      initialLastEnd: carryOverEnds,
     });
     const ts = new Date().toISOString();
     const log = [
@@ -4815,7 +4845,7 @@ function App() {
       const algoResult = AE.generate({
         startDate: currentDraft.range.start, endDate: currentDraft.range.end,
         excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule,
-        shiftSettings, initialCounts: histCounts,
+        shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds,
       });
       algoResult.log.filter(l => l.type !== 'info').forEach(l => smartLog.push({ ...l, timestamp: ts() }));
 
@@ -4854,7 +4884,11 @@ function App() {
           const needed = (s.required || 1) - existing.length;
           if (needed > 0) {
             if (!emptySlots[d]) emptySlots[d] = {};
-            emptySlots[d][s.id] = { name: s.name, required: s.required, alreadyAssigned: existing, stillNeeded: needed, isNight: s.id === 'night' };
+            const slot = { name: s.name, required: s.required, alreadyAssigned: existing, stillNeeded: needed, isNight: s.id === 'night' };
+            const start = AD.shiftTimes(d, s).start;
+            const blocked = Object.keys(carryOverEnds).filter(id => AE.gapHours(carryOverEnds[id], start) < AE.MIN_REST_H);
+            if (blocked.length) slot.blockedEmpIds = blocked;
+            emptySlots[d][s.id] = slot;
           }
         });
       });
@@ -4885,6 +4919,7 @@ ${JSON.stringify(emptySlots, null, 2)}
 4. shiftsAlreadyAssigned + שיבוצים חדשים ≤ maxShifts
 5. העדף עובדים עם high, פזר שוויונית, nightOwl → עדיפות לילה
 6. can לא ריק → שבץ רק ב-can∪high. עדיף חור ריק על שיבוץ בכוח.
+7. blockedEmpIds במשבצת → אסור לשבץ עובדים אלה שם (מנוחה מהמשמרת האחרונה בחודש הקודם). עדיף חור ריק.
 
 ## פורמט תגובה — התחל מיד עם {
 {"assignments":{"YYYY-MM-DD":{"shiftId":["empId1"]}},"log":[{"type":"info|decision|dilemma","msg":"קצר"}]}`;
@@ -5064,6 +5099,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       const topUp = AE.generate({
         startDate: snap.range.start, endDate: snap.range.end,
         excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
+        initialLastEnd: carryOverEnds,
       });
 
       const ts = new Date().toISOString();

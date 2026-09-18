@@ -275,6 +275,36 @@ function buildMonthDays(ym, pubRow, myId, empNames) {
   return days;
 }
 
+// כל המשמרות שפורסמו, ממוינות לפי זמן התחלה — כדי למצוא את המשמרת שלפני ושאחרי, גם מעבר לחצות
+function buildTimeline(published) {
+  const out = [];
+  Object.keys(published).forEach(ym => {
+    const settings = published[ym]?.shift_settings || null;
+    const schedule = published[ym]?.schedule || {};
+    Object.keys(schedule).forEach(ds => {
+      Object.keys(schedule[ds] || {}).forEach(sid => {
+        const def = shiftDefOf(ds, sid, settings);
+        if (!def) return;
+        const at = parseDate(ds);
+        const [h, m] = String(def.start || '00:00').split(':').map(Number);
+        at.setHours(h, m, 0, 0);
+        out.push({ ym, ds, shiftId: sid, def, people: schedule[ds][sid] || [], startMs: at.getTime() });
+      });
+    });
+  });
+  return out.sort((a, b) => a.startMs - b.startMs);
+}
+
+// זמינות עובד למשמרת לפי הבקשה שהגיש. ערך "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת.
+function availOf(req, ds, shiftId) {
+  if (!req) return null;
+  const hit = (arr) => (arr || []).some(v => v === ds || v === ds + '@' + shiftId);
+  if (hit(req.unavailable)) return 'unavailable';
+  if (hit(req.high)) return 'high';
+  if (hit(req.can)) return 'can';
+  return null;
+}
+
 /* ============ רכיבים משותפים ============ */
 function PersonChip({ id, myId, empNames }) {
   const isMe = id === myId;
@@ -286,9 +316,9 @@ function PersonChip({ id, myId, empNames }) {
   );
 }
 
-function ShiftRow({ sh, myId, empNames, blocked }) {
+function ShiftRow({ sh, myId, empNames, blocked, onOpen }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, padding: '10px 12px', borderRadius: 10,
+    <div onClick={onOpen} style={{ cursor: onOpen ? 'pointer' : 'default', display: 'flex', flexDirection: 'column', gap: 7, padding: '10px 12px', borderRadius: 10,
       background: blocked ? 'oklch(0.97 0.01 25)' : (sh.mine ? TEAL_SOFT : (sh.special ? 'oklch(0.96 0.04 80)' : '#FBFAF8')),
       border: blocked ? '1px solid oklch(0.82 0.08 25)' : (sh.mine ? `1.5px solid ${TEAL}` : (sh.special ? '1px dashed oklch(0.72 0.1 70)' : '1px solid #ECEAE5')),
       opacity: blocked ? 0.65 : 1 }}>
@@ -508,6 +538,9 @@ function App() {
   const [anthropicKey, setAnthropicKey] = React.useState('');      // מפתח Anthropic — נטען מ-Supabase
   const [serverReqs, setServerReqs] = React.useState({});    // { 'YYYY-MM': row } — הבקשות שלי מהשרת
   const [localReqs, setLocalReqs] = React.useState({});      // { 'YYYY-MM': { marks, note, dirty } }
+  const [allReqs, setAllReqs] = React.useState({});          // { 'YYYY-MM': { emp_id: row } } — כל העובדים
+  const [mgrEmps, setMgrEmps] = React.useState([]);          // כרטיסי העובדים מהמשבץ (nights, max)
+  const [detail, setDetail] = React.useState(null);          // { ym, ds, shiftId } — מסך פרטי משמרת
   const [tab, setTab] = React.useState('home');
   const [toast, setToast] = React.useState(null);
 
@@ -560,7 +593,7 @@ function App() {
 
       const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes] = await Promise.all([
         sb.from('published_schedules').select('*'),
-        sb.from('employee_requests').select('*').eq('emp_id', mine.id),
+        sb.from('employee_requests').select('*'),
         sb.from('mishmarot_state').select('data').eq('id', 'main').maybeSingle(),
       ]);
       if (e2) throw e2;
@@ -568,6 +601,7 @@ function App() {
       // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
+      setMgrEmps(stateData.employees || []);
       setAnthropicKey(prev => prev || stateData.anthropicKey || '');
       // PWA: auto-subscribe only if user hasn't explicitly opted out
       if (stateData.vapidPublicKey && mine.id && window.subscribeToPush
@@ -578,8 +612,12 @@ function App() {
       (pubs || []).forEach(r => { pubMap[r.month] = r; });
       setPublished(pubMap);
       const reqMap = {};
-      (reqs || []).forEach(r => { reqMap[r.month] = r; });
+      (reqs || []).filter(r => r.emp_id === mine.id).forEach(r => { reqMap[r.month] = r; });
       setServerReqs(reqMap);
+      // בקשות כל העובדים — משמשות במסך המשמרת לאיתור מחליף פוטנציאלי
+      const allMap = {};
+      (reqs || []).forEach(r => { (allMap[r.month] = allMap[r.month] || {})[r.emp_id] = r; });
+      setAllReqs(allMap);
       // אתחול עריכות מקומיות מהשרת — בלי לדרוס שינויים שטרם נשלחו.
       // ערך "YYYY-MM-DD" = יום שלם (marks[day] מחרוזת), "YYYY-MM-DD@shiftId" = משמרת (marks[day] אובייקט)
       setLocalReqs(prev => {
@@ -729,13 +767,20 @@ function App() {
         <span onClick={() => window.close()} style={{ cursor: 'pointer', fontSize: 18, fontWeight: 900, lineHeight: 1, opacity: 0.85 }}>×</span>
       </div>
     )}
+    {detail ? (
+      <ShiftDetail me={me} empNames={empNames} published={published} allReqs={allReqs} mgrEmps={mgrEmps}
+        ctx={detail} onClose={() => setDetail(null)} />
+    ) : (
     <Shell me={me} tab={tab} setTab={setTab}>
-      {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} />}
-      {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} serverReqs={serverReqs} goReq={() => setTab('requests')} />}
+      {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} goSched={() => setTab('schedule')} goReq={() => setTab('requests')}
+        onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
+      {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} serverReqs={serverReqs} goReq={() => setTab('requests')}
+        onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey} />}
       {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} />}
     </Shell>
+    )}
   </>);
 }
 
@@ -1019,7 +1064,137 @@ function SettingsTab({ me, email, onLogout }) {
 }
 
 /* ============ טאב הבית ============ */
-function HomeTab({ me, empNames, published, TM, goSched, goReq }) {
+/* ============ מסך פרטי משמרת ============ */
+function AdjacentShift({ title, item, empNames, myId }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, background: '#FBFAF8', border: '1px solid #ECEAE5', borderRadius: 11, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: '#8A867F', letterSpacing: '0.03em' }}>{title}</div>
+      {item ? (<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotOf(item.shiftId), flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 800, color: INK }}>{item.def?.name || item.shiftId}</span>
+          <span style={{ fontSize: 11.5, color: '#8A867F' }}>{item.def ? `${item.def.start}–${item.def.end}` : ''}</span>
+        </div>
+        <div style={{ fontSize: 11.5, color: '#8A867F' }}>{shortDate(item.ds)}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+          {item.people.length
+            ? item.people.map(p => <PersonChip key={p} id={p} myId={myId} empNames={empNames} />)
+            : <span style={{ fontSize: 12, color: '#A8A49C' }}>לא מאויש</span>}
+        </div>
+      </>) : <span style={{ fontSize: 12, color: '#A8A49C' }}>אין משמרת בסידור</span>}
+    </div>
+  );
+}
+
+function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose }) {
+  const { ym, ds, shiftId } = ctx;
+  const row = published[ym];
+  const settings = row?.shift_settings || null;
+  const def = shiftDefOf(ds, shiftId, settings);
+  const daySchedule = row?.schedule?.[ds] || {};
+  const people = daySchedule[shiftId] || [];
+  const mates = people.filter(p => p !== me.id);
+  const dow = weekdayOf(ds);
+
+  const timeline = React.useMemo(() => buildTimeline(published), [published]);
+  const idx = timeline.findIndex(t => t.ds === ds && t.shiftId === shiftId);
+  const prev = idx > 0 ? timeline[idx - 1] : null;
+  const next = idx !== -1 && idx < timeline.length - 1 ? timeline[idx + 1] : null;
+
+  // מי שכבר עובד באותו יום מוסתר מרשימת המחליפים — הוא לא באמת פנוי
+  const busyToday = new Set();
+  Object.values(daySchedule).forEach(arr => (arr || []).forEach(id => busyToday.add(id)));
+
+  const nightsOf = {};
+  (mgrEmps || []).forEach(e => { nightsOf[e.id] = !!e.nights; });
+  const haveCaps = (mgrEmps || []).length > 0;
+
+  // מחליפים אפשריים — אותו כלל שהמשבץ מפעיל: לא חסם, ואם הגיש רשימת "יכול" אז רק בתוכה
+  const monthReqs = allReqs[ym] || {};
+  const cands = [];
+  Object.keys(empNames).forEach(id => {
+    if (id === me.id || busyToday.has(id)) return;
+    if (shiftId === 'night' && haveCaps && !nightsOf[id]) return;
+    const req = monthReqs[id];
+    const av = availOf(req, ds, shiftId);
+    if (av === 'unavailable') return;
+    if ((req?.can || []).length > 0 && av !== 'can' && av !== 'high') return;
+    cands.push({ id, av });
+  });
+  const rank = { high: 0, can: 1 };
+  cands.sort((a, b) => (rank[a.av] ?? 2) - (rank[b.av] ?? 2)
+    || (empNames[a.id] || '').localeCompare(empNames[b.id] || '', 'he'));
+
+  const BADGE = {
+    high: { text: 'ביקש.ה את המשמרת', ...MARK_STATUS.high },
+    can:  { text: 'סימן.ה שיכול.ה',    ...MARK_STATUS.can },
+  };
+  const section = { fontSize: 12, fontWeight: 800, color: '#8A867F', letterSpacing: '0.04em' };
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', animation: 'fadeIn 0.2s' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px 6px' }}>
+        <span onClick={onClose} style={{ fontSize: 22, fontWeight: 900, color: INK, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>→</span>
+        <span style={{ fontSize: 16, fontWeight: 900 }}>פרטי המשמרת</span>
+      </div>
+
+      <div style={{ padding: '10px 16px 28px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div style={{ background: INK, color: '#FFF', borderRadius: 16, padding: 18, display: 'flex', flexDirection: 'column', gap: 9 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: dotOf(shiftId), flexShrink: 0 }} />
+            <span style={{ fontSize: 28, fontWeight: 900, lineHeight: 1 }}>{def?.name || shiftId}</span>
+            <span style={{ fontSize: 17, fontWeight: 700, color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' }}>{def ? `${def.start}–${def.end}` : ''}</span>
+          </div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }}>
+            יום {HEB_DAYS[dow]}, {Number(ds.split('-')[2])} {inMonthLabel(ym)}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={section}>מי איתי במשמרת</div>
+          {mates.length ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {people.map(p => <PersonChip key={p} id={p} myId={me.id} empNames={empNames} />)}
+            </div>
+          ) : <div style={{ fontSize: 13, color: '#8A867F' }}>משמרת יחיד — אתם לבד במשמרת זו.</div>}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={section}>המשמרות הצמודות</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <AdjacentShift title="המשמרת שלפני" item={prev} empNames={empNames} myId={me.id} />
+            <AdjacentShift title="המשמרת שאחרי" item={next} empNames={empNames} myId={me.id} />
+          </div>
+          <div style={{ fontSize: 11.5, color: '#A8A49C', lineHeight: 1.5 }}>
+            אפשר לבקש ממי שבמשמרת הקודמת להישאר, או ממי שבמשמרת הבאה להקדים.
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={section}>מי יכול להחליף אותי</div>
+          {cands.length ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {cands.map(c => {
+                const b = BADGE[c.av];
+                return (
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FFF', border: '1px solid #EAE7E1', borderRadius: 10, padding: '10px 12px' }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, color: INK, flex: 1, minWidth: 0 }}>{empNames[c.id] || c.id}</span>
+                    {b && <span style={{ fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '3px 9px', flexShrink: 0, background: b.bg, border: b.bd, color: b.fg }}>{b.text}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          ) : <div style={{ fontSize: 13, color: '#8A867F' }}>אין כרגע מי שפנוי.ה למשמרת הזו.</div>}
+          <div style={{ fontSize: 11.5, color: '#A8A49C', lineHeight: 1.5 }}>
+            לפי הבקשות שהוגשו ל{monthName(ym)}. מי שכבר משובץ.ת באותו יום לא מופיע.ה ברשימה.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeTab({ me, empNames, published, TM, goSched, goReq, onOpenShift }) {
   const today = todayStr();
   const relOf = (off) => off === 0 ? 'היום' : off === 1 ? 'מחר' : `בעוד ${off} ימים`;
 
@@ -1048,7 +1223,8 @@ function HomeTab({ me, empNames, published, TM, goSched, goReq }) {
       <div style={{ fontSize: 24, fontWeight: 900 }}>שלום, {firstName}</div>
 
       {hero ? (
-        <div style={{ background: INK, color: '#FFF', borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 11, boxShadow: '0 12px 26px rgba(28,26,23,0.18)' }}>
+        <div onClick={() => onOpenShift(hero.ym, hero.d.ds, hero.sh.id)}
+          style={{ background: INK, color: '#FFF', borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 11, boxShadow: '0 12px 26px rgba(28,26,23,0.18)', cursor: 'pointer' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 12, fontWeight: 800, color: 'color-mix(in oklab, #41ABC3 45%, white)', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>המשמרת הקרובה שלך</span>
             <span style={{ fontSize: 12, fontWeight: 800, background: TEAL, color: '#FFF', borderRadius: 999, padding: '4px 12px' }}>{relOf(hero.off)}</span>
@@ -1084,7 +1260,8 @@ function HomeTab({ me, empNames, published, TM, goSched, goReq }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {upcoming.slice(1, 6).map((u, i) => (
-          <div key={i} style={{ background: '#FFF', border: '1px solid #EAE7E1', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div key={i} onClick={() => onOpenShift(u.ym, u.d.ds, u.sh.id)}
+            style={{ background: '#FFF', border: '1px solid #EAE7E1', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
             <div style={{ width: 44, height: 44, borderRadius: 10, background: '#F1EFEB', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0, gap: 1 }}>
               <span style={{ fontSize: 16, fontWeight: 900, lineHeight: 1 }}>{u.d.num}</span>
               <span style={{ fontSize: 10, fontWeight: 700, color: '#8A867F' }}>{monthName(u.ym)}</span>
@@ -1095,7 +1272,10 @@ function HomeTab({ me, empNames, published, TM, goSched, goReq }) {
                 <span style={{ fontSize: 14, fontWeight: 800 }}>{u.sh.label}</span>
                 <span style={{ fontSize: 12, color: '#8A867F' }}>{u.sh.time}</span>
               </div>
-              <div style={{ fontSize: 12, color: '#8A867F' }}>יום {u.d.dayName}</div>
+              <div style={{ fontSize: 12, color: '#8A867F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {(() => { const mates = u.sh.people.filter(p => p !== me.id).map(p => empNames[p] || p);
+                  return mates.length ? `יום ${u.d.dayName} · עם ${mates.join(', ')}` : `יום ${u.d.dayName} · משמרת יחיד`; })()}
+              </div>
             </div>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#56524C', flexShrink: 0 }}>{relOf(u.off)}</div>
           </div>
@@ -1107,7 +1287,7 @@ function HomeTab({ me, empNames, published, TM, goSched, goReq }) {
 }
 
 /* ============ טאב הסידור ============ */
-function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq }) {
+function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, onOpenShift }) {
   const months = React.useMemo(() => {
     const set = new Set([TM, addMonths(TM, 1), ...Object.keys(published)]);
     return [...set].sort();
@@ -1213,7 +1393,8 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq }) {
                 return (<>
                   <div style={{ fontSize: 14, fontWeight: 900 }}>יום {d.dayName}, {d.num} {inMonthLabel(ym)}{todayNum === d.num ? ' · היום' : ''}</div>
                   {use.length === 0 && <div style={{ fontSize: 13, color: '#8A867F' }}>{onlyMine ? 'אין לך משמרות ביום זה.' : 'אין משמרות ביום זה.'}</div>}
-                  {use.map((sh, i) => <ShiftRow key={i} sh={sh} myId={me.id} empNames={empNames} blocked={isUnavailable(d.ds, sh.id)} />)}
+                  {use.map((sh, i) => <ShiftRow key={i} sh={sh} myId={me.id} empNames={empNames} blocked={isUnavailable(d.ds, sh.id)}
+                    onOpen={sh.mine ? () => onOpenShift(ym, d.ds, sh.id) : null} />)}
                 </>);
               })()}
             </div>
@@ -1273,7 +1454,8 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq }) {
                       {use.length === 0 && <span style={{ fontSize: 12, color: '#A09C94' }}>אין משמרות</span>}
                     </div>
                   )}
-                  {expanded && use.map((sh, j) => <ShiftRow key={j} sh={sh} myId={me.id} empNames={empNames} blocked={isUnavailable(d.ds, sh.id)} />)}
+                  {expanded && use.map((sh, j) => <ShiftRow key={j} sh={sh} myId={me.id} empNames={empNames} blocked={isUnavailable(d.ds, sh.id)}
+                    onOpen={sh.mine ? () => onOpenShift(ym, d.ds, sh.id) : null} />)}
                 </div>
               );
             })}

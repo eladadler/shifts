@@ -193,7 +193,8 @@ async function checkUpcomingShiftNotifications(empId) {
           const startMs = personStartMs(shiftId, dStr, ss, empId);
           if (startMs < now - WINDOW_MS) continue; // past shift + window
 
-          const shiftLabel = SHIFT_LABELS[shiftId] || shiftId;
+          // שם המשמרת מגיע מההגדרות עצמן, כך ששינויי שם מגיעים גם להתראות
+          const shiftLabel = (shiftDefOf(shiftId, dStr, ss) || {}).name || SHIFT_LABELS[shiftId] || shiftId;
           const hoursUntil = Math.round((startMs - now) / 3600000);
 
           for (const { label, hours } of alerts) {

@@ -77,7 +77,9 @@ Deno.serve(async () => {
               if (hoursUntil >= 1) timeStr = ` — בעוד כ-${Math.round(hoursUntil)} שעות`
               else timeStr = ` — בעוד כ-${Math.round(msUntil / 60000)} דקות`
             }
-            const body = `משמרת ${LABELS[shiftId] || shiftId} ב-${dateStr}${timeStr}`
+            // שם המשמרת מגיע מההגדרות עצמן, כך ששינויי שם מגיעים גם להתראות
+            const shiftName = shiftDefOf(shiftId, dateStr, ss)?.name || LABELS[shiftId] || shiftId
+            const body = `משמרת ${shiftName} ב-${dateStr}${timeStr}`
 
             await sb.from('pending_notifications').insert({ emp_id: sub.emp_id, title, body, tag })
 

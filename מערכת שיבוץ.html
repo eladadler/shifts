@@ -1673,7 +1673,7 @@ function Avatar({ emp, size = 22 }) {
   );
 }
 
-function ShiftChip({ emp, dStr, shiftId, shift, conflicts, editable, onRemove, onEditTimes, onDragChipStart, onDragEnd }) {
+function ShiftChip({ emp, dStr, shiftId, shift, conflicts, editable, onRemove, onDragChipStart, onDragEnd }) {
   const key = `${dStr}|${shiftId}|${emp.id}`;
   const issues = conflicts[key] || [];
   const [showTip, setShowTip] = React.useState(false);
@@ -1693,9 +1693,7 @@ function ShiftChip({ emp, dStr, shiftId, shift, conflicts, editable, onRemove, o
       draggable={editable}
       onDragStart={editable ? handleDragStart : undefined}
       onDragEnd={onDragEnd}
-      onClick={editable && onEditTimes ? (e) => { e.stopPropagation(); onEditTimes(emp.id); } : undefined}
-      style={editable && onEditTimes ? { cursor: 'pointer' } : undefined}
-      title={issues.length ? undefined : (editable && onEditTimes ? `${emp.name} — לחצו לעריכת שעות אישיות` : emp.name)}
+      title={issues.length ? undefined : emp.name}
     >
       <Avatar emp={emp} size={20} />
       <span className="chip-name">{emp.name}</span>
@@ -1729,9 +1727,8 @@ function ShiftChip({ emp, dStr, shiftId, shift, conflicts, editable, onRemove, o
   );
 }
 
-function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focusedEmpId, isContinuation, onAssign, onRemove, onEditTimes, onMoveChip, onDragChipStart, onDragEnd, slotKey, slotDragKey, onSlotDragStart, onSlotDragEnd, onSlotDropReorder }) {
-  // null = עריכת הבלוק כולו, empId = עריכת שעות של עובד אחד
-  const openTimes = onEditTimes ? (empId) => onEditTimes(dStr, shift.id, empId) : null;
+function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focusedEmpId, isContinuation, onAssign, onRemove, onEditTimes, onSelectShift, onMoveChip, onDragChipStart, onDragEnd, slotKey, slotDragKey, onSlotDragStart, onSlotDragEnd, onSlotDropReorder }) {
+  const openTimes = onEditTimes ? () => onEditTimes(dStr, shift.id, null) : null;
   const [over, setOver] = React.useState(false);
   const hasConflict = emps.some((id) => (conflicts[`${dStr}|${shift.id}|${id}`] || []).length);
   const required = shift.required || 1;
@@ -1781,6 +1778,7 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
       }}
       onDragLeave={() => setOver(false)}
       onDrop={handleDrop}
+      onClick={onSelectShift ? (e) => { e.stopPropagation(); onSelectShift(shift.id); } : undefined}
     >
       <div
         className={'slot-head' + (editable && onSlotDragStart ? ' slot-head-grab' : '')}
@@ -1796,12 +1794,14 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
       >
         <span className="slot-dot" aria-hidden="true"></span>
         <span className="slot-name">{shift.name}</span>
-        <span className="slot-hours"
-          onClick={editable && openTimes ? (e) => { e.stopPropagation(); openTimes(null); } : undefined}
-          style={editable && openTimes ? { cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 } : undefined}
-          title={editable && openTimes ? 'עריכת שעות המשמרת ופיצול בין העובדים' : undefined}>
-          {shift._startDayOffset ? '⤺' : ''}{shift.start}–{shift.end}
-        </span>
+        <span className="slot-hours">{shift._startDayOffset ? '⤺' : ''}{shift.start}–{shift.end}</span>
+        {editable && openTimes && (
+          <button
+            onClick={(e) => { e.stopPropagation(); openTimes(); }}
+            title="עריכת שעות המשמרת ופיצול בין העובדים"
+            style={{ marginInlineStart: 'auto', background: 'none', border: 'none', padding: '0 2px', cursor: 'pointer',
+              fontSize: 11, lineHeight: 1, color: 'var(--ink-2)', opacity: 0.55, flexShrink: 0 }}>🕐</button>
+        )}
       </div>
       {emps.length === 0 ? (
         <div className="slot-placeholder">{editable ? 'גררו עובד לכאן' : 'לא מאויש'}</div>
@@ -1811,7 +1811,7 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
             const emp = D.empById(id);
             return emp && (
               <ShiftChip key={id} emp={emp} dStr={dStr} shiftId={shift.id} shift={shift} conflicts={conflicts}
-                editable={editable} onRemove={onRemove} onEditTimes={openTimes}
+                editable={editable} onRemove={onRemove}
                 onDragChipStart={onDragChipStart} onDragEnd={onDragEnd} />
             );
           })}
@@ -2066,6 +2066,7 @@ function DayCard({ dStr, inMonth, excluded, schedule, conflicts, editable, dragg
               isContinuation={!!shift.continuation}
               conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} focusedEmpId={focusedEmpId} {...slotProps}
               slotKey={key} slotDragKey={slotDragKey}
+              onSelectShift={(shiftId) => onSelect(dStr, shiftId)}
               onSlotDragStart={setSlotDragKey}
               onSlotDragEnd={() => setSlotDragKey(null)}
               onSlotDropReorder={() => { reorderTo(key); setSlotDragKey(null); }} />
@@ -2526,13 +2527,14 @@ ${editable ? '' : 'שים לב: הסידור נעול כרגע לעריכה — 
 }
 
 // ---- חלונית צד ראשית ----
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey, employees, onEmployeesChange, onAssign, onRemove, focusedEmpId, onFocusEmpChange }) {
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey, employees, onEmployeesChange, onAssign, onRemove, focusedEmpId, onFocusEmpChange, focusShift }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
   const [shiftFilter, setShiftFilter] = React.useState('all');
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
 
-  React.useEffect(() => { setShiftFilter('all'); }, [selectedDate]);
+  // לחיצה על משמרת בלוח מסננת לפיה; הלשוניות כאן ממשיכות לעבוד כרגיל
+  React.useEffect(() => { setShiftFilter(focusShift || 'all'); }, [selectedDate, focusShift]);
 
   const NAV = [
     { id: 'employees', icon: '👥', label: 'עובדים' },
@@ -4824,6 +4826,7 @@ function App() {
   const [vapidPublicKey, setVapidPublicKey] = React.useState(() => saved?.vapidPublicKey || '');
   const [sendRemindersOpen, setSendRemindersOpen] = React.useState(false);
   const [selectedDate, setSelectedDate] = React.useState(null);
+  const [selectedShift, setSelectedShift] = React.useState(null);  // לחיצה על משמרת מסננת את פאנל הזמינות
   const [draggingEmp, setDraggingEmp] = React.useState(null);
   const [focusedEmpId, setFocusedEmpId] = React.useState(null);
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -5698,7 +5701,12 @@ ${JSON.stringify(emptySlots, null, 2)}
                 <div className="board-inner">
                   <MonthView range={currentDraft.range} excluded={currentDraft.excluded} schedule={currentDraft.schedule}
                     conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} focusedEmpId={focusedEmpId} selectedDate={selectedDate}
-                    onSelectDate={d => setSelectedDate(cur => cur === d ? null : d)} slotProps={slotProps} />
+                    onSelectDate={(d, shiftId) => {
+                      if (!shiftId) { setSelectedDate(cur => cur === d ? null : d); setSelectedShift(null); return; }
+                      // לחיצה חוזרת על אותה משמרת מחזירה את הפאנל לכל היום
+                      setSelectedShift(cur => (cur === shiftId && selectedDate === d) ? null : shiftId);
+                      setSelectedDate(d);
+                    }} slotProps={slotProps} />
                   {isGenerating && (
                     <div className="generating-overlay">
                       <div className="generating-card">
@@ -5719,7 +5727,7 @@ ${JSON.stringify(emptySlots, null, 2)}
               onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
               apiKey={anthropicKey} employees={employees} onEmployeesChange={setEmployees}
               onAssign={assign} onRemove={remove}
-              focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} />
+              focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift} />
           </main>
         )}
       </ShiftSettingsCtx.Provider>

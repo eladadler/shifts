@@ -1820,19 +1820,24 @@ function TimeBox({ value, custom, onChange }) {
   );
 }
 
-// מופעי המשמרות סביב התאריך, ממוינים לפי זמן — לאיתור המשמרת הצמודה גם מעבר לחצות
-function neighborShifts(dStr, shiftId, settings, schedule) {
+// משמרות שנדחקו בפועל אחרי הקדמת התחלה או הארכת סיום.
+// ref = טווח המשמרת לפני הדריסות; occ = הטווח בפועל כולל הארכות אישיות.
+// משמרת שרצה במקביל (מתחילה לפני שזו נגמרת) איננה "לפני" או "אחרי" ולכן לא מתקצרת —
+// בוקר 09:00–21:00 ובוקר קצר 09:00–20:00 הן שתי משמרות מקבילות, לא רצף.
+function encroachedShifts(dStr, shiftId, settings, schedule, ref, occ) {
   const out = [];
   for (let off = -2; off <= 2; off++) {
     const ds = D.addDays(dStr, off);
     D.shiftTypesFor(ds, settings).forEach((sh) => {
       if (sh.continuation) return;
+      if (ds === dStr && sh.id === shiftId) return;
       out.push({ ds, shift: sh, ...D.shiftTimes(ds, sh), people: (schedule?.[ds]?.[sh.id]) || [] });
     });
   }
-  out.sort((a, b) => a.start - b.start);
-  const i = out.findIndex((x) => x.ds === dStr && x.shift.id === shiftId);
-  return { prev: i > 0 ? out[i - 1] : null, next: i >= 0 && i < out.length - 1 ? out[i + 1] : null };
+  return {
+    before: out.filter((x) => x.end <= ref.start && x.end > occ.start).sort((a, b) => b.end - a.end).slice(0, 2),
+    after:  out.filter((x) => x.start >= ref.end && x.start < occ.end).sort((a, b) => a.start - b.start).slice(0, 2),
+  };
 }
 
 function ShiftTimesDialog({ ctx, settings, schedule, onUpdate, onClose }) {
@@ -1864,9 +1869,10 @@ function ShiftTimesDialog({ ctx, settings, schedule, onUpdate, onClose }) {
     if (t.end > occEnd) occEnd = t.end;
   });
 
-  const nb = neighborShifts(dStr, shiftId, settings, schedule);
-  const prevClash = nb.prev && occStart < nb.prev.end && !ignored.prev ? nb.prev : null;
-  const nextClash = nb.next && occEnd > nb.next.start && !ignored.next ? nb.next : null;
+  // הטווח המקורי, לפני כל דריסה — רק חריגה ממנו נחשבת דחיקה של משמרת אחרת
+  const ref = D.shiftTimes(dStr, base);
+  const nb = encroachedShifts(dStr, shiftId, settings, schedule, ref, { start: occStart, end: occEnd });
+  const sideKey = (n) => `${n.ds}|${n.shift.id}`;
 
   // קיצור המשמרת הצמודה עד הגבול החדש — לכולם או לעובד יחיד
   const trim = (n, edge, boundary, empId) => {
@@ -1879,11 +1885,13 @@ function ShiftTimesDialog({ ctx, settings, schedule, onUpdate, onClose }) {
     });
   };
 
-  const clashPanel = (n, edge, boundary, side) => {
+  const clashPanel = (n, edge, boundary) => {
+    const side = sideKey(n);
+    if (ignored[side]) return null;
     const hm = D.fmtHM(boundary);
     const hours = Math.round(Math.abs(edge === 'end' ? boundary - n.end : boundary - n.start) / 36e5 * 10) / 10;
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderRadius: 10,
+      <div key={side} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderRadius: 10,
         border: '1.5px solid oklch(0.72 0.14 70)', background: 'oklch(0.97 0.04 80)' }}>
         <div style={{ fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.5 }}>
           השעות החדשות נכנסות {hours} ש׳ לתוך <b>{n.shift.name}</b> של {D.shortDate(n.ds)} ({D.fmtHM(n.start)}–{D.fmtHM(n.end)}).
@@ -1965,8 +1973,8 @@ function ShiftTimesDialog({ ctx, settings, schedule, onUpdate, onClose }) {
             </div>
           </div>
 
-          {prevClash && clashPanel(prevClash, 'end', occStart, 'prev')}
-          {nextClash && clashPanel(nextClash, 'start', occEnd, 'next')}
+          {nb.before.map((n) => clashPanel(n, 'end', occStart))}
+          {nb.after.map((n) => clashPanel(n, 'start', occEnd))}
         </div>
         <div className="modal-foot">
           <button className="btn" onClick={() => onUpdate(dStr, shiftId, () => null)}>ביטול כל הדריסות</button>

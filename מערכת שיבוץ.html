@@ -2288,7 +2288,7 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
         properties: {
           name:   { type: 'string',  description: 'שם העובד (שם פרטי מספיק)' },
           role:   { type: 'string',  description: 'תפקיד (רשות)' },
-          max:    { type: 'number',  description: 'מכסת משמרות מקסימלית לחודש (רשות, ברירת מחדל 16)' },
+          max:    { type: 'number',  description: 'מכסת משמרות מקסימלית לחודש (רשות, ברירת מחדל 14)' },
           nights: { type: 'boolean', description: 'יכול לעבוד לילות (רשות, ברירת מחדל לא)' },
           anchor: { type: 'boolean', description: 'עובד עוגן (רשות)' },
         },
@@ -2354,7 +2354,7 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
       case 'add_employee': {
         if (!input.name || !String(input.name).trim()) return 'חסר שם — זהו השדה היחיד שחובה להזין';
         const id = 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-        const newEmp = { id, name: String(input.name).trim(), role: input.role || '', max: input.max ?? 9,
+        const newEmp = { id, name: String(input.name).trim(), role: input.role || '', max: input.max ?? 14,
           nights: !!input.nights, anchor: !!input.anchor, nightOwl: false,
           color: EMP_COLORS[Math.floor(Math.random() * EMP_COLORS.length)] };
         onEmployeesChange(prev => [...prev, newEmp]);
@@ -3372,7 +3372,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
   };
 
   const openAdd = () => {
-    setEditEmp({ id: 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: '', role: '', email: '', color: COLORS[0], max: 9, anchor: false, nights: false });
+    setEditEmp({ id: 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: '', role: '', email: '', color: COLORS[0], max: 14, anchor: false, nights: false });
     setAcctPw(''); setAcctMsg(null);
     setShowForm(true);
   };
@@ -4732,6 +4732,14 @@ const migrate = (arr, rules) => (arr || []).map(s => {
 const FIX_DAY = { evening: { from: 'ערב', to: { name: 'בוקר קצר' } } };
 const SETTINGS_V = 2;
 
+// מכסה חודשית אחידה. קודם ישב כאן נרמול שהחזיר בכוח כל ערך מעל 10 ל-9 בכל
+// טעינה, כלומר ביטל כל העלאה ידנית. במקומו העלאה חד-פעמית, ומכאן המכסה
+// ניתנת לעריכה חופשית לכל עובד בנפרד.
+const EMP_MAX = 14;
+const EMP_MAX_V = 1;
+const normalizeMax = (emps, savedV) =>
+  (savedV || 0) < EMP_MAX_V ? (emps || []).map(e => ({ ...e, max: EMP_MAX })) : (emps || []);
+
 function mergeSettings(saved) {
   if (!saved) return DEFAULT_SHIFT_SETTINGS;
   const oldWeekend = saved.weekend;
@@ -4805,9 +4813,7 @@ function App() {
   const [anthropicKey, setAnthropicKey] = React.useState(() => localStorage.getItem('anthropic-api-key') || '');
   const [adminKey, setAdminKey] = React.useState(() => localStorage.getItem('supabase-admin-key') || '');
   const [employees, setEmployees] = React.useState(() => {
-    const emps = saved?.employees || [...AD.EMPLOYEES];
-    // נרמול: עובדים עם מכסה גבוהה מ-10 מאוזנים ל-9
-    return emps.map(e => e.max > 10 ? { ...e, max: 9 } : e);
+    return normalizeMax(saved?.employees || [...AD.EMPLOYEES], saved?.empMaxV);
   });
   // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
   const [requests, setRequests] = React.useState(() => saved?.requests || {});
@@ -4865,7 +4871,7 @@ function App() {
         setActiveDraftId(remote.activeDraftId || null);
         setShiftSettings(mergeSettings(remote.shiftSettings));
         if (remote.employees && remote.employees.length > 0) {
-          setEmployees(remote.employees.map(e => e.max > 10 ? { ...e, max: 9 } : e));
+          setEmployees(normalizeMax(remote.employees, remote.empMaxV));
         }
         setRequests(remote.requests || {});
         localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
@@ -4938,7 +4944,7 @@ function App() {
     if (generatingId) return;
     if (isFirstLoad.current) return;
     if (employees.length === 0) return; // אל תכתוב רשימת עובדים ריקה — שמור על נתוני Supabase
-    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins };
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, empMaxV: EMP_MAX_V };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);

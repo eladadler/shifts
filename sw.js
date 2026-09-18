@@ -87,7 +87,7 @@ function dayOfWeek(dateStr) {
   return new Date(y, m - 1, d).getDay();
 }
 
-const WEEKDAY_SHIFTS = [{ id: 'morning', start: '07:00' }, { id: 'evening', start: '15:00' }, { id: 'night', start: '23:00' }];
+const WEEKDAY_SHIFTS = [{ id: 'morning', start: '09:00' }, { id: 'evening', start: '09:00' }, { id: 'night', start: '21:00' }];
 const WEEKEND_SHIFTS = [{ id: 'morning', start: '07:00' }, { id: 'short', start: '15:00' }, { id: 'night', start: '19:00' }];
 
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -151,7 +151,7 @@ function personStartMs(shiftId, dateStr, ss, empId) {
   return best;
 }
 
-const SHIFT_LABELS = { morning: 'בוקר', evening: 'ערב', afternoon: 'צהריים', night: 'לילה', short: 'קצר' };
+const SHIFT_LABELS = { morning: 'בוקר', evening: 'בוקר קצר', afternoon: 'צהריים', night: 'לילה', short: 'קצר' };
 
 async function checkUpcomingShiftNotifications(empId) {
   try {

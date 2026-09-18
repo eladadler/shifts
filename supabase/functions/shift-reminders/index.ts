@@ -31,7 +31,7 @@ Deno.serve(async () => {
   const vapidPrivateKeyJwk = stateRow?.data?.vapidPrivateKeyJwk
   if (!vapidPublicKey || !vapidPrivateKeyJwk) return ok({ sent: 0, reason: 'no vapid' })
 
-  const LABELS: Record<string, string> = { morning: 'בוקר', evening: 'ערב', afternoon: 'צהריים', night: 'לילה', short: 'קצר' }
+  const LABELS: Record<string, string> = { morning: 'בוקר', evening: 'בוקר קצר', afternoon: 'צהריים', night: 'לילה', short: 'קצר' }
   let sent = 0
 
   for (const sub of (subs as any[])) {
@@ -103,7 +103,7 @@ function ok(data: unknown) {
 }
 
 // ---- shift timing helpers (mirrors shiftTypesFor in the manager app) ----
-const WEEKDAY_SHIFTS = [{ id: 'morning', start: '07:00' }, { id: 'evening', start: '15:00' }, { id: 'night', start: '23:00' }]
+const WEEKDAY_SHIFTS = [{ id: 'morning', start: '09:00' }, { id: 'evening', start: '09:00' }, { id: 'night', start: '21:00' }]
 const WEEKEND_SHIFTS = [{ id: 'morning', start: '07:00' }, { id: 'short', start: '15:00' }, { id: 'night', start: '19:00' }]
 
 const pad2 = (n: number) => String(n).padStart(2, '0')

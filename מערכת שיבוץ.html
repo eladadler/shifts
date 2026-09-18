@@ -1809,17 +1809,35 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
 }
 
 /* ===== עריכת שעות של מופע משמרת יחיד: זמני הבלוק, גלישה ליום סמוך, ופיצול בין העובדים ===== */
-function TimeBox({ value, placeholder, onChange }) {
+// placeholder לא נתמך ב-input[type=time], ולכן הערך האפקטיבי מוצג כ-value
+function TimeBox({ value, custom, onChange }) {
   return (
-    <input type="time" value={value || ''} placeholder={placeholder}
+    <input type="time" value={value || ''}
       onChange={(e) => onChange(e.target.value)}
-      style={{ width: 108, padding: '5px 7px', borderRadius: 7, border: '1px solid var(--line)', background: 'var(--bg)',
-        color: 'var(--ink)', font: 'inherit', fontSize: 13 }} />
+      style={{ width: 108, padding: '5px 7px', borderRadius: 7, background: 'var(--bg)', font: 'inherit', fontSize: 13,
+        border: custom ? '1.5px solid var(--accent)' : '1px solid var(--line)',
+        color: custom ? 'var(--accent)' : 'var(--ink)', fontWeight: custom ? 700 : 400 }} />
   );
+}
+
+// מופעי המשמרות סביב התאריך, ממוינים לפי זמן — לאיתור המשמרת הצמודה גם מעבר לחצות
+function neighborShifts(dStr, shiftId, settings, schedule) {
+  const out = [];
+  for (let off = -2; off <= 2; off++) {
+    const ds = D.addDays(dStr, off);
+    D.shiftTypesFor(ds, settings).forEach((sh) => {
+      if (sh.continuation) return;
+      out.push({ ds, shift: sh, ...D.shiftTimes(ds, sh), people: (schedule?.[ds]?.[sh.id]) || [] });
+    });
+  }
+  out.sort((a, b) => a.start - b.start);
+  const i = out.findIndex((x) => x.ds === dStr && x.shift.id === shiftId);
+  return { prev: i > 0 ? out[i - 1] : null, next: i >= 0 && i < out.length - 1 ? out[i + 1] : null };
 }
 
 function ShiftTimesDialog({ ctx, settings, schedule, onUpdate, onClose }) {
   const { dStr, shiftId, empId: focusEmp } = ctx;
+  const [ignored, setIgnored] = React.useState({});
   const shift = D.shiftDef(dStr, shiftId, settings);
   if (!shift) return null;
   const ov = settings?._overrides?.[dStr]?.[shiftId] || {};
@@ -1838,6 +1856,61 @@ function ShiftTimesDialog({ ctx, settings, schedule, onUpdate, onClose }) {
 
   const span = (d) => D.dateStr(d) !== dStr ? ` (${D.shortDate(D.dateStr(d))})` : '';
 
+  // התפרסות בפועל של המשמרת, כולל הארכות אישיות — זה מה שעלול להיכנס למשמרת הצמודה
+  let occStart = block.start, occEnd = block.end;
+  emps.forEach((id) => {
+    const t = D.personTimes(dStr, shift, id);
+    if (t.start < occStart) occStart = t.start;
+    if (t.end > occEnd) occEnd = t.end;
+  });
+
+  const nb = neighborShifts(dStr, shiftId, settings, schedule);
+  const prevClash = nb.prev && occStart < nb.prev.end && !ignored.prev ? nb.prev : null;
+  const nextClash = nb.next && occEnd > nb.next.start && !ignored.next ? nb.next : null;
+
+  // קיצור המשמרת הצמודה עד הגבול החדש — לכולם או לעובד יחיד
+  const trim = (n, edge, boundary, empId) => {
+    const hm = D.fmtHM(boundary);
+    onUpdate(n.ds, n.shift.id, (c) => {
+      if (!empId) return { ...c, [edge]: hm };
+      const per = { ...(c.per || {}) };
+      per[empId] = { ...(per[empId] || {}), [edge]: hm };
+      return { ...c, per };
+    });
+  };
+
+  const clashPanel = (n, edge, boundary, side) => {
+    const hm = D.fmtHM(boundary);
+    const hours = Math.round(Math.abs(edge === 'end' ? boundary - n.end : boundary - n.start) / 36e5 * 10) / 10;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderRadius: 10,
+        border: '1.5px solid oklch(0.72 0.14 70)', background: 'oklch(0.97 0.04 80)' }}>
+        <div style={{ fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.5 }}>
+          השעות החדשות נכנסות {hours} ש׳ לתוך <b>{n.shift.name}</b> של {D.shortDate(n.ds)} ({D.fmtHM(n.start)}–{D.fmtHM(n.end)}).
+          {' '}לקצר אותה ל־{hm}?
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {n.people.length ? (<>
+            {n.people.map((id) => (
+              <button key={id} className="btn" style={{ padding: '4px 10px', fontSize: 12 }}
+                onClick={() => trim(n, edge, boundary, id)}>
+                רק {D.empById(id)?.name || id}
+              </button>
+            ))}
+            <button className="btn" style={{ padding: '4px 10px', fontSize: 12 }}
+              onClick={() => trim(n, edge, boundary)}>את כל המשמרת</button>
+          </>) : (
+            <button className="btn" style={{ padding: '4px 10px', fontSize: 12 }}
+              onClick={() => trim(n, edge, boundary)}>לקצר את {n.shift.name}</button>
+          )}
+          <button className="btn" style={{ padding: '4px 10px', fontSize: 12, marginInlineStart: 'auto' }}
+            onClick={() => setIgnored((s) => ({ ...s, [side]: true }))}>להשאיר כמו שזה</button>
+        </div>
+        {!n.people.length && <div style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>אין עובדים משובצים למשמרת הזו.</div>}
+      </div>
+    );
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
@@ -1848,9 +1921,9 @@ function ShiftTimesDialog({ ctx, settings, schedule, onUpdate, onClose }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink-2)' }}>שעות המשמרת ביום הזה</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <TimeBox value={ov.start} placeholder={base.start} onChange={(v) => onUpdate(dStr, shiftId, (c) => ({ ...c, start: v }))} />
+              <TimeBox value={ov.start || base.start} custom={!!ov.start} onChange={(v) => onUpdate(dStr, shiftId, (c) => ({ ...c, start: v }))} />
               <span style={{ color: 'var(--ink-2)' }}>עד</span>
-              <TimeBox value={ov.end} placeholder={base.end} onChange={(v) => onUpdate(dStr, shiftId, (c) => ({ ...c, end: v }))} />
+              <TimeBox value={ov.end || base.end} custom={!!ov.end} onChange={(v) => onUpdate(dStr, shiftId, (c) => ({ ...c, end: v }))} />
               <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>ברירת מחדל: {base.start}–{base.end}</span>
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
@@ -1874,9 +1947,9 @@ function ShiftTimesDialog({ ctx, settings, schedule, onUpdate, onClose }) {
                 <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', borderRadius: 9,
                   border: focused ? '1.5px solid var(--accent)' : '1px solid var(--line-soft)', background: 'var(--bg-soft, transparent)' }}>
                   <span style={{ fontSize: 13, fontWeight: 700, minWidth: 96 }}>{emp?.name || id}</span>
-                  <TimeBox value={p.start} placeholder={D.fmtHM(block.start)} onChange={(v) => setPer(id, { start: v })} />
+                  <TimeBox value={p.start || D.fmtHM(block.start)} custom={!!p.start} onChange={(v) => setPer(id, { start: v })} />
                   <span style={{ color: 'var(--ink-2)' }}>עד</span>
-                  <TimeBox value={p.end} placeholder={D.fmtHM(block.end)} onChange={(v) => setPer(id, { end: v })} />
+                  <TimeBox value={p.end || D.fmtHM(block.end)} custom={!!p.end} onChange={(v) => setPer(id, { end: v })} />
                   <span style={{ fontSize: 11.5, color: 'var(--ink-2)', marginInlineStart: 'auto', direction: 'ltr' }}>
                     {D.fmtHM(t.start)}{span(t.start)}–{D.fmtHM(t.end)}{span(t.end)} · {Math.round((t.end - t.start) / 36e5 * 10) / 10} ש׳
                   </span>
@@ -1891,6 +1964,9 @@ function ShiftTimesDialog({ ctx, settings, schedule, onUpdate, onClose }) {
               שעה שנכתבת כאן נפתרת למופע הקרוב ביותר לתחילת המשמרת — 03:00 על משמרת שמתחילה ב-21:00 ייפול על הבוקר שאחרי, ו-18:00 ייפול על אותו ערב.
             </div>
           </div>
+
+          {prevClash && clashPanel(prevClash, 'end', occStart, 'prev')}
+          {nextClash && clashPanel(nextClash, 'start', occEnd, 'next')}
         </div>
         <div className="modal-foot">
           <button className="btn" onClick={() => onUpdate(dStr, shiftId, () => null)}>ביטול כל הדריסות</button>

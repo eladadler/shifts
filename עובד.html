@@ -907,7 +907,44 @@ function SettingsTab({ me, email, onLogout }) {
   const [pushSubscribed, setPushSubscribed] = React.useState(null);
   const [pushBusy, setPushBusy] = React.useState(false);
   const [pushError, setPushError] = React.useState(null);
+  const [calToken, setCalToken] = React.useState(null);
+  const [calBusy, setCalBusy] = React.useState(false);
+  const [calCopied, setCalCopied] = React.useState(false);
+  const [calError, setCalError] = React.useState(null);
   const firstName = (me.name || '').split(' ')[0];
+
+  const calUrl = calToken ? `${SB_URL}/functions/v1/calendar?token=${calToken}` : null;
+
+  React.useEffect(() => {
+    if (!me?.id) return;
+    sb.from('app_employees').select('cal_token').eq('id', me.id).maybeSingle()
+      .then(({ data }) => { if (data?.cal_token) setCalToken(data.cal_token); })
+      .catch(() => {});
+  }, [me?.id]);
+
+  // אסימון אקראי חדש. יצירה מחדש מנתקת את הכתובת הקודמת, ולכן משמשת גם כאיפוס.
+  const makeCalToken = async () => {
+    setCalBusy(true); setCalError(null);
+    try {
+      const bytes = new Uint8Array(24);
+      crypto.getRandomValues(bytes);
+      const token = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+      const { error } = await sb.from('app_employees').update({ cal_token: token }).eq('id', me.id);
+      if (error) throw error;
+      setCalToken(token);
+      setCalCopied(false);
+    } catch (e) {
+      setCalError('לא הצלחנו ליצור כתובת: ' + (e?.message || String(e)));
+    }
+    setCalBusy(false);
+  };
+
+  const copyCalUrl = async () => {
+    try { await navigator.clipboard.writeText(calUrl); }
+    catch { setCalError('ההעתקה נחסמה — סמנו את הכתובת והעתיקו ידנית.'); return; }
+    setCalCopied(true);
+    setTimeout(() => setCalCopied(false), 2000);
+  };
 
   // Check if already subscribed on mount
   React.useEffect(() => {
@@ -1105,6 +1142,48 @@ function SettingsTab({ me, email, onLogout }) {
           </button>
         </div>
       )}
+
+      {/* Calendar subscription */}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#8A867F', padding: '0 4px 8px', letterSpacing: '0.04em' }}>סנכרון ליומן</div>
+        <div style={{ ...sectionStyle, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {calUrl ? (<>
+            <div style={{ fontSize: 12.5, color: '#6B6760', lineHeight: 1.6 }}>
+              הכתובת הזו היא המשמרות שלך. ביומן גוגל: <b>הגדרות ← הוספת יומן ← מהכתובת</b>, והדביקו אותה שם.
+            </div>
+            <div style={{ direction: 'ltr', unicodeBidi: 'embed', fontSize: 11, fontFamily: 'ui-monospace, monospace', background: '#F6F5F2',
+              border: '1px solid #E7E4DF', borderRadius: 9, padding: '9px 10px', wordBreak: 'break-all', color: '#4A4640' }}>
+              {calUrl}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={copyCalUrl}
+                style={{ flex: 1, background: calCopied ? '#E8F5EE' : TEAL, color: calCopied ? '#3A9B6F' : '#FFF', border: 'none', borderRadius: 9,
+                  padding: '10px 14px', fontSize: 13.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', transition: 'background 0.3s' }}>
+                {calCopied ? '✓ הועתק' : 'העתקת הכתובת'}
+              </button>
+              <button onClick={makeCalToken} disabled={calBusy}
+                style={{ background: '#FFF', color: '#6B6760', border: '1.5px solid #E2DFD9', borderRadius: 9,
+                  padding: '10px 14px', fontSize: 13, fontWeight: 700, cursor: calBusy ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                איפוס
+              </button>
+            </div>
+            <div style={{ fontSize: 11.5, color: '#A09C94', lineHeight: 1.5 }}>
+              מי שמחזיק בכתובת רואה את המשמרות שלך, אז אל תשתפו אותה. איפוס מנתק את הכתובת הישנה.
+              יומן גוגל מרענן מנויים חיצוניים לאט — שינוי בסידור עשוי להופיע רק כעבור כמה שעות.
+            </div>
+          </>) : (<>
+            <div style={{ fontSize: 12.5, color: '#6B6760', lineHeight: 1.6 }}>
+              אפשר להוסיף את המשמרות שלך ליומן גוגל, אפל או אאוטלוק, כך שיתעדכנו לבד.
+            </div>
+            <button onClick={makeCalToken} disabled={calBusy}
+              style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 9, padding: '11px 14px',
+                fontSize: 14, fontWeight: 800, cursor: calBusy ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+              {calBusy ? 'רגע…' : 'יצירת כתובת יומן'}
+            </button>
+          </>)}
+          {calError && <div style={{ fontSize: 12.5, color: '#C05858' }}>{calError}</div>}
+        </div>
+      </div>
 
       {/* Logout */}
       <div style={sectionStyle}>

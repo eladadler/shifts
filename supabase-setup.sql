@@ -12,6 +12,13 @@ create table if not exists app_employees (
   updated_at timestamptz not null default now()
 );
 
+-- אסימון מנוי יומן — כתובת ה-ICS של העובד. ניתן לאיפוס: אסימון חדש מנתק את הישן.
+alter table app_employees
+  add column if not exists cal_token text;
+
+create unique index if not exists app_employees_cal_token
+  on app_employees (cal_token) where cal_token is not null;
+
 -- 2. בקשות עובדים (העובדים כותבים מאפליקציית העובד; המשבץ קורא)
 create table if not exists employee_requests (
   emp_id      text not null,

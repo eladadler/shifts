@@ -924,11 +924,14 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
 
   // מיון לתצוגה בלבד — לא משפיע על שום לוגיקה
   const orderShifts = (list, order) => {
-    if (!order || !order.length) return list;
-    return [...list].sort((a, b) => {
+    // משמרת שנמשכת מהיום הקודם מוצגת בראש — היא התחילה לפני כל השאר באותו יום.
+    // המיון יציב, ולכן הסדר בתוך כל קבוצה נשמר.
+    const base = [...list].sort((a, b) => Number(!!b.continuation) - Number(!!a.continuation));
+    if (!order || !order.length) return base;
+    return [...base].sort((a, b) => {
       const ia = order.indexOf(shiftKey(a)), ib = order.indexOf(shiftKey(b));
-      return (ia === -1 ? order.length + list.indexOf(a) : ia)
-           - (ib === -1 ? order.length + list.indexOf(b) : ib);
+      return (ia === -1 ? order.length + base.indexOf(a) : ia)
+           - (ib === -1 ? order.length + base.indexOf(b) : ib);
     });
   };
 

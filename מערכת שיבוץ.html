@@ -1128,9 +1128,11 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
     const schedule = {};
     const log = [];
-    const counts = {}; const lastEnd = {};
-    // initialCounts: ספירת משמרות היסטורית (עבר) — מאפשרת איזון עומסים בין חודשים
-    D.EMPLOYEES.forEach((e) => { counts[e.id] = initialCounts[e.id] || 0; lastEnd[e.id] = null; });
+    const counts = {}; const hist = {}; const lastEnd = {};
+    // counts = החודש הנוכחי בלבד, ומולו נבדקת המכסה החודשית.
+    // hist = משמרות מחודשים קודמים, ומשמש לאיזון עומסים בניקוד בלבד — הזרקתו
+    // למונה החודשי הייתה חוסמת לאלתר כל מי שעבד בחודש שעבר.
+    D.EMPLOYEES.forEach((e) => { counts[e.id] = 0; hist[e.id] = initialCounts[e.id] || 0; lastEnd[e.id] = null; });
     const now = () => new Date().toISOString();
     const addLog = (type, message) => log.push({ timestamp: now(), type, message });
 
@@ -1168,9 +1170,12 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             if (shift.id === 'night' && !e.nights) return false;
             // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
             if (initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return false;
-            // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש
+            // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
+            // הרשימה חוסמת רק בחודש שבו הוגשה: הבקשות מאוחדות מכל החודשים,
+            // ובלי הסייג הזה בקשה מחודש קודם הייתה חוסמת את העובד בכל החודשים הבאים.
             const r = D.reqOf(e.id);
-            if (r?.can?.length > 0 && av !== 'can' && av !== 'high') return false;
+            const ym = dStr.slice(0, 7);
+            if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') return false;
             return true;
           });
           const clean = cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H);
@@ -1189,7 +1194,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             if (av === 'can') s += 2;
             if (e.anchor) s += 3;
             if (e.nightOwl && shift.id === 'night') s += 5;
-            s -= counts[e.id] * 0.9;
+            s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
             s += hash(e.id + dStr + shift.id + slot) * 0.5;
             return s;
           };
@@ -1232,7 +1237,8 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             add(dStr, shiftId, empId, 'שובץ במשמרת שסומנה ״לא יכול״');
           } else {
             const r = D.reqOf(empId);
-            if (r?.can?.length > 0 && av !== 'can' && av !== 'high') {
+            const ym = dStr.slice(0, 7);
+            if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') {
               add(dStr, shiftId, empId, 'שובץ מחוץ לרשימת הזמינות שהגיש');
             }
           }
@@ -5074,15 +5080,18 @@ function App() {
       pastMonths.push(`${py}-${String(pm).padStart(2, '0')}`);
     }
     const counts = {};
-    drafts
-      .filter(d => pastMonths.includes(d.month) && d.schedule)
-      .forEach(d => {
-        Object.values(d.schedule).forEach(dayShifts => {
-          Object.values(dayShifts).forEach(empIds => {
-            (empIds || []).forEach(id => { counts[id] = (counts[id] || 0) + 1; });
-          });
+    // טיוטה אחת בלבד לכל חודש — סכימת כל הטיוטות הייתה סופרת כל עובד פעם לכל
+    // טיוטה שנוצרה לאותו חודש, ומנפחת את ההיסטוריה פי מספר הטיוטות
+    pastMonths.forEach(m => {
+      const ds = drafts.filter(d => d.month === m && d.schedule);
+      const d = ds.find(x => x.status === 'final') || ds[ds.length - 1];
+      if (!d) return;
+      Object.values(d.schedule).forEach(dayShifts => {
+        Object.values(dayShifts).forEach(empIds => {
+          (empIds || []).forEach(id => { counts[id] = (counts[id] || 0) + 1; });
         });
       });
+    });
     return counts;
   };
 
@@ -5172,17 +5181,22 @@ function App() {
       });
 
       // ספירת שיבוצים קיימים (אחרי שלב א׳)
+      // רק החודש הנוכחי — maxShifts היא מכסה חודשית, וערבוב היסטוריה לתוכה
+      // גרם ל-AI לחשוב שכל מי שעבד בחודש שעבר כבר מיצה אותה
       const existingCounts = {};
-      empList.forEach(e => { existingCounts[e.id] = histCounts[e.id] || 0; });
+      empList.forEach(e => { existingCounts[e.id] = 0; });
       allDates.forEach(d => {
         Object.values((snap2[d] || {})).forEach(arr => {
           (arr || []).forEach(id => { if (existingCounts[id] !== undefined) existingCounts[id]++; });
         });
       });
-      const empWithCounts = empList.map(e => ({ ...e, shiftsAlreadyAssigned: existingCounts[e.id] || 0 }));
+      const empWithCounts = empList.map(e => ({ ...e,
+        shiftsAlreadyAssigned: existingCounts[e.id] || 0,
+        shiftsInPastMonths: histCounts[e.id] || 0 }));
 
       const prompt = `אתה מערכת שיבוץ עובדים. מלא רק את המשבצות הריקות שנשארו לאחר שיבוץ אלגוריתמי.
-היסטוריה: הספירה ב-shiftsAlreadyAssigned כוללת גם 2 חודשים אחורה — השתמש בה לאיזון עומסים.
+shiftsAlreadyAssigned = החודש הנוכחי בלבד, ומולו נבדקת maxShifts.
+shiftsInPastMonths = חודשיים אחורה, לאיזון עומסים בלבד — אינו נספר במכסה.
 
 ## עובדים
 ${JSON.stringify(empWithCounts, null, 2)}

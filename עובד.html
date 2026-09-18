@@ -173,6 +173,49 @@ const getBase = (dayStr, settings) => {
 };
 // זהה ללוגיקה של המשבץ: משמרת מיוחדת (חג/זמנית) מחליפה את משמרות הבסיס ביום שלה
 // ובימי ההמשך שלה (daysSpan), ומשמרות בסיס רב-יומיות מסומנות כהמשך בימים הבאים
+// דריסות פר-מופע שהמשבץ הגדיר (shift_settings._overrides) — חייב להישאר זהה למשבץ
+const atTime = (dStr, hm) => { const d = parseDate(dStr); const [h, m] = String(hm).split(':').map(Number); d.setHours(h, m, 0, 0); return d; };
+const nearestClock = (anchor, hm) => {
+  const DAY = 864e5;
+  const base = atTime(dateStr(anchor), hm).getTime();
+  let best = base;
+  [base - DAY, base + DAY].forEach(c => { if (Math.abs(c - anchor.getTime()) < Math.abs(best - anchor.getTime())) best = c; });
+  return new Date(best);
+};
+const applyOverrides = (s, settings, list) => {
+  const all = settings?._overrides;
+  if (!all) return list;
+  return list.map(sh => {
+    const ov = all[sh.continuation ? sh.originDate : s]?.[sh.id];
+    if (!ov) return sh;
+    return { ...sh, start: ov.start || sh.start, end: ov.end || sh.end,
+      _startDayOffset: ov.startDayOffset || 0, _per: ov.per || null };
+  });
+};
+const shiftTimesOf = (s, shift) => {
+  const base = shift?._startDayOffset ? addDays(s, shift._startDayOffset) : s;
+  const start = atTime(base, shift.start);
+  let end = atTime(base, shift.end);
+  if (end <= start) end = atTime(addDays(base, 1), shift.end);
+  return { start, end };
+};
+const personTimes = (s, shift, empId) => {
+  const block = shiftTimesOf(s, shift);
+  const p = shift?._per?.[empId];
+  if (!p || (!p.start && !p.end)) return block;
+  const start = p.start ? nearestClock(block.start, p.start) : block.start;
+  let end = block.end;
+  if (p.end) {
+    const sd = dateStr(start);
+    end = atTime(sd, p.end);
+    if (end <= start) end = atTime(addDays(sd, 1), p.end);
+  }
+  if (end <= start) end = new Date(start.getTime() + 36e5);
+  return { start, end };
+};
+const hasPersonTimes = (shift, empId) => { const p = shift?._per?.[empId]; return !!(p && (p.start || p.end)); };
+const fmtHM = (d) => pad(d.getHours()) + ':' + pad(d.getMinutes());
+
 const shiftTypesFor = (s, settings) => {
   const special = settings?.special || [];
   const directSpecial = special.filter(sp => sp.date === s);
@@ -183,7 +226,7 @@ const shiftTypesFor = (s, settings) => {
       if (addDays(sp.date, i) === s) contSpecial.push({ ...sp, continuation: true, originDate: sp.date });
     }
   });
-  if (directSpecial.length || contSpecial.length) return [...directSpecial, ...contSpecial];
+  if (directSpecial.length || contSpecial.length) return applyOverrides(s, settings, [...directSpecial, ...contSpecial]);
   const base = getBase(s, settings);
   const contRegular = [];
   for (let i = 1; i <= 2; i++) {
@@ -194,7 +237,7 @@ const shiftTypesFor = (s, settings) => {
       }
     });
   }
-  return [...base, ...contRegular];
+  return applyOverrides(s, settings, [...base, ...contRegular]);
 };
 const shortDate = (s) => { const d = parseDate(s); return `${d.getDate()}/${d.getMonth() + 1}`; };
 const shiftDefOf = (s, shiftId, settings) => {
@@ -259,10 +302,16 @@ function buildMonthDays(ym, pubRow, myId, empNames) {
       const def = shiftDefOf(ds, id, settings);
       const people = dayData[id] || [];
       const special = !!(def && (def.date || (def.daysSpan || 1) > 1)) || !DOTS[id];
+      // כשהמשבץ הגדיר לי שעות אישיות, הכרטיס מציג אותן ולא את שעות הבלוק
+      const ownShift = def && people.includes(myId) && hasPersonTimes(def, myId);
+      const own = ownShift ? personTimes(ds, def, myId) : null;
       return {
         id,
         label: def?.name || id,
-        time: def ? `${def.start}–${def.end}` : '',
+        time: own ? `${fmtHM(own.start)}–${fmtHM(own.end)}` : (def ? `${def.start}–${def.end}` : ''),
+        blockTime: def ? `${def.start}–${def.end}` : '',
+        split: !!own,
+        def,
         dot: dotOf(id),
         people,
         mine: people.includes(myId),
@@ -285,10 +334,8 @@ function buildTimeline(published) {
       Object.keys(schedule[ds] || {}).forEach(sid => {
         const def = shiftDefOf(ds, sid, settings);
         if (!def) return;
-        const at = parseDate(ds);
-        const [h, m] = String(def.start || '00:00').split(':').map(Number);
-        at.setHours(h, m, 0, 0);
-        out.push({ ym, ds, shiftId: sid, def, people: schedule[ds][sid] || [], startMs: at.getTime() });
+        out.push({ ym, ds, shiftId: sid, def, people: schedule[ds][sid] || [],
+          startMs: shiftTimesOf(ds, def).start.getTime() });
       });
     });
   });
@@ -306,15 +353,20 @@ function availOf(req, ds, shiftId) {
 }
 
 /* ============ רכיבים משותפים ============ */
-function PersonChip({ id, myId, empNames }) {
+function PersonChip({ id, myId, empNames, time }) {
   const isMe = id === myId;
   return (
     <span style={{ padding: '4px 10px', borderRadius: 999, background: isMe ? TEAL : '#F2F0EC',
       color: isMe ? '#FFFFFF' : '#4A4640', fontWeight: isMe ? 700 : 500, fontSize: 12 }}>
       {isMe ? (empNames[id] || 'אני') + ' · אני' : (empNames[id] || id)}
+      {time && <span style={{ opacity: 0.75, marginInlineStart: 5, direction: 'ltr', unicodeBidi: 'embed' }}>{time}</span>}
     </span>
   );
 }
+
+// שעות אישיות של עובד במשמרת, רק אם הן נבדלות משעות הבלוק
+const personTimeLabel = (ds, def, id) =>
+  def && hasPersonTimes(def, id) ? (t => `${fmtHM(t.start)}–${fmtHM(t.end)}`)(personTimes(ds, def, id)) : null;
 
 function ShiftRow({ sh, myId, empNames, blocked, onOpen }) {
   return (
@@ -1078,7 +1130,7 @@ function AdjacentShift({ title, item, empNames, myId }) {
         <div style={{ fontSize: 11.5, color: '#8A867F' }}>{shortDate(item.ds)}</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
           {item.people.length
-            ? item.people.map(p => <PersonChip key={p} id={p} myId={myId} empNames={empNames} />)
+            ? item.people.map(p => <PersonChip key={p} id={p} myId={myId} empNames={empNames} time={personTimeLabel(item.ds, item.def, p)} />)
             : <span style={{ fontSize: 12, color: '#A8A49C' }}>לא מאויש</span>}
         </div>
       </>) : <span style={{ fontSize: 12, color: '#A8A49C' }}>אין משמרת בסידור</span>}
@@ -1095,6 +1147,8 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose }
   const people = daySchedule[shiftId] || [];
   const mates = people.filter(p => p !== me.id);
   const dow = weekdayOf(ds);
+  const mySplit = def && hasPersonTimes(def, me.id);
+  const myTimes = def ? personTimes(ds, def, me.id) : null;
 
   const timeline = React.useMemo(() => buildTimeline(published), [published]);
   const idx = timeline.findIndex(t => t.ds === ds && t.shiftId === shiftId);
@@ -1145,18 +1199,25 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose }
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ width: 10, height: 10, borderRadius: '50%', background: dotOf(shiftId), flexShrink: 0 }} />
             <span style={{ fontSize: 28, fontWeight: 900, lineHeight: 1 }}>{def?.name || shiftId}</span>
-            <span style={{ fontSize: 17, fontWeight: 700, color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' }}>{def ? `${def.start}–${def.end}` : ''}</span>
+            <span style={{ fontSize: 17, fontWeight: 700, color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap', direction: 'ltr' }}>
+              {myTimes ? `${fmtHM(myTimes.start)}–${fmtHM(myTimes.end)}` : (def ? `${def.start}–${def.end}` : '')}
+            </span>
           </div>
           <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }}>
             יום {HEB_DAYS[dow]}, {Number(ds.split('-')[2])} {inMonthLabel(ym)}
           </div>
+          {mySplit && (
+            <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.6)', borderTop: '1px solid rgba(255,255,255,0.16)', paddingTop: 9 }}>
+              השעות שלך שונות משעות המשמרת המלאה ({def.start}–{def.end}).
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={section}>מי איתי במשמרת</div>
           {mates.length ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {people.map(p => <PersonChip key={p} id={p} myId={me.id} empNames={empNames} />)}
+              {people.map(p => <PersonChip key={p} id={p} myId={me.id} empNames={empNames} time={personTimeLabel(ds, def, p)} />)}
             </div>
           ) : <div style={{ fontSize: 13, color: '#8A867F' }}>משמרת יחיד — אתם לבד במשמרת זו.</div>}
         </div>

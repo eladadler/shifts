@@ -87,27 +87,68 @@ function dayOfWeek(dateStr) {
   return new Date(y, m - 1, d).getDay();
 }
 
-function getShiftStart(shiftId, dateStr, shiftSettings) {
-  const wd = dayOfWeek(dateStr);
-  let arr;
-  if (shiftSettings) {
-    if (wd === 6) arr = shiftSettings.saturday || shiftSettings.weekend;
-    else if (wd === 5) arr = shiftSettings.friday || shiftSettings.weekend;
-    else arr = shiftSettings.weekday;
-  }
-  if (!arr) {
-    arr = (wd === 5 || wd === 6)
-      ? [{ id: 'morning', start: '07:00' }, { id: 'short', start: '15:00' }, { id: 'night', start: '19:00' }]
-      : [{ id: 'morning', start: '07:00' }, { id: 'evening', start: '15:00' }, { id: 'night', start: '23:00' }];
-  }
-  return ((arr || []).find(s => s.id === shiftId) || {}).start || '08:00';
+const WEEKDAY_SHIFTS = [{ id: 'morning', start: '07:00' }, { id: 'evening', start: '15:00' }, { id: 'night', start: '23:00' }];
+const WEEKEND_SHIFTS = [{ id: 'morning', start: '07:00' }, { id: 'short', start: '15:00' }, { id: 'night', start: '19:00' }];
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+function dateStrOf(dt) { return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`; }
+function addDaysStr(s, n) {
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() + n);
+  return dateStrOf(dt);
+}
+function atTime(s, hm) {
+  const [y, m, d] = s.split('-').map(Number);
+  const [h, mi] = String(hm).split(':').map(Number);
+  return new Date(y, m - 1, d, h, mi, 0, 0);
 }
 
-function shiftStartMs(shiftId, dateStr, shiftSettings) {
-  const t = getShiftStart(shiftId, dateStr, shiftSettings);
-  const [h, m] = t.split(':').map(Number);
-  const [y, mo, d] = dateStr.split('-').map(Number);
-  return new Date(y, mo - 1, d, h, m, 0).getTime();
+function getBase(dateStr, ss) {
+  const wd = dayOfWeek(dateStr);
+  if (ss) {
+    if (wd === 6) return ss.saturday || ss.weekend || WEEKEND_SHIFTS;
+    if (wd === 5) return ss.friday || ss.weekend || WEEKEND_SHIFTS;
+    return ss.weekday || WEEKDAY_SHIFTS;
+  }
+  return (wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS;
+}
+
+// חייב להישאר זהה ל-shiftTypesFor במשבץ: משמרות מיוחדות, ימי המשך, ודריסות פר-מופע
+function shiftDefOf(shiftId, dateStr, ss) {
+  const special = (ss && ss.special) || [];
+  let def = special.find(sp => sp.date === dateStr && sp.id === shiftId);
+  if (!def) {
+    for (const sp of special) {
+      const span = sp.daysSpan || 1;
+      for (let i = 1; i < span; i++) {
+        if (addDaysStr(sp.date, i) === dateStr && sp.id === shiftId) def = { ...sp, continuation: true, originDate: sp.date };
+      }
+    }
+  }
+  if (!def) def = (getBase(dateStr, ss) || []).find(s => s.id === shiftId);
+  if (!def) return null;
+  const ov = ss && ss._overrides && ss._overrides[def.continuation ? def.originDate : dateStr];
+  const o = ov && ov[shiftId];
+  if (!o) return def;
+  return { ...def, start: o.start || def.start, end: o.end || def.end,
+    _startDayOffset: o.startDayOffset || 0, _per: o.per || null };
+}
+
+// שעת ההתחלה של העובד הספציפי — מכבדת פיצול משמרת בין עובדים
+function personStartMs(shiftId, dateStr, ss, empId) {
+  const def = shiftDefOf(shiftId, dateStr, ss);
+  if (!def) return atTime(dateStr, '08:00').getTime();
+  const baseDay = def._startDayOffset ? addDaysStr(dateStr, def._startDayOffset) : dateStr;
+  const blockStart = atTime(baseDay, def.start || '08:00');
+  const p = def._per && def._per[empId];
+  if (!p || !p.start) return blockStart.getTime();
+  const DAY = 864e5;
+  const cand = atTime(dateStrOf(blockStart), p.start).getTime();
+  let best = cand;
+  [cand - DAY, cand + DAY].forEach(c => {
+    if (Math.abs(c - blockStart.getTime()) < Math.abs(best - blockStart.getTime())) best = c;
+  });
+  return best;
 }
 
 const SHIFT_LABELS = { morning: 'בוקר', evening: 'ערב', afternoon: 'צהריים', night: 'לילה', short: 'קצר' };
@@ -149,7 +190,7 @@ async function checkUpcomingShiftNotifications(empId) {
         for (const [shiftId, empIds] of Object.entries(shifts || {})) {
           if (!(empIds || []).includes(empId)) continue;
 
-          const startMs = shiftStartMs(shiftId, dStr, ss);
+          const startMs = personStartMs(shiftId, dStr, ss, empId);
           if (startMs < now - WINDOW_MS) continue; // past shift + window
 
           const shiftLabel = SHIFT_LABELS[shiftId] || shiftId;

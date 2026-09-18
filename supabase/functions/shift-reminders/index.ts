@@ -53,7 +53,7 @@ Deno.serve(async () => {
         for (const [shiftId, empIds] of Object.entries(shifts || {})) {
           if (!(empIds as string[]).includes(sub.emp_id)) continue
 
-          const startMs = shiftStartMs(shiftId, dateStr, ss)
+          const startMs = personStartMs(shiftId, dateStr, ss, sub.emp_id)
           if (startMs < now - WINDOW_MS) continue
 
           for (const { label, hours } of alerts) {
@@ -102,24 +102,68 @@ function ok(data: unknown) {
   return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } })
 }
 
-// ---- shift timing helpers (mirrors sw.js logic) ----
-function shiftStartMs(shiftId: string, dateStr: string, ss: any): number {
-  const [y, mo, day] = dateStr.split('-').map(Number)
-  const wd = new Date(y, mo - 1, day).getDay()
-  let arr: { id: string; start: string }[] | undefined
+// ---- shift timing helpers (mirrors shiftTypesFor in the manager app) ----
+const WEEKDAY_SHIFTS = [{ id: 'morning', start: '07:00' }, { id: 'evening', start: '15:00' }, { id: 'night', start: '23:00' }]
+const WEEKEND_SHIFTS = [{ id: 'morning', start: '07:00' }, { id: 'short', start: '15:00' }, { id: 'night', start: '19:00' }]
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const dateStrOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+function addDaysStr(s: string, n: number): string {
+  const [y, m, d] = s.split('-').map(Number)
+  const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() + n)
+  return dateStrOf(dt)
+}
+function atTime(s: string, hm: string): Date {
+  const [y, m, d] = s.split('-').map(Number)
+  const [h, mi] = String(hm).split(':').map(Number)
+  return new Date(y, m - 1, d, h, mi, 0, 0)
+}
+function getBase(dateStr: string, ss: any) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const wd = new Date(y, m - 1, d).getDay()
   if (ss) {
-    if (wd === 6) arr = ss.saturday || ss.weekend
-    else if (wd === 5) arr = ss.friday || ss.weekend
-    else arr = ss.weekday
+    if (wd === 6) return ss.saturday || ss.weekend || WEEKEND_SHIFTS
+    if (wd === 5) return ss.friday || ss.weekend || WEEKEND_SHIFTS
+    return ss.weekday || WEEKDAY_SHIFTS
   }
-  if (!arr) {
-    arr = (wd === 5 || wd === 6)
-      ? [{ id: 'morning', start: '07:00' }, { id: 'short', start: '15:00' }, { id: 'night', start: '19:00' }]
-      : [{ id: 'morning', start: '07:00' }, { id: 'evening', start: '15:00' }, { id: 'night', start: '23:00' }]
+  return (wd === 5 || wd === 6) ? WEEKEND_SHIFTS : WEEKDAY_SHIFTS
+}
+
+function shiftDefOf(shiftId: string, dateStr: string, ss: any): any {
+  const special: any[] = (ss && ss.special) || []
+  let def = special.find(sp => sp.date === dateStr && sp.id === shiftId)
+  if (!def) {
+    for (const sp of special) {
+      const span = sp.daysSpan || 1
+      for (let i = 1; i < span; i++) {
+        if (addDaysStr(sp.date, i) === dateStr && sp.id === shiftId) def = { ...sp, continuation: true, originDate: sp.date }
+      }
+    }
   }
-  const startStr = arr.find(s => s.id === shiftId)?.start || '08:00'
-  const [h, m] = startStr.split(':').map(Number)
-  return new Date(y, mo - 1, day, h, m).getTime()
+  if (!def) def = (getBase(dateStr, ss) || []).find((s: any) => s.id === shiftId)
+  if (!def) return null
+  const day = ss && ss._overrides && ss._overrides[def.continuation ? def.originDate : dateStr]
+  const o = day && day[shiftId]
+  if (!o) return def
+  return { ...def, start: o.start || def.start, end: o.end || def.end,
+    _startDayOffset: o.startDayOffset || 0, _per: o.per || null }
+}
+
+// שעת ההתחלה של העובד הספציפי — מכבדת פיצול משמרת בין עובדים
+function personStartMs(shiftId: string, dateStr: string, ss: any, empId: string): number {
+  const def = shiftDefOf(shiftId, dateStr, ss)
+  if (!def) return atTime(dateStr, '08:00').getTime()
+  const baseDay = def._startDayOffset ? addDaysStr(dateStr, def._startDayOffset) : dateStr
+  const blockStart = atTime(baseDay, def.start || '08:00')
+  const p = def._per && def._per[empId]
+  if (!p || !p.start) return blockStart.getTime()
+  const DAY = 864e5
+  const cand = atTime(dateStrOf(blockStart), p.start).getTime()
+  let best = cand
+  for (const c of [cand - DAY, cand + DAY]) {
+    if (Math.abs(c - blockStart.getTime()) < Math.abs(best - blockStart.getTime())) best = c
+  }
+  return best
 }
 
 async function sendWebPush(subJson: unknown, vapidPublicKey: string, vapidPrivateKeyJwk: unknown) {

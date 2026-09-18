@@ -1112,7 +1112,9 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose }
   // מחליפים אפשריים — אותו כלל שהמשבץ מפעיל: לא חסם, ואם הגיש רשימת "יכול" אז רק בתוכה
   const monthReqs = allReqs[ym] || {};
   const cands = [];
-  Object.keys(empNames).forEach(id => {
+  // הרוסטר החי בלבד (app_employees). empNames מכיל גם עובדים מתמונות מצב של סידורים ישנים,
+  // והם עדיין דרושים להצגת שמות — אבל לא כמועמדים להחלפה.
+  (me.allEmployees || []).forEach(({ id }) => {
     if (id === me.id || busyToday.has(id)) return;
     if (shiftId === 'night' && haveCaps && !nightsOf[id]) return;
     const req = monthReqs[id];

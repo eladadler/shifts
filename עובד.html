@@ -195,8 +195,10 @@ const applyOverrides = (s, settings, list) => {
 const shiftTimesOf = (s, shift) => {
   const base = shift?._startDayOffset ? addDays(s, shift._startDayOffset) : s;
   const start = atTime(base, shift.start);
-  let end = atTime(base, shift.end);
-  if (end <= start) end = atTime(addDays(base, 1), shift.end);
+  // משמרת רב-יומית נגמרת ביום האחרון שהיא תופסת, לא למחרת ההתחלה
+  const lastDay = addDays(base, Math.max(1, shift.daysSpan || 1) - 1);
+  let end = atTime(lastDay, shift.end);
+  if (end <= start) end = atTime(addDays(lastDay, 1), shift.end);
   return { start, end };
 };
 const personTimes = (s, shift, empId) => {

@@ -1001,8 +1001,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     // דריסה יכולה להזיז את נקודת ההתחלה ליום סמוך; שאר הלוגיקה נשארת כשהייתה
     const base = shift?._startDayOffset ? addDays(s, shift._startDayOffset) : s;
     const start = atTime(base, shift.start);
-    let end = atTime(base, shift.end);
-    if (end <= start) end = atTime(addDays(base, 1), shift.end);
+    // משמרת רב-יומית נגמרת ביום האחרון שהיא תופסת, לא למחרת ההתחלה
+    const lastDay = addDays(base, Math.max(1, shift.daysSpan || 1) - 1);
+    let end = atTime(lastDay, shift.end);
+    if (end <= start) end = atTime(addDays(lastDay, 1), shift.end);
     return { start, end };
   };
 
@@ -1305,19 +1307,21 @@ window.DEFAULT_SHIFT_SETTINGS = {
     { id: 'night',   name: 'לילה',  start: '21:00', end: '09:00', required: 2, daysSpan: 1 },
   ],
   friday: [
-    { id: 'morning', name: 'שישי ארוך', start: '09:00', end: '21:00', required: 2, daysSpan: 1 },
+    { id: 'morning', name: 'שישי ארוך', start: '09:00', end: '21:00', required: 1, daysSpan: 1 },
     { id: 'short',   name: 'שישי קצר',  start: '09:00', end: '15:00', required: 1, daysSpan: 1 },
-    { id: 'night',   name: 'לילה',      start: '21:00', end: '09:00', required: 2, daysSpan: 1 },
+    // מתחילה בשישי ב-15:00 ונגמרת בשבת ב-21:00 — כ-30 שעות, ולכן daysSpan 2.
+    // היא זו שמכסה את ליל שישי, ולכן אין בשישי משמרת לילה נפרדת.
+    { id: 'shabbat', name: 'שבת ארוכה', start: '15:00', end: '21:00', required: 2, daysSpan: 2 },
   ],
   saturday: [
-    { id: 'morning', name: 'בוקר',  start: '09:00', end: '21:00', required: 2, daysSpan: 1 },
-    { id: 'short',   name: 'קצר',   start: '15:00', end: '19:00', required: 1, daysSpan: 1 },
-    { id: 'night',   name: 'לילה',  start: '21:00', end: '09:00', required: 2, daysSpan: 1 },
+    { id: 'morning', name: 'בוקר שבת',  start: '09:00', end: '21:00', required: 1, daysSpan: 1 },
+    { id: 'night',   name: 'מוצאי שבת', start: '21:00', end: '09:00', required: 2, daysSpan: 1 },
   ],
   special: [],
   sets: [],
   templates: [],
   dayOrder: {},
+  _v: 2,
 };
 window.ShiftSettingsCtx = React.createContext(null);
 </script>
@@ -4720,23 +4724,27 @@ const migrate = (arr, rules) => (arr || []).map(s => {
   return (r && s.name === r.from) ? { ...s, ...r.to } : s;
 });
 const FIX_DAY = { evening: { from: 'ערב', to: { name: 'בוקר קצר' } } };
-const FIX_FRIDAY = {
-  morning: { from: 'בוקר', to: { name: 'שישי ארוך' } },
-  short:   { from: 'קצר',  to: { name: 'שישי קצר', start: '09:00', end: '15:00' } },
-};
+const SETTINGS_V = 2;
 
 function mergeSettings(saved) {
   if (!saved) return DEFAULT_SHIFT_SETTINGS;
   const oldWeekend = saved.weekend;
+  // גרסה 2 שינתה את מבנה שישי–שבת מהיסוד: נוספה "שבת ארוכה" שחוצה יומיים,
+  // וירדו ליל שישי ו"קצר" של שבת. הסבה שדה-שדה לא יכולה לבטא הוספה והסרה,
+  // ולכן שני הימים נטענים מחדש מברירת המחדל — פעם אחת בלבד.
+  const resetWeekend = (saved._v || 1) < SETTINGS_V;
   return {
-    weekday:  migrate(saved.weekday  || DEFAULT_SHIFT_SETTINGS.weekday, FIX_DAY),
-    friday:   migrate(saved.friday   || oldWeekend || DEFAULT_SHIFT_SETTINGS.friday, FIX_FRIDAY),
-    saturday: migrate(saved.saturday || oldWeekend || DEFAULT_SHIFT_SETTINGS.saturday, FIX_DAY),
+    weekday:  migrate(saved.weekday || DEFAULT_SHIFT_SETTINGS.weekday, FIX_DAY),
+    friday:   resetWeekend ? DEFAULT_SHIFT_SETTINGS.friday
+                           : (saved.friday   || oldWeekend || DEFAULT_SHIFT_SETTINGS.friday),
+    saturday: resetWeekend ? DEFAULT_SHIFT_SETTINGS.saturday
+                           : (saved.saturday || oldWeekend || DEFAULT_SHIFT_SETTINGS.saturday),
     special:  saved.special  || [],
     sets:     saved.sets     || [],
     templates: saved.templates || [],
     dayOrder: saved.dayOrder || {},
     _overrides: saved._overrides || {},
+    _v: SETTINGS_V,
   };
 }
 

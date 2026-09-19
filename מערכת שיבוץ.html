@@ -852,6 +852,27 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return { sent: 0, errors: 1, errMsgs: [e.message || String(e)] };
       }
     },
+    // ---- חילופי משמרות ----
+    async fetchSwapRequests(status) {
+      if (!client) return [];
+      try {
+        let q = client.from('shift_swap_requests').select('*').order('created_at', { ascending: false });
+        if (status) q = q.eq('status', status);
+        const { data, error } = await q;
+        if (error) throw error;
+        return data || [];
+      } catch (e) { console.warn('fetchSwapRequests failed:', e.message); return []; }
+    },
+    async respondSwap(payload) {
+      try {
+        const res = await fetch(`${URL}/functions/v1/swaps`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${KEY}`, 'apikey': KEY },
+          body: JSON.stringify({ action: 'respond', ...payload }),
+        });
+        return await res.json();
+      } catch (e) { return { error: e.message || String(e) }; }
+    },
     // ---- ניהול חשבונות עובדים — דורש מפתח service_role (נשמר בדפדפן בלבד, לא בקוד) ----
     async adminSetPassword(adminKey, email, password) {
       try {
@@ -3058,7 +3079,7 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 }
 
 // ---- SettingsDrawer ----
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showKey, setShowKey] = React.useState(false);
@@ -3197,6 +3218,32 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
               </button>
               {adminSaved && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ המפתח נשמר</div>}
               {!adminSaved && adminKey && adminDraft.trim() === adminKey && <div style={{marginTop:6,fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן זה בלבד</div>}
+            </div>
+            <div>
+              <div className="settings-sec-title">🔁 אישורי חילופי משמרות</div>
+              <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:10,lineHeight:1.5}}>
+                כברירת מחדל עובד שמחליף או מוסר משמרת מעדכן ישירות, בלי אישור מאף אחד. כל toggle מוסיף שכבת אישור נדרשת לפני שהשינוי נכנס לתוקף.
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:9}}>
+                {[
+                  ['peerApprovalFull', 'החלפת משמרת מלאה — צריכה אישור העובד השני'],
+                  ['managerApprovalFull', 'החלפת משמרת מלאה — צריכה אישור המשבץ'],
+                  ['peerApprovalPartial', 'החלפת שעות חלקית — צריכה אישור העובד השני'],
+                  ['managerApprovalPartial', 'החלפת שעות חלקית — צריכה אישור המשבץ'],
+                ].map(([key, label]) => (
+                  <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'0 2px'}}>
+                    <span style={{fontSize:'12.5px',lineHeight:1.4}}>{label}</span>
+                    <label className="toggle-switch" style={{flexShrink:0}}>
+                      <input type="checkbox" checked={!!swapSettings[key]}
+                        onChange={(e) => onSwapSettingsChange(s => ({ ...s, [key]: e.target.checked }))} />
+                      <span className="toggle-slider"></span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:'11px',color:'var(--ink-3)',marginTop:8,lineHeight:1.5}}>
+                קיצור משמרת בלי מחליף תמיד מיידי, בלי אישור. בקשות שממתינות לאישורכם מופיעות בכפתור ⇄ בסרגל העליון.
+              </div>
             </div>
             <div>
               <div className="settings-sec-title">👑 אדמינים</div>
@@ -4570,6 +4617,48 @@ function LogDrawer({ open, log, onClose }) {
 }
 
 // ---- SendRemindersModal ----
+function SwapApprovalsDrawer({ open, onClose, requests, employees, shiftSettings, onRespond, busy }) {
+  if (!open) return null;
+  const nameOf = (id) => employees.find(e => e.id === id)?.name || id || '—';
+  const KIND_LABEL = { full: 'החלפת משמרת מלאה', partial: 'החלפת שעות חלקית', hole: 'קיצור משמרת' };
+  const shiftName = (date, shiftId) => window.ShiftData?.shiftDef(date, shiftId, shiftSettings)?.name || shiftId;
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-head">
+          <h2 className="drawer-title">⇄ בקשות חילוף הממתינות לאישור</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="סגירה">×</button>
+        </div>
+        {!requests.length ? (
+          <div className="drawer-empty">אין בקשות שממתינות לאישורכם כרגע.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '4px 2px' }}>
+            {requests.map(r => (
+              <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 6, background: 'var(--surface)' }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{KIND_LABEL[r.kind] || r.kind}</div>
+                <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+                  <b>{nameOf(r.from_emp_id)}</b> · {shiftName(r.date, r.shift_id)} · {r.date}
+                  {r.kind === 'full' && <> ← יעבור אל <b>{nameOf(r.to_emp_id)}</b></>}
+                  {r.kind === 'partial' && <> · {r.direction === 'early' ? 'הקדמת התחלה' : 'הארכת סיום'} עד {r.boundary_time}, מול <b>{nameOf(r.to_emp_id)}</b></>}
+                  {r.kind === 'hole' && <> · {r.edge === 'start' ? 'תחילת' : 'סיום'} המשמרת יוזז ל-{r.boundary_time}, בלי מחליף</>}
+                </div>
+                {r.note && <div style={{ fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>"{r.note}"</div>}
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <button className="btn btn-primary" disabled={busy === r.id} style={{ flex: 1 }}
+                    onClick={() => onRespond(r.id, 'accept')}>אישור</button>
+                  <button className="btn" disabled={busy === r.id} style={{ flex: 1 }}
+                    onClick={() => onRespond(r.id, 'reject')}>דחייה</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+}
+
 function SendRemindersModal({ open, onClose, draft, employees, currentMonth }) {
   if (!open) return null;
   const [msg, setMsg] = React.useState('');
@@ -4823,6 +4912,8 @@ function App() {
   // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
   const [requests, setRequests] = React.useState(() => saved?.requests || {});
   const [admins, setAdmins] = React.useState(() => saved?.admins || ['eladadler@gmail.com']);
+  const DEFAULT_SWAP_SETTINGS = { peerApprovalFull: false, peerApprovalPartial: false, managerApprovalFull: false, managerApprovalPartial: false };
+  const [swapSettings, setSwapSettings] = React.useState(() => ({ ...DEFAULT_SWAP_SETTINGS, ...(saved?.swapSettings || {}) }));
   const [vapidPublicKey, setVapidPublicKey] = React.useState(() => saved?.vapidPublicKey || '');
   const [sendRemindersOpen, setSendRemindersOpen] = React.useState(false);
   const [selectedDate, setSelectedDate] = React.useState(null);
@@ -4840,6 +4931,12 @@ function App() {
   const [pendingEmps, setPendingEmps] = React.useState(null); // null = לא נטען עדיין
   const [pendingEmpsErr, setPendingEmpsErr] = React.useState(null);
   const [pendingApproveModal, setPendingApproveModal] = React.useState(null);
+  const [swapQueue, setSwapQueue] = React.useState([]); // בקשות חילוף שממתינות לאישור המשבץ
+  const [swapDrawerOpen, setSwapDrawerOpen] = React.useState(false);
+  const [swapBusy, setSwapBusy] = React.useState(null);
+  const refreshSwapQueue = React.useCallback(() => {
+    window.__db.fetchSwapRequests?.('pending_manager').then(rows => setSwapQueue(rows || [])).catch(() => {});
+  }, []);
 
   const saveTimerRef = React.useRef(null);
   const isFirstLoad = React.useRef(true);
@@ -4889,11 +4986,13 @@ function App() {
         }
         // טען מפתח VAPID ציבורי
         if (remote.vapidPublicKey) setVapidPublicKey(remote.vapidPublicKey);
+        if (remote.swapSettings) setSwapSettings(s => ({ ...s, ...remote.swapSettings }));
       }
       setSyncStatus('saved');
       isFirstLoad.current = false;
       // טעינת ממתינים לאישור
       window.__db.fetchPendingEmployees?.().then(rows => setPendingEmps(rows || [])).catch(e => setPendingEmpsErr(e?.message || String(e)));
+      refreshSwapQueue();
       // ממשק לאפליקציית העובדים: סנכרון עובדים + קליטת בקשות שהוגשו
       window.__db.syncEmployees?.(loadedEmployees);
       refreshEmployeeRequests();
@@ -4950,7 +5049,7 @@ function App() {
     if (generatingId) return;
     if (isFirstLoad.current) return;
     if (employees.length === 0) return; // אל תכתוב רשימת עובדים ריקה — שמור על נתוני Supabase
-    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, empMaxV: EMP_MAX_V };
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, swapSettings, empMaxV: EMP_MAX_V };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -4959,7 +5058,7 @@ function App() {
       const ok = await window.__db.save(state);
       setSyncStatus(ok ? 'saved' : 'error');
     }, 1200);
-  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, generatingId]);
+  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, swapSettings, generatingId]);
 
   // ערכת נושא
   React.useEffect(() => {
@@ -5595,6 +5694,9 @@ ${JSON.stringify(emptySlots, null, 2)}
           <button className="topbar-nav-btn" onClick={() => setScriptRunnerOpen(true)} title="הרצת סקריפטים">
             ⚡ סקריפטים
           </button>
+          <button className="topbar-nav-btn" onClick={() => setSwapDrawerOpen(true)} title="בקשות חילוף הממתינות לאישור">
+            ⇄ חילופים{swapQueue.length > 0 && <span className="btn-badge">{swapQueue.length}</span>}
+          </button>
           {screen === 'calendar' && (
             <>
               <button className="btn" onClick={() => setLogOpen(true)} disabled={!currentDraft}>
@@ -5747,13 +5849,31 @@ ${JSON.stringify(emptySlots, null, 2)}
         onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }}
         admins={admins} onAdminsChange={setAdmins}
         vapidPublicKey={vapidPublicKey}
-        onVapidKeysGenerated={setVapidPublicKey} />
+        onVapidKeysGenerated={setVapidPublicKey}
+        swapSettings={swapSettings} onSwapSettingsChange={setSwapSettings} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         month={currentMonth}
         initialRange={currentDraft?.range || AE.defaultRange(currentMonth)}
         initialExcluded={[]} />
       <LogDrawer open={logOpen} log={currentDraft?.log || []} onClose={() => setLogOpen(false)} />
+      <SwapApprovalsDrawer open={swapDrawerOpen} onClose={() => setSwapDrawerOpen(false)}
+        requests={swapQueue} employees={employees} shiftSettings={shiftSettings} busy={swapBusy}
+        onRespond={async (id, decision) => {
+          setSwapBusy(id);
+          const res = await window.__db.respondSwap({ requestId: id, role: 'manager', decision, respondedBy: 'manager' });
+          // אם החילוף יושם בפועל, טוענים מחדש drafts/shiftSettings — אחרת השמירה
+          // האוטומטית הבאה של המשבץ תדרוס את השינוי בעותק המקומי הישן שלו
+          if (res?.request?.status === 'approved') {
+            const remote = await window.__db.load();
+            if (remote) {
+              if (Array.isArray(remote.drafts)) setDrafts(remote.drafts);
+              if (remote.shiftSettings) setShiftSettings(mergeSettings(remote.shiftSettings));
+            }
+          }
+          refreshSwapQueue();
+          setSwapBusy(null);
+        }} />
       <window.SendRemindersModal open={sendRemindersOpen} onClose={() => setSendRemindersOpen(false)}
         draft={currentDraft} employees={employees} currentMonth={currentMonth} />
       <window.ScriptRunnerModal open={scriptRunnerOpen} onClose={() => setScriptRunnerOpen(false)} />

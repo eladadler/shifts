@@ -143,3 +143,39 @@ alter table ai_feedback enable row level security;
 drop policy if exists "open access" on ai_feedback;
 create policy "open access" on ai_feedback
   for all to anon, authenticated using (true) with check (true);
+
+-- 9. בקשות חילוף משמרות (אפליקציית העובד כותבת וקוראת; המשבץ מאשר; ה-Edge
+--    Function swaps מבצע את השינוי בפועל בסידור בעת אישור/תפיסה)
+create table if not exists shift_swap_requests (
+  id             uuid default gen_random_uuid() primary key,
+  created_at     timestamptz not null default now(),
+  month          text not null,               -- 'YYYY-MM' של published_schedules הרלוונטי
+  kind           text not null,               -- 'full' | 'partial' | 'hole'
+  source         text not null,               -- 'direct' (הצעה לעובד ספציפי) | 'market' (לוח פתוח)
+  status         text not null default 'open',
+  -- open | pending_peer | pending_manager | approved | rejected | cancelled
+  date           text not null,               -- YYYY-MM-DD של המשמרת המבקשת
+  shift_id       text not null,
+  from_emp_id    text not null,               -- מי שהמשמרת/השעות שלו כרגע
+  to_emp_id      text,                        -- יעד ישיר, או תופס בלוח פתוח; null = עדיין פתוח
+  -- partial בלבד: הצד השני להחלפת השעות ומשמרתו שלו (יכולה ליפול ביום/משמרת שונים)
+  to_date        text,
+  to_shift_id    text,
+  direction      text,                        -- partial: 'early' (הקדמת התחלה) | 'late' (הארכת סיום)
+  edge           text,                        -- hole: 'start' | 'end' — הקצה שמתקצר
+  boundary_time  text,                        -- 'HH:MM' — הגבול החדש המשותף
+  note           text  not null default '',
+  responded_at   timestamptz,
+  responded_by   text,
+  applied_at     timestamptz
+);
+
+create index if not exists shift_swap_requests_month on shift_swap_requests (month);
+create index if not exists shift_swap_requests_status on shift_swap_requests (status);
+create index if not exists shift_swap_requests_from on shift_swap_requests (from_emp_id);
+create index if not exists shift_swap_requests_to on shift_swap_requests (to_emp_id);
+
+alter table shift_swap_requests enable row level security;
+drop policy if exists "open access" on shift_swap_requests;
+create policy "open access" on shift_swap_requests
+  for all to anon, authenticated using (true) with check (true);

@@ -8,6 +8,7 @@ on:
     paths:
       - 'supabase/functions/shift-reminders/**'
       - 'supabase/functions/calendar/**'
+      - 'supabase/functions/swaps/**'
       - '.github/workflows/deploy-supabase-functions.yml'
   workflow_dispatch:
 
@@ -37,6 +38,14 @@ jobs:
       # והזיהוי נעשה דרך האסימון שבשאילתה.
       - name: Deploy calendar
         run: supabase functions deploy calendar --project-ref "$PROJECT_REF" --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ajniglpdgkwnasuslsyc
+
+      # גם כאן --no-verify-jwt: שתי האפליקציות קוראות לפונקציה מהדפדפן עם מפתח
+      # publishable, לא JWT אמיתי של משתמש.
+      - name: Deploy swaps
+        run: supabase functions deploy swaps --project-ref "$PROJECT_REF" --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           PROJECT_REF: ajniglpdgkwnasuslsyc

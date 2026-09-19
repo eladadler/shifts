@@ -133,6 +133,18 @@ const SB_URL = 'https://ajniglpdgkwnasuslsyc.supabase.co';
 const SB_KEY = 'sb_publishable_zMTTfShJSVqKaGRYlYoqFA_9y_5Q5hk';
 const sb = supabase.createClient(SB_URL, SB_KEY);
 
+/* ============ חילופי משמרות — קריאה ל-Edge Function ============ */
+async function callSwaps(action, payload) {
+  const res = await fetch(`${SB_URL}/functions/v1/swaps`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SB_KEY}`, 'apikey': SB_KEY },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || `שגיאת שרת (${res.status})`);
+  return data;
+}
+
 /* ============ תאריכים ============ */
 const HEB_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const HEB_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
@@ -370,6 +382,17 @@ function PersonChip({ id, myId, empNames, time }) {
 const personTimeLabel = (ds, def, id) =>
   def && hasPersonTimes(def, id) ? (t => `${fmtHM(t.start)}–${fmtHM(t.end)}`)(personTimes(ds, def, id)) : null;
 
+/* ============ חילופי משמרות: תוויות משותפות ============ */
+const SWAP_KIND_LABEL = { full: 'משמרת מלאה', partial: 'חלק ממשמרת', hole: 'קיצור משמרת' };
+const swapShiftName = (row, published) => {
+  const settings = published[row.month]?.shift_settings || null;
+  return shiftDefOf(row.date, row.shift_id, settings)?.name || row.shift_id;
+};
+const SWAP_STATUS_LABEL = {
+  open: 'פתוח בלוח', pending_peer: 'ממתין לתגובת העמית', pending_manager: 'ממתין לאישור המשבץ',
+  approved: 'אושר', rejected: 'נדחה', cancelled: 'בוטל',
+};
+
 function ShiftRow({ sh, myId, empNames, blocked, onOpen }) {
   return (
     <div onClick={onOpen} style={{ cursor: onOpen ? 'pointer' : 'default', display: 'flex', flexDirection: 'column', gap: 7, padding: '10px 12px', borderRadius: 10,
@@ -593,6 +616,7 @@ function App() {
   const [serverReqs, setServerReqs] = React.useState({});    // { 'YYYY-MM': row } — הבקשות שלי מהשרת
   const [localReqs, setLocalReqs] = React.useState({});      // { 'YYYY-MM': { marks, note, dirty } }
   const [allReqs, setAllReqs] = React.useState({});          // { 'YYYY-MM': { emp_id: row } } — כל העובדים
+  const [swaps, setSwaps] = React.useState([]);               // כל בקשות החילוף (shift_swap_requests)
   const [mgrEmps, setMgrEmps] = React.useState([]);          // כרטיסי העובדים מהמשבץ (nights, max)
   const [detail, setDetail] = React.useState(null);          // { ym, ds, shiftId } — מסך פרטי משמרת
   const [tab, setTab] = React.useState('home');
@@ -611,6 +635,10 @@ function App() {
   }, []);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
+  const refreshSwaps = React.useCallback(() => {
+    sb.from('shift_swap_requests').select('*').order('created_at', { ascending: false })
+      .then(({ data }) => setSwaps(data || [])).catch(() => {});
+  }, []);
 
   /* --- טעינת נתונים --- */
   // byId=true → identifier הוא emp.id; byId=false (ברירת מחדל) → identifier הוא email
@@ -645,13 +673,15 @@ function App() {
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
 
-      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes] = await Promise.all([
+      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }] = await Promise.all([
         sb.from('published_schedules').select('*'),
         sb.from('employee_requests').select('*'),
         sb.from('mishmarot_state').select('data').eq('id', 'main').maybeSingle(),
+        sb.from('shift_swap_requests').select('*').order('created_at', { ascending: false }),
       ]);
       if (e2) throw e2;
       if (e3) throw e3;
+      setSwaps(swapRows || []);
       // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
@@ -823,15 +853,16 @@ function App() {
     )}
     {detail ? (
       <ShiftDetail me={me} empNames={empNames} published={published} allReqs={allReqs} mgrEmps={mgrEmps}
-        ctx={detail} onClose={() => setDetail(null)} />
+        ctx={detail} onClose={() => setDetail(null)} showToast={showToast} onSwapsChanged={refreshSwaps} />
     ) : (
-    <Shell me={me} tab={tab} setTab={setTab}>
-      {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} goSched={() => setTab('schedule')} goReq={() => setTab('requests')}
+    <Shell me={me} tab={tab} setTab={setTab} swapBadge={swaps.filter(r => r.status === 'pending_peer' && r.to_emp_id === me.id).length}>
+      {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} swaps={swaps} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} goSwaps={() => setTab('swaps')}
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} serverReqs={serverReqs} goReq={() => setTab('requests')}
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey} />}
+      {tab === 'swaps' && <SwapsTab me={me} empNames={empNames} published={published} swaps={swaps} onRefresh={refreshSwaps} showToast={showToast} />}
       {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} />}
     </Shell>
     )}
@@ -839,15 +870,15 @@ function App() {
 }
 
 /* ============ מעטפת: כותרת + טאבים ============ */
-function Shell({ me, tab, setTab, children }) {
+function Shell({ me, tab, setTab, children, swapBadge }) {
   const firstName = (me.name || '').split(' ')[0];
   const tabStyle = (active) => ({
     padding: '10px 0 14px', textAlign: 'center', fontSize: 11.5, fontWeight: active ? 800 : 500,
     color: active ? INK : '#8A867F', borderTop: `3px solid ${active ? TEAL : 'transparent'}`, marginTop: -1.5, cursor: 'pointer', transition: 'color 0.15s',
-    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative',
   });
-  const TAB_ICONS = { home: '🏠', schedule: '📅', requests: '✏️', settings: '⚙️' };
-  const TAB_LABELS = { home: 'הבית', schedule: 'הסידור', requests: 'בקשות', settings: 'הגדרות' };
+  const TAB_ICONS = { home: '🏠', schedule: '📅', swaps: '⇄', requests: '✏️', settings: '⚙️' };
+  const TAB_LABELS = { home: 'הבית', schedule: 'הסידור', swaps: 'חילופים', requests: 'בקשות', settings: 'הגדרות' };
   return (<>
     <div style={{ padding: '13px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1.5px solid ${INK}`, background: '#FFF', flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -864,10 +895,17 @@ function Shell({ me, tab, setTab, children }) {
     <div style={{ flex: 1, overflowY: 'auto', background: '#FAF9F7' }}>
       {children}
     </div>
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderTop: `1.5px solid ${INK}`, background: '#FFF', flexShrink: 0 }}>
-      {['home', 'schedule', 'requests', 'settings'].map(t => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', borderTop: `1.5px solid ${INK}`, background: '#FFF', flexShrink: 0 }}>
+      {['home', 'schedule', 'swaps', 'requests', 'settings'].map(t => (
         <div key={t} onClick={() => setTab(t)} style={tabStyle(tab === t)}>
-          <span style={{ fontSize: 16, lineHeight: 1 }}>{TAB_ICONS[t]}</span>
+          <span style={{ fontSize: 16, lineHeight: 1, position: 'relative' }}>
+            {TAB_ICONS[t]}
+            {t === 'swaps' && swapBadge > 0 && (
+              <span style={{ position: 'absolute', top: -4, insetInlineEnd: -8, background: 'oklch(0.55 0.18 25)', color: '#FFF', borderRadius: 999, fontSize: 9, fontWeight: 800, minWidth: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>
+                {swapBadge}
+              </span>
+            )}
+          </span>
           <span>{TAB_LABELS[t]}</span>
         </div>
       ))}
@@ -1219,7 +1257,7 @@ function AdjacentShift({ title, item, empNames, myId }) {
   );
 }
 
-function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose }) {
+function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, showToast, onSwapsChanged }) {
   const { ym, ds, shiftId } = ctx;
   const row = published[ym];
   const settings = row?.shift_settings || null;
@@ -1267,6 +1305,46 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose }
     can:  { text: 'סימן.ה שיכול.ה',    ...MARK_STATUS.can },
   };
   const section = { fontSize: 12, fontWeight: 800, color: '#8A867F', letterSpacing: '0.04em' };
+
+  const [actionOpen, setActionOpen] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+  const [formTime, setFormTime] = React.useState('');
+  const [formNote, setFormNote] = React.useState('');
+  const [formCounterpart, setFormCounterpart] = React.useState(null);
+  React.useEffect(() => { setFormTime(''); setFormNote(''); setFormCounterpart(null); setErr(null); }, [actionOpen]);
+
+  const run = async (fn) => {
+    setBusy(true); setErr(null);
+    try { await fn(); setActionOpen(null); onSwapsChanged && onSwapsChanged(); showToast && showToast('הבקשה נשלחה ✓'); }
+    catch (e) { setErr(e?.message || String(e)); }
+    setBusy(false);
+  };
+
+  const proposeFull = (toEmpId) => run(() => callSwaps('create', {
+    kind: 'full', source: 'direct', month: ym, date: ds, shiftId, fromEmpId: me.id, toEmpId,
+  }));
+  const postMarket = (kind, note) => run(() => callSwaps('create', {
+    kind, source: 'market', month: ym, date: ds, shiftId, fromEmpId: me.id, note: note || '',
+  }));
+  const proposePartial = (direction, counterpartId, neighbor, time, note) => run(() => callSwaps('create', {
+    kind: 'partial', source: 'direct', month: ym, date: ds, shiftId, fromEmpId: me.id,
+    toEmpId: counterpartId, toDate: neighbor.ds, toShiftId: neighbor.shiftId,
+    direction, edge: direction === 'early' ? 'start' : 'end', boundaryTime: time, note: note || '',
+  }));
+  const shortenHole = (edge, time, note) => run(() => callSwaps('create', {
+    kind: 'hole', source: 'direct', month: ym, date: ds, shiftId, fromEmpId: me.id,
+    edge, boundaryTime: time, note: note || '',
+  }));
+
+  const actionBtn = (key, label) => (
+    <button onClick={() => setActionOpen(cur => cur === key ? null : key)}
+      style={{ background: actionOpen === key ? TEAL : '#FFF', color: actionOpen === key ? '#FFF' : INK,
+        border: `1.5px solid ${actionOpen === key ? TEAL : '#E2DFD9'}`, borderRadius: 10, padding: '10px 12px',
+        fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'right' }}>
+      {label}
+    </button>
+  );
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', animation: 'fadeIn 0.2s' }}>
@@ -1333,12 +1411,266 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose }
             לפי הבקשות שהוגשו ל{monthName(ym)}. מי שכבר משובץ.ת באותו יום לא מופיע.ה ברשימה.
           </div>
         </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={section}>פעולות על המשמרת</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {actionBtn('directFull', '🔁 מסירת המשמרת לעמית.ה ספציפי.ת')}
+            {actionOpen === 'directFull' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', background: '#FBFAF8', border: '1px solid #ECEAE5', borderRadius: 10 }}>
+                {cands.length ? cands.map(c => (
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{empNames[c.id] || c.id}</span>
+                    <button disabled={busy} onClick={() => proposeFull(c.id)}
+                      style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                      הצעה
+                    </button>
+                  </div>
+                )) : <div style={{ fontSize: 12.5, color: '#8A867F' }}>אין כרגע מי שפנוי.ה למשמרת הזו.</div>}
+                {err && <div style={{ fontSize: 12, color: '#C05858' }}>{err}</div>}
+              </div>
+            )}
+
+            {actionBtn('marketFull', '📣 פרסום בלוח — מעוניין.ת למסור את המשמרת')}
+            {actionOpen === 'marketFull' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: '#FBFAF8', border: '1px solid #ECEAE5', borderRadius: 10 }}>
+                <textarea value={formNote} onChange={e => setFormNote(e.target.value)} placeholder="הערה חופשית (רשות)"
+                  rows={2} style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
+                <button disabled={busy} onClick={() => postMarket('full', formNote)}
+                  style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  פרסום בלוח
+                </button>
+                {err && <div style={{ fontSize: 12, color: '#C05858' }}>{err}</div>}
+              </div>
+            )}
+
+            {actionBtn('marketPartial', '📣 פרסום בלוח — מעוניין.ת למסור חלק מהמשמרת')}
+            {actionOpen === 'marketPartial' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: '#FBFAF8', border: '1px solid #ECEAE5', borderRadius: 10 }}>
+                <textarea value={formNote} onChange={e => setFormNote(e.target.value)} placeholder="איזה חלק? למשל: מעוניין.ת שמישהו יחליף אותי מ-19:00 ואילך"
+                  rows={2} style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
+                <div style={{ fontSize: 11.5, color: '#A8A49C', lineHeight: 1.5 }}>
+                  זו הכרזה בלבד — אין כאן השלמה אוטומטית. מי שמעוניין.ת יצור.תיצור איתך קשר, ואז מעדכנים את השעות בפועל.
+                </div>
+                <button disabled={busy} onClick={() => postMarket('partial', formNote)}
+                  style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  פרסום בלוח
+                </button>
+                {err && <div style={{ fontSize: 12, color: '#C05858' }}>{err}</div>}
+              </div>
+            )}
+
+            {prev && prev.people.length > 0 && actionBtn('early', '⏪ הקדמתי — הגעתי לפני תחילת המשמרת')}
+            {actionOpen === 'early' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: '#FBFAF8', border: '1px solid #ECEAE5', borderRadius: 10 }}>
+                <div style={{ fontSize: 12.5, color: '#6B6760' }}>ממי לקחת.י את הזמן, מ{prev.def?.name} של {shortDate(prev.ds)}?</div>
+                <select value={formCounterpart || ''} onChange={e => setFormCounterpart(e.target.value)}
+                  style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit' }}>
+                  <option value="">בחרו עמית.ה</option>
+                  {prev.people.map(id => <option key={id} value={id}>{empNames[id] || id}</option>)}
+                </select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12.5, color: '#6B6760' }}>התחלתי בפועל בשעה</span>
+                  <input type="time" value={formTime} onChange={e => setFormTime(e.target.value)}
+                    style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit' }} />
+                </div>
+                <button disabled={busy || !formCounterpart || !formTime}
+                  onClick={() => proposePartial('early', formCounterpart, prev, formTime, formNote)}
+                  style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (!formCounterpart || !formTime) ? 0.5 : 1 }}>
+                  שליחה
+                </button>
+                {err && <div style={{ fontSize: 12, color: '#C05858' }}>{err}</div>}
+              </div>
+            )}
+
+            {next && next.people.length > 0 && actionBtn('late', '⏩ נשארתי — האריכו.תי אחרי סיום המשמרת')}
+            {actionOpen === 'late' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: '#FBFAF8', border: '1px solid #ECEAE5', borderRadius: 10 }}>
+                <div style={{ fontSize: 12.5, color: '#6B6760' }}>למי מסרת.י את הזמן, מ{next.def?.name} של {shortDate(next.ds)}?</div>
+                <select value={formCounterpart || ''} onChange={e => setFormCounterpart(e.target.value)}
+                  style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit' }}>
+                  <option value="">בחרו עמית.ה</option>
+                  {next.people.map(id => <option key={id} value={id}>{empNames[id] || id}</option>)}
+                </select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12.5, color: '#6B6760' }}>סיימתי בפועל בשעה</span>
+                  <input type="time" value={formTime} onChange={e => setFormTime(e.target.value)}
+                    style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit' }} />
+                </div>
+                <button disabled={busy || !formCounterpart || !formTime}
+                  onClick={() => proposePartial('late', formCounterpart, next, formTime, formNote)}
+                  style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (!formCounterpart || !formTime) ? 0.5 : 1 }}>
+                  שליחה
+                </button>
+                {err && <div style={{ fontSize: 12, color: '#C05858' }}>{err}</div>}
+              </div>
+            )}
+
+            {actionBtn('hole', '✂️ קיצור בלי מחליף — נשאר חור במשמרת')}
+            {actionOpen === 'hole' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: '#FBFAF8', border: '1px solid #ECEAE5', borderRadius: 10 }}>
+                <div style={{ fontSize: 11.5, color: '#A8A49C', lineHeight: 1.5 }}>
+                  תמיד מיידי, בלי אישור — משמש כשאין מי שיחליף וצריך לצמצם. עדכנו את שעת ההגעה או הסיום בפועל.
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setFormCounterpart('start')}
+                    style={{ flex: 1, background: formCounterpart === 'start' ? INK : '#FFF', color: formCounterpart === 'start' ? '#FFF' : INK, border: '1.5px solid #E2DFD9', borderRadius: 8, padding: '8px 6px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                    מתחיל.ה מאוחר יותר
+                  </button>
+                  <button onClick={() => setFormCounterpart('end')}
+                    style={{ flex: 1, background: formCounterpart === 'end' ? INK : '#FFF', color: formCounterpart === 'end' ? '#FFF' : INK, border: '1.5px solid #E2DFD9', borderRadius: 8, padding: '8px 6px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                    מסיים.ת מוקדם יותר
+                  </button>
+                </div>
+                {formCounterpart && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12.5, color: '#6B6760' }}>{formCounterpart === 'start' ? 'שעת ההתחלה בפועל' : 'שעת הסיום בפועל'}</span>
+                    <input type="time" value={formTime} onChange={e => setFormTime(e.target.value)}
+                      style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit' }} />
+                  </div>
+                )}
+                <textarea value={formNote} onChange={e => setFormNote(e.target.value)} placeholder="למה? (רשות, יוצג למשבץ)"
+                  rows={2} style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
+                <button disabled={busy || !formCounterpart || !formTime}
+                  onClick={() => shortenHole(formCounterpart, formTime, formNote)}
+                  style={{ background: 'oklch(0.55 0.15 25)', color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (!formCounterpart || !formTime) ? 0.5 : 1 }}>
+                  קיצור מיידי
+                </button>
+                {err && <div style={{ fontSize: 12, color: '#C05858' }}>{err}</div>}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function HomeTab({ me, empNames, published, TM, goSched, goReq, onOpenShift }) {
+/* ============ טאב חילופים: לוח פתוח + מה ממתין לי + הבקשות שלי ============ */
+function SwapCard({ row, published, empNames, children }) {
+  const nameOf = (id) => empNames[id] || id;
+  return (
+    <div style={{ background: '#FFF', border: '1px solid #EAE7E1', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 800 }}>{swapShiftName(row, published)}</span>
+        <span style={{ fontSize: 12, color: '#8A867F' }}>{shortDate(row.date)}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: TEAL_DARK, background: TEAL_SOFT, borderRadius: 999, padding: '2px 8px' }}>{SWAP_KIND_LABEL[row.kind]}</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: '#6B6760' }}>
+        {row.kind === 'full' ? <>מאת <b>{nameOf(row.from_emp_id)}</b></>
+          : row.kind === 'partial' ? <><b>{nameOf(row.from_emp_id)}</b> · {row.direction === 'early' ? 'הקדמת התחלה' : 'הארכת סיום'} מול {nameOf(row.to_emp_id)}</>
+          : <><b>{nameOf(row.from_emp_id)}</b> קיצר.ה את המשמרת</>}
+      </div>
+      {row.note && <div style={{ fontSize: 12, color: '#8A867F', fontStyle: 'italic' }}>"{row.note}"</div>}
+      {children}
+    </div>
+  );
+}
+
+function SwapsTab({ me, empNames, published, swaps, onRefresh, showToast }) {
+  const [busy, setBusy] = React.useState(null);
+
+  const act = async (id, fn) => {
+    setBusy(id);
+    try { await fn(); onRefresh(); showToast && showToast('בוצע ✓'); }
+    catch (e) { showToast && showToast('שגיאה: ' + (e?.message || String(e))); }
+    setBusy(null);
+  };
+
+  const openMarket = swaps.filter(r => r.status === 'open' && (r.kind === 'full' || r.kind === 'partial'))
+    .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  const incoming = swaps.filter(r => r.status === 'pending_peer' && r.to_emp_id === me.id);
+  const mine = swaps.filter(r => r.from_emp_id === me.id && r.status !== 'cancelled')
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  const sectionTitle = (t, n) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+      <div style={{ fontSize: 15, fontWeight: 900 }}>{t}</div>
+      {n > 0 && <span style={{ fontSize: 11, fontWeight: 800, background: 'oklch(0.55 0.18 25)', color: '#FFF', borderRadius: 999, padding: '1px 8px' }}>{n}</span>}
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {sectionTitle('מחכה לתגובה שלך', incoming.length)}
+      {incoming.length ? incoming.map(r => (
+        <SwapCard key={r.id} row={r} published={published} empNames={empNames}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button disabled={busy === r.id} style={{ flex: 1, background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+              onClick={() => act(r.id, () => callSwaps('respond', { requestId: r.id, role: 'peer', decision: 'accept', respondedBy: me.id }))}>
+              קבלה
+            </button>
+            <button disabled={busy === r.id} style={{ flex: 1, background: '#FFF', color: INK, border: '1.5px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+              onClick={() => act(r.id, () => callSwaps('respond', { requestId: r.id, role: 'peer', decision: 'reject', respondedBy: me.id }))}>
+              דחייה
+            </button>
+          </div>
+        </SwapCard>
+      )) : <div style={{ fontSize: 13, color: '#8A867F' }}>אין כרגע הצעות שממתינות לתגובה שלך.</div>}
+
+      {sectionTitle('לוח פתוח — הצעות מכל העובדים', 0)}
+      {openMarket.length ? openMarket.map(r => (
+        <SwapCard key={r.id} row={r} published={published} empNames={empNames}>
+          {r.kind === 'full' && r.from_emp_id !== me.id && (
+            <button disabled={busy === r.id} style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginTop: 4 }}
+              onClick={() => act(r.id, () => callSwaps('claim', { requestId: r.id, claimerEmpId: me.id }))}>
+              אני לוקח.ת את המשמרת
+            </button>
+          )}
+          {r.from_emp_id === me.id && (
+            <button disabled={busy === r.id} style={{ background: '#FFF', color: 'oklch(0.5 0.18 25)', border: '1.5px solid #E2DFD9', borderRadius: 8, padding: '7px 10px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', marginTop: 4 }}
+              onClick={() => act(r.id, () => callSwaps('cancel', { requestId: r.id, byEmpId: me.id }))}>
+              ביטול הפרסום
+            </button>
+          )}
+        </SwapCard>
+      )) : <div style={{ fontSize: 13, color: '#8A867F' }}>אין כרגע הצעות פתוחות בלוח.</div>}
+
+      {sectionTitle('הבקשות שלך', 0)}
+      {mine.length ? mine.map(r => (
+        <SwapCard key={r.id} row={r} published={published} empNames={empNames}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: '#6B6760' }}>{SWAP_STATUS_LABEL[r.status] || r.status}</span>
+            {['open', 'pending_peer', 'pending_manager'].includes(r.status) && (
+              <button disabled={busy === r.id} style={{ marginInlineStart: 'auto', background: 'none', color: 'oklch(0.5 0.18 25)', border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
+                onClick={() => act(r.id, () => callSwaps('cancel', { requestId: r.id, byEmpId: me.id }))}>
+                ביטול
+              </button>
+            )}
+          </div>
+        </SwapCard>
+      )) : <div style={{ fontSize: 13, color: '#8A867F' }}>עדיין לא פתחת בקשות חילוף.</div>}
+    </div>
+  );
+}
+
+function SwapBanner({ items, empNames, published, goSwaps }) {
+  const [i, setI] = React.useState(0);
+  React.useEffect(() => {
+    if (items.length < 2) return;
+    const t = setInterval(() => setI(x => (x + 1) % items.length), 4500);
+    return () => clearInterval(t);
+  }, [items.length]);
+  if (!items.length) return null;
+  const r = items[i % items.length];
+  return (
+    <div onClick={goSwaps} style={{ background: 'oklch(0.94 0.05 80)', border: '1px solid oklch(0.8 0.1 70)', borderRadius: 12, padding: '11px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: 'oklch(0.5 0.13 70)', letterSpacing: '0.03em' }}>📣 משמרות שצריכות חילוף</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'oklch(0.5 0.13 70)' }}>לרשימה המלאה ←</span>
+      </div>
+      <div key={r.id} style={{ fontSize: 13, fontWeight: 700, color: INK, animation: 'fadeIn 0.3s' }}>
+        {empNames[r.from_emp_id] || r.from_emp_id} מציע.ה {SWAP_KIND_LABEL[r.kind]} · {swapShiftName(r, published)} · {shortDate(r.date)}
+      </div>
+      {items.length > 1 && (
+        <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+          {items.map((_, idx) => <span key={idx} style={{ width: 5, height: 5, borderRadius: '50%', background: idx === (i % items.length) ? 'oklch(0.5 0.13 70)' : 'oklch(0.85 0.05 70)' }} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, onOpenShift }) {
   const today = todayStr();
   const relOf = (off) => off === 0 ? 'היום' : off === 1 ? 'מחר' : `בעוד ${off} ימים`;
 
@@ -1361,6 +1693,9 @@ function HomeTab({ me, empNames, published, TM, goSched, goReq, onOpenShift }) {
   // הגשת בקשות פתוחה לחודש שטרם פורסם סופית (כולל "פתוח לבקשות")
   const isReqOpen = (m) => !published[m] || published[m]?.shift_settings?._status === 'open';
   const openReqMonth = [addMonths(TM, 1), addMonths(TM, 2)].find(isReqOpen) || (isReqOpen(TM) ? TM : null);
+
+  const openMarket = (swaps || []).filter(r => r.status === 'open' && (r.kind === 'full' || r.kind === 'partial'))
+    .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 
   return (
     <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 14, animation: 'fadeIn 0.25s' }}>
@@ -1397,6 +1732,8 @@ function HomeTab({ me, empNames, published, TM, goSched, goReq, onOpenShift }) {
           <span onClick={goReq} style={{ fontSize: 13, fontWeight: 800, color: TEAL_DARK, cursor: 'pointer', flexShrink: 0 }}>להגשה ←</span>
         </div>
       )}
+
+      <SwapBanner items={openMarket} empNames={empNames} published={published} goSwaps={goSwaps} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
         <div style={{ fontSize: 15, fontWeight: 900 }}>המשמרות הבאות שלך</div>

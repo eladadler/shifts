@@ -348,12 +348,32 @@ function buildTimeline(published) {
       Object.keys(schedule[ds] || {}).forEach(sid => {
         const def = shiftDefOf(ds, sid, settings);
         if (!def) return;
+        const t = shiftTimesOf(ds, def);
         out.push({ ym, ds, shiftId: sid, def, people: schedule[ds][sid] || [],
-          startMs: shiftTimesOf(ds, def).start.getTime() });
+          startMs: t.start.getTime(), endMs: t.end.getTime() });
       });
     });
   });
   return out.sort((a, b) => a.startMs - b.startMs);
+}
+
+// מי חופף אליי בזמן, גם ממשמרת עם מזהה שונה שרצה באותן שעות (למשל "יום קצר" מול "יום ארוך") —
+// לא רק מי שנמצא באותה משבצת שלי. seen מונע כפילות עם מי שכבר ברשימת האנשים של המשמרת שלי עצמה.
+function overlapMates(timeline, ds, shiftId, myId) {
+  const mine = timeline.find(t => t.ds === ds && t.shiftId === shiftId);
+  if (!mine) return [];
+  const out = [];
+  const seen = new Set([myId, ...mine.people]);
+  timeline.forEach(t => {
+    if (t === mine) return;
+    if (t.startMs >= mine.endMs || t.endMs <= mine.startMs) return; // אין חפיפה בזמן
+    (t.people || []).forEach(id => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      out.push({ id, ds: t.ds, shiftId: t.shiftId, def: t.def });
+    });
+  });
+  return out;
 }
 
 // זמינות עובד למשמרת לפי הבקשה שהגיש. ערך "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת.
@@ -1264,7 +1284,6 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
   const def = shiftDefOf(ds, shiftId, settings);
   const daySchedule = row?.schedule?.[ds] || {};
   const people = daySchedule[shiftId] || [];
-  const mates = people.filter(p => p !== me.id);
   const dow = weekdayOf(ds);
   const mySplit = def && hasPersonTimes(def, me.id);
   const myTimes = def ? personTimes(ds, def, me.id) : null;
@@ -1273,6 +1292,9 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
   const idx = timeline.findIndex(t => t.ds === ds && t.shiftId === shiftId);
   const prev = idx > 0 ? timeline[idx - 1] : null;
   const next = idx !== -1 && idx < timeline.length - 1 ? timeline[idx + 1] : null;
+  // מי שנמצא איתי בפועל, כולל ממשמרת מקבילה עם מזהה אחר שרצה באותן שעות (למשל יום קצר מול יום ארוך)
+  const overlapPeople = overlapMates(timeline, ds, shiftId, me.id);
+  const mates = [...people.filter(p => p !== me.id), ...overlapPeople.map(o => o.id)];
 
   // מי שכבר עובד באותו יום מוסתר מרשימת המחליפים — הוא לא באמת פנוי
   const busyToday = new Set();
@@ -1377,8 +1399,14 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
           {mates.length ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {people.map(p => <PersonChip key={p} id={p} myId={me.id} empNames={empNames} time={personTimeLabel(ds, def, p)} />)}
+              {overlapPeople.map(o => <PersonChip key={o.id} id={o.id} myId={me.id} empNames={empNames} time={personTimeLabel(o.ds, o.def, o.id)} />)}
             </div>
           ) : <div style={{ fontSize: 13, color: '#8A867F' }}>משמרת יחיד — אתם לבד במשמרת זו.</div>}
+          {overlapPeople.length > 0 && (
+            <div style={{ fontSize: 11.5, color: '#A8A49C', lineHeight: 1.5 }}>
+              חלקם במשמרת מקבילה שרצה באותן שעות בערך.
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1673,6 +1701,12 @@ function SwapBanner({ items, empNames, published, goSwaps }) {
 function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, onOpenShift }) {
   const today = todayStr();
   const relOf = (off) => off === 0 ? 'היום' : off === 1 ? 'מחר' : `בעוד ${off} ימים`;
+  const timeline = React.useMemo(() => buildTimeline(published), [published]);
+  // כל מי שנמצא איתי בפועל, כולל ממשמרת מקבילה עם מזהה אחר שרצה באותן שעות (למשל יום קצר מול יום ארוך)
+  const matesOf = (people, ds, shiftId) => {
+    const overlap = overlapMates(timeline, ds, shiftId, me.id).map(m => m.id);
+    return [...people.filter(p => p !== me.id), ...overlap].map(id => empNames[id] || id);
+  };
 
   // כל המשמרות שלי מהיום והלאה, מכל החודשים שפורסמו
   const upcoming = [];
@@ -1715,7 +1749,7 @@ function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, 
           </div>
           <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }}>יום {hero.d.dayName}, {hero.d.num} {inMonthLabel(hero.ym)}</div>
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', borderTop: '1px solid rgba(255,255,255,0.16)', paddingTop: 10 }}>
-            {(() => { const mates = hero.sh.people.filter(p => p !== me.id).map(p => empNames[p] || p);
+            {(() => { const mates = matesOf(hero.sh.people, hero.d.ds, hero.sh.id);
               return mates.length ? 'יחד עם: ' + mates.join(', ') : 'משמרת יחיד — אתם לבד במשמרת זו'; })()}
           </div>
         </div>
@@ -1754,7 +1788,7 @@ function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, 
                 <span style={{ fontSize: 12, color: '#8A867F' }}>{u.sh.time}</span>
               </div>
               <div style={{ fontSize: 12, color: '#8A867F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {(() => { const mates = u.sh.people.filter(p => p !== me.id).map(p => empNames[p] || p);
+                {(() => { const mates = matesOf(u.sh.people, u.d.ds, u.sh.id);
                   return mates.length ? `יום ${u.d.dayName} · עם ${mates.join(', ')}` : `יום ${u.d.dayName} · משמרת יחיד`; })()}
               </div>
             </div>

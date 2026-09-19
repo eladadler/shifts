@@ -163,6 +163,67 @@ const todayStr = () => dateStr(new Date());
 const thisMonth = () => todayStr().slice(0, 7);
 const diffDays = (a, b) => Math.round((parseDate(b) - parseDate(a)) / 86400000);
 
+/* ============ חגי ישראל — אותה לוגיקה כמו אצל המשבץ; תצוגה בלבד ============ */
+const HEB_FMT = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric', month: 'numeric', year: 'numeric' });
+const hebrewParts = (date) => { const o = {}; HEB_FMT.formatToParts(date).forEach(p => { o[p.type] = p.value; }); return o; };
+const HEBREW_FIXED_HOLIDAYS = [
+  { month: 'Tishri', day: 1, name: 'ראש השנה' }, { month: 'Tishri', day: 2, name: 'ראש השנה' },
+  { month: 'Tishri', day: 3, name: 'צום גדליה', fast: true },
+  { month: 'Tishri', day: 10, name: 'יום כיפור' },
+  { month: 'Tishri', day: 15, name: 'סוכות' },
+  { month: 'Tishri', day: 16, name: 'חול המועד סוכות' }, { month: 'Tishri', day: 17, name: 'חול המועד סוכות' },
+  { month: 'Tishri', day: 18, name: 'חול המועד סוכות' }, { month: 'Tishri', day: 19, name: 'חול המועד סוכות' },
+  { month: 'Tishri', day: 20, name: 'חול המועד סוכות' },
+  { month: 'Tishri', day: 21, name: 'הושענא רבה' },
+  { month: 'Tishri', day: 22, name: 'שמחת תורה' },
+  { month: 'Kislev', day: 25, name: 'חנוכה' }, { month: 'Kislev', day: 26, name: 'חנוכה' },
+  { month: 'Kislev', day: 27, name: 'חנוכה' }, { month: 'Kislev', day: 28, name: 'חנוכה' },
+  { month: 'Kislev', day: 29, name: 'חנוכה' }, { month: 'Kislev', day: 30, name: 'חנוכה' },
+  { month: 'Tevet', day: 1, name: 'חנוכה' }, { month: 'Tevet', day: 2, name: 'חנוכה' },
+  { month: 'Tevet', day: 10, name: 'עשרה בטבת', fast: true },
+  { month: 'Shevat', day: 15, name: 'ט״ו בשבט' },
+  { month: ['Adar', 'Adar II'], day: 14, name: 'פורים' }, { month: ['Adar', 'Adar II'], day: 15, name: 'שושן פורים' },
+  { month: 'Nisan', day: 15, name: 'פסח' },
+  { month: 'Nisan', day: 16, name: 'חול המועד פסח' }, { month: 'Nisan', day: 17, name: 'חול המועד פסח' },
+  { month: 'Nisan', day: 18, name: 'חול המועד פסח' }, { month: 'Nisan', day: 19, name: 'חול המועד פסח' },
+  { month: 'Nisan', day: 20, name: 'חול המועד פסח' },
+  { month: 'Nisan', day: 21, name: 'שביעי של פסח' },
+  { month: 'Nisan', day: 27, name: 'יום השואה' },
+  { month: 'Iyar', day: 18, name: 'ל״ג בעומר' },
+  { month: 'Iyar', day: 28, name: 'יום ירושלים' },
+  { month: 'Sivan', day: 6, name: 'שבועות' },
+  { month: 'Tamuz', day: 17, name: 'שבעה עשר בתמוז', fast: true },
+  { month: 'Av', day: 9, name: 'תשעה באב', fast: true },
+];
+// ה׳ באייר תמיד נופל בשני/רביעי/שישי/שבת. הכלל הרשמי: שבת→ג׳, שישי→ד׳, שני→ו׳, רביעי→ללא שינוי.
+const independenceDayInfo = (date) => {
+  const h = hebrewParts(date);
+  if (h.month !== 'Iyar') return null;
+  const day = Number(h.day);
+  if (day < 2 || day > 6) return null;
+  const weekday5 = ((date.getDay() + (5 - day)) % 7 + 7) % 7;
+  const observed = weekday5 === 6 ? 3 : weekday5 === 5 ? 4 : weekday5 === 1 ? 6 : 5;
+  if (day === observed) return 'יום העצמאות';
+  if (day === observed - 1) return 'יום הזיכרון';
+  return null;
+};
+const hebrewHolidayOf = (date) => {
+  const iday = independenceDayInfo(date);
+  if (iday) return iday;
+  const h = hebrewParts(date);
+  const day = Number(h.day);
+  const findFast = (hh, dd) => HEBREW_FIXED_HOLIDAYS.find((e) => e.fast
+    && (Array.isArray(e.month) ? e.month.includes(hh.month) : e.month === hh.month) && e.day === dd);
+  if (date.getDay() === 0) {
+    const y = new Date(date.getTime() - 864e5);
+    const pushed = findFast(hebrewParts(y), Number(hebrewParts(y).day));
+    if (pushed) return pushed.name;
+  }
+  if (date.getDay() === 6 && findFast(h, day)) return null;
+  const hit = HEBREW_FIXED_HOLIDAYS.find((e) => (Array.isArray(e.month) ? e.month.includes(h.month) : e.month === h.month) && e.day === day);
+  return hit ? hit.name : null;
+};
+
 /* ============ הגדרות משמרות — אותה לוגיקה כמו אצל המשבץ ============ */
 const WEEKDAY_SHIFTS = [
   { id: 'morning', name: 'בוקר', start: '09:00', end: '21:00' },
@@ -333,7 +394,7 @@ function buildMonthDays(ym, pubRow, myId, empNames) {
       };
     }).filter(sh => sh.people.length > 0);
     const mineShift = shifts.find(s => s.mine) || null;
-    days.push({ num: d, ds, dow, dayName: HEB_DAYS[dow], shifts, mine: !!mineShift });
+    days.push({ num: d, ds, dow, dayName: HEB_DAYS[dow], shifts, mine: !!mineShift, holiday: hebrewHolidayOf(parseDate(ds)) });
   }
   return days;
 }
@@ -1871,7 +1932,10 @@ function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, 
             <span style={{ fontSize: 34, fontWeight: 900, lineHeight: 1 }}>{hero.sh.label}</span>
             <span style={{ fontSize: 18, fontWeight: 700, color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' }}>{hero.sh.time}</span>
           </div>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }}>יום {hero.d.dayName}, {hero.d.num} {inMonthLabel(hero.ym)}</div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }}>
+            יום {hero.d.dayName}, {hero.d.num} {inMonthLabel(hero.ym)}
+            {hero.d.holiday && <span style={{ marginInlineStart: 8, fontSize: 12, fontWeight: 700, color: '#FFF', background: 'oklch(0.5 0.13 250)', borderRadius: 999, padding: '2px 9px' }}>{hero.d.holiday}</span>}
+          </div>
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', borderTop: '1px solid rgba(255,255,255,0.16)', paddingTop: 10 }}>
             {(() => { const mates = matesOf(hero.sh.people, hero.d.ds, hero.sh.id);
               return mates.length ? 'יחד עם: ' + mates.join(', ') : 'משמרת יחיד — אתם לבד במשמרת זו'; })()}
@@ -2012,7 +2076,7 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, onOpenShi
                 return (
                   <div key={d.num} onClick={() => setSelDay(d.num)} style={{ aspectRatio: '0.92', borderRadius: 10,
                     background: isSel ? INK : (d.mine ? TEAL_SOFT : '#FFF'), color: isSel ? '#FFF' : INK,
-                    border: isSel ? `1.5px solid ${INK}` : (isToday ? `2px solid ${INK}` : (d.mine ? `1.5px solid ${TEAL}` : '1px solid #E7E4DF')),
+                    border: isSel ? `1.5px solid ${INK}` : (isToday ? `2px solid ${INK}` : (d.holiday ? '1.5px solid oklch(0.6 0.14 250)' : (d.mine ? `1.5px solid ${TEAL}` : '1px solid #E7E4DF'))),
                     opacity: (onlyMine && !d.mine && !isSel) ? 0.35 : 1,
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, cursor: 'pointer',
                     transition: 'background 0.15s, opacity 0.2s' }}>
@@ -2030,7 +2094,10 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, onOpenShi
                 if (!d) return null;
                 const use = onlyMine ? d.shifts.filter(s => s.mine) : d.shifts;
                 return (<>
-                  <div style={{ fontSize: 14, fontWeight: 900 }}>יום {d.dayName}, {d.num} {inMonthLabel(ym)}{todayNum === d.num ? ' · היום' : ''}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 14, fontWeight: 900 }}>יום {d.dayName}, {d.num} {inMonthLabel(ym)}{todayNum === d.num ? ' · היום' : ''}</div>
+                    {d.holiday && <span style={{ fontSize: 11, fontWeight: 700, color: 'oklch(0.45 0.13 250)', background: 'oklch(0.94 0.05 250)', borderRadius: 999, padding: '3px 9px' }}>{d.holiday}</span>}
+                  </div>
                   {use.length === 0 && <div style={{ fontSize: 13, color: '#8A867F' }}>{onlyMine ? 'אין לך משמרות ביום זה.' : 'אין משמרות ביום זה.'}</div>}
                   {use.map((sh, i) => <ShiftRow key={i} sh={sh} myId={me.id} empNames={empNames} blocked={isUnavailable(d.ds, sh.id)}
                     onOpen={sh.mine ? () => onOpenShift(ym, d.ds, sh.id) : null} />)}
@@ -2078,9 +2145,10 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, onOpenShi
               return (
                 <div key={dn} onClick={() => setSelDay(dn)} style={{ background: '#FFF', borderRadius: 14, border: expanded ? `1.5px solid ${INK}` : '1px solid #E7E4DF', padding: 13,
                   display: 'flex', flexDirection: 'column', gap: 9, cursor: 'pointer', transition: 'border 0.15s' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <div style={{ fontSize: 14, fontWeight: 800 }}>יום {d.dayName} · {dn} {inMonthLabel(ym)}{todayNum === dn ? ' · היום' : ''}</div>
                     {d.mine && <span style={{ fontSize: 11, fontWeight: 800, color: '#FFF', background: TEAL, borderRadius: 999, padding: '3px 9px' }}>משמרת שלך</span>}
+                    {d.holiday && <span style={{ fontSize: 11, fontWeight: 700, color: 'oklch(0.45 0.13 250)', background: 'oklch(0.94 0.05 250)', borderRadius: 999, padding: '3px 9px' }}>{d.holiday}</span>}
                   </div>
                   {isThin && <div style={{ fontSize: 12, color: '#A09C94' }}>אין משמרות שלך ביום זה</div>}
                   {!expanded && !isThin && (

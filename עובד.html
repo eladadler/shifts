@@ -412,6 +412,38 @@ const SWAP_STATUS_LABEL = {
   open: 'פתוח בלוח', pending_peer: 'ממתין לתגובת העמית', pending_manager: 'ממתין לאישור המשבץ',
   approved: 'אושר', rejected: 'נדחה', cancelled: 'בוטל',
 };
+const DEFAULT_SWAP_SETTINGS = { peerApprovalFull: false, peerApprovalPartial: false, managerApprovalFull: false, managerApprovalPartial: false };
+
+// מה בפועל יקרה לבקשה מסוג kind, לפי ה-toggles שהמשבץ הגדיר — כדי שדיאלוג
+// האישור יגיד את האמת: "יועבר מיד" מול "יישלח לאישור"
+function swapOutcome(kind, settings) {
+  const needPeer = kind === 'full' ? settings.peerApprovalFull : settings.peerApprovalPartial;
+  const needMgr = kind === 'full' ? settings.managerApprovalFull : settings.managerApprovalPartial;
+  if (!needPeer && !needMgr) return { immediate: true, note: null };
+  if (needPeer && needMgr) return { immediate: false, note: 'לאישור העמית, ולאחר מכן לאישור המשבץ' };
+  return { immediate: false, note: needPeer ? 'לאישור העמית' : 'לאישור המשבץ' };
+}
+
+function ConfirmDialog({ title, body, confirmLabel, danger, busy, onConfirm, onCancel }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,18,15,0.5)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onCancel}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 430, background: '#FFF', borderRadius: '20px 20px 0 0', padding: '22px 20px 26px', display: 'flex', flexDirection: 'column', gap: 14, animation: 'popIn 0.2s' }}>
+        <div style={{ fontSize: 17, fontWeight: 900 }}>{title}</div>
+        <div style={{ fontSize: 14, color: '#4A4640', lineHeight: 1.6 }}>{body}</div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+          <button disabled={busy} onClick={onConfirm}
+            style={{ flex: 1, background: danger ? 'oklch(0.55 0.15 25)' : TEAL, color: '#FFF', border: 'none', borderRadius: 10, padding: '13px 0', fontSize: 14.5, fontWeight: 800, cursor: busy ? 'default' : 'pointer' }}>
+            {busy ? 'רגע…' : (confirmLabel || 'אישור')}
+          </button>
+          <button disabled={busy} onClick={onCancel}
+            style={{ flex: 1, background: '#FFF', color: INK, border: '1.5px solid #E2DFD9', borderRadius: 10, padding: '13px 0', fontSize: 14.5, fontWeight: 800, cursor: busy ? 'default' : 'pointer' }}>
+            ביטול
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ShiftRow({ sh, myId, empNames, blocked, onOpen }) {
   return (
@@ -638,6 +670,7 @@ function App() {
   const [allReqs, setAllReqs] = React.useState({});          // { 'YYYY-MM': { emp_id: row } } — כל העובדים
   const [swaps, setSwaps] = React.useState([]);               // כל בקשות החילוף (shift_swap_requests)
   const [mgrEmps, setMgrEmps] = React.useState([]);          // כרטיסי העובדים מהמשבץ (nights, max)
+  const [swapSettings, setSwapSettings] = React.useState(DEFAULT_SWAP_SETTINGS);
   const [detail, setDetail] = React.useState(null);          // { ym, ds, shiftId } — מסך פרטי משמרת
   const [tab, setTab] = React.useState('home');
   const [toast, setToast] = React.useState(null);
@@ -706,6 +739,7 @@ function App() {
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
       setMgrEmps(stateData.employees || []);
+      setSwapSettings(s => ({ ...s, ...(stateData.swapSettings || {}) }));
       setAnthropicKey(prev => prev || stateData.anthropicKey || '');
       // PWA: auto-subscribe only if user hasn't explicitly opted out
       if (stateData.vapidPublicKey && mine.id && window.subscribeToPush
@@ -873,7 +907,7 @@ function App() {
     )}
     {detail ? (
       <ShiftDetail me={me} empNames={empNames} published={published} allReqs={allReqs} mgrEmps={mgrEmps}
-        ctx={detail} onClose={() => setDetail(null)} showToast={showToast} onSwapsChanged={refreshSwaps} />
+        ctx={detail} onClose={() => setDetail(null)} showToast={showToast} onSwapsChanged={refreshSwaps} swapSettings={swapSettings} />
     ) : (
     <Shell me={me} tab={tab} setTab={setTab} swapBadge={swaps.filter(r => r.status === 'pending_peer' && r.to_emp_id === me.id).length}>
       {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} swaps={swaps} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} goSwaps={() => setTab('swaps')}
@@ -882,7 +916,7 @@ function App() {
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey} />}
-      {tab === 'swaps' && <SwapsTab me={me} empNames={empNames} published={published} swaps={swaps} onRefresh={refreshSwaps} showToast={showToast} />}
+      {tab === 'swaps' && <SwapsTab me={me} empNames={empNames} published={published} swaps={swaps} onRefresh={refreshSwaps} showToast={showToast} swapSettings={swapSettings} />}
       {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} />}
     </Shell>
     )}
@@ -1277,7 +1311,7 @@ function AdjacentShift({ title, item, empNames, myId }) {
   );
 }
 
-function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, showToast, onSwapsChanged }) {
+function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, showToast, onSwapsChanged, swapSettings }) {
   const { ym, ds, shiftId } = ctx;
   const row = published[ym];
   const settings = row?.shift_settings || null;
@@ -1359,6 +1393,61 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
     edge, boundaryTime: time, note: note || '',
   }));
 
+  // דיאלוג אישור לכל תרחיש, לפני שהפעולה יוצאת לדרך — הניסוח תלוי אם היא תתבצע
+  // מיד או תישלח לאישור, לפי ה-toggles שהמשבץ הגדיר
+  const [confirm, setConfirm] = React.useState(null);
+  const shiftLabel = def?.name || shiftId;
+  const swSettings = swapSettings || DEFAULT_SWAP_SETTINGS;
+
+  const askProposeFull = (candId) => {
+    const o = swapOutcome('full', swSettings);
+    setConfirm({
+      title: o.immediate ? 'מסירת המשמרת' : 'שליחת הצעה',
+      body: o.immediate
+        ? <>המשמרת <b>{shiftLabel}</b> ב-{shortDate(ds)} תועבר מיד ל<b>{empNames[candId] || candId}</b>. להמשיך?</>
+        : <>הצעה למסור את <b>{shiftLabel}</b> ב-{shortDate(ds)} ל<b>{empNames[candId] || candId}</b> — הבקשה תישלח {o.note}. להמשיך?</>,
+      confirmLabel: o.immediate ? 'כן, להעביר' : 'שליחת ההצעה',
+      action: () => proposeFull(candId),
+    });
+  };
+  const askPostMarket = (kind, note) => {
+    const mgrNote = kind === 'full' && !swapOutcome('full', swSettings).immediate ? ' (בכפוף לאישור המשבץ אצל מי שיבחר לקחת אותה)' : '';
+    setConfirm({
+      title: 'פרסום בלוח',
+      body: kind === 'full'
+        ? <>המשמרת <b>{shiftLabel}</b> ב-{shortDate(ds)} תפורסם בלוח הפתוח לכל העובדים, וכל מי שירצה יוכל לקחת אותה{mgrNote}. להמשיך?</>
+        : <>הכרזה שתפורסם בלוח: מעוניין.ת למסור חלק מ<b>{shiftLabel}</b> ב-{shortDate(ds)}. זו הכרזה בלבד, בלי השלמה אוטומטית. להמשיך?</>,
+      confirmLabel: 'פרסום',
+      action: () => postMarket(kind, note),
+    });
+  };
+  const askProposePartial = (direction, counterpartId, neighbor, time, note) => {
+    const o = swapOutcome('partial', swSettings);
+    const verb = direction === 'early' ? 'ההתחלה' : 'הסיום';
+    setConfirm({
+      title: o.immediate ? 'שינוי שעות' : 'שליחת בקשה',
+      body: o.immediate
+        ? <>שעת {verb} שלך ב<b>{shiftLabel}</b> תשתנה ל-{time}, ושעות <b>{empNames[counterpartId] || counterpartId}</b> ישתנו בהתאם. להמשיך?</>
+        : <>בקשה לשינוי שעות מול <b>{empNames[counterpartId] || counterpartId}</b> — הבקשה תישלח {o.note}. להמשיך?</>,
+      confirmLabel: o.immediate ? 'כן, לעדכן' : 'שליחת הבקשה',
+      action: () => proposePartial(direction, counterpartId, neighbor, time, note),
+    });
+  };
+  const askShortenHole = (edge, time, note) => {
+    setConfirm({
+      title: 'קיצור בלי מחליף',
+      body: <>המשמרת שלך תתקצר מיידית ל-{time}, בלי אישור מאף אחד — יישאר חור לא מאויש. להמשיך?</>,
+      confirmLabel: 'כן, לקצר',
+      danger: true,
+      action: () => shortenHole(edge, time, note),
+    });
+  };
+  const runConfirmed = async () => {
+    if (!confirm) return;
+    await run(confirm.action);
+    setConfirm(null);
+  };
+
   const actionBtn = (key, label) => (
     <button onClick={() => setActionOpen(cur => cur === key ? null : key)}
       style={{ background: actionOpen === key ? TEAL : '#FFF', color: actionOpen === key ? '#FFF' : INK,
@@ -1368,7 +1457,7 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
     </button>
   );
 
-  return (
+  return (<>
     <div style={{ flex: 1, overflowY: 'auto', animation: 'fadeIn 0.2s' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px 6px' }}>
         <span onClick={onClose} style={{ fontSize: 22, fontWeight: 900, color: INK, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>→</span>
@@ -1448,7 +1537,7 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
                 {cands.length ? cands.map(c => (
                   <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{empNames[c.id] || c.id}</span>
-                    <button disabled={busy} onClick={() => proposeFull(c.id)}
+                    <button disabled={busy} onClick={() => askProposeFull(c.id)}
                       style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
                       הצעה
                     </button>
@@ -1463,7 +1552,7 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', background: '#FBFAF8', border: '1px solid #ECEAE5', borderRadius: 10 }}>
                 <textarea value={formNote} onChange={e => setFormNote(e.target.value)} placeholder="הערה חופשית (רשות)"
                   rows={2} style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
-                <button disabled={busy} onClick={() => postMarket('full', formNote)}
+                <button disabled={busy} onClick={() => askPostMarket('full', formNote)}
                   style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                   פרסום בלוח
                 </button>
@@ -1479,7 +1568,7 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
                 <div style={{ fontSize: 11.5, color: '#A8A49C', lineHeight: 1.5 }}>
                   זו הכרזה בלבד — אין כאן השלמה אוטומטית. מי שמעוניין.ת יצור.תיצור איתך קשר, ואז מעדכנים את השעות בפועל.
                 </div>
-                <button disabled={busy} onClick={() => postMarket('partial', formNote)}
+                <button disabled={busy} onClick={() => askPostMarket('partial', formNote)}
                   style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                   פרסום בלוח
                 </button>
@@ -1502,7 +1591,7 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
                     style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit' }} />
                 </div>
                 <button disabled={busy || !formCounterpart || !formTime}
-                  onClick={() => proposePartial('early', formCounterpart, prev, formTime, formNote)}
+                  onClick={() => askProposePartial('early', formCounterpart, prev, formTime, formNote)}
                   style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (!formCounterpart || !formTime) ? 0.5 : 1 }}>
                   שליחה
                 </button>
@@ -1525,7 +1614,7 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
                     style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit' }} />
                 </div>
                 <button disabled={busy || !formCounterpart || !formTime}
-                  onClick={() => proposePartial('late', formCounterpart, next, formTime, formNote)}
+                  onClick={() => askProposePartial('late', formCounterpart, next, formTime, formNote)}
                   style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (!formCounterpart || !formTime) ? 0.5 : 1 }}>
                   שליחה
                 </button>
@@ -1559,7 +1648,7 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
                 <textarea value={formNote} onChange={e => setFormNote(e.target.value)} placeholder="למה? (רשות, יוצג למשבץ)"
                   rows={2} style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
                 <button disabled={busy || !formCounterpart || !formTime}
-                  onClick={() => shortenHole(formCounterpart, formTime, formNote)}
+                  onClick={() => askShortenHole(formCounterpart, formTime, formNote)}
                   style={{ background: 'oklch(0.55 0.15 25)', color: '#FFF', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (!formCounterpart || !formTime) ? 0.5 : 1 }}>
                   קיצור מיידי
                 </button>
@@ -1570,7 +1659,11 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
         </div>
       </div>
     </div>
-  );
+    {confirm && (
+      <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={confirm.confirmLabel}
+        danger={confirm.danger} busy={busy} onConfirm={runConfirmed} onCancel={() => setConfirm(null)} />
+    )}
+  </>);
 }
 
 /* ============ טאב חילופים: לוח פתוח + מה ממתין לי + הבקשות שלי ============ */
@@ -1594,14 +1687,32 @@ function SwapCard({ row, published, empNames, children }) {
   );
 }
 
-function SwapsTab({ me, empNames, published, swaps, onRefresh, showToast }) {
+function SwapsTab({ me, empNames, published, swaps, onRefresh, showToast, swapSettings }) {
   const [busy, setBusy] = React.useState(null);
+  const [confirm, setConfirm] = React.useState(null);
 
   const act = async (id, fn) => {
     setBusy(id);
     try { await fn(); onRefresh(); showToast && showToast('בוצע ✓'); }
     catch (e) { showToast && showToast('שגיאה: ' + (e?.message || String(e))); }
     setBusy(null);
+  };
+  const runConfirmed = async () => {
+    if (!confirm) return;
+    await act(confirm.id, confirm.action);
+    setConfirm(null);
+  };
+  const askClaim = (r) => {
+    const o = swapOutcome('full', swapSettings || DEFAULT_SWAP_SETTINGS);
+    setConfirm({
+      id: r.id,
+      title: o.immediate ? 'קבלת המשמרת' : 'בקשה לקחת את המשמרת',
+      body: o.immediate
+        ? <>המשמרת <b>{swapShiftName(r, published)}</b> ב-{shortDate(r.date)} תועבר מיד אליך. להמשיך?</>
+        : <>הבקשה לקחת את <b>{swapShiftName(r, published)}</b> ב-{shortDate(r.date)} תישלח {o.note}. להמשיך?</>,
+      confirmLabel: o.immediate ? 'כן, לקחת' : 'שליחת הבקשה',
+      action: () => callSwaps('claim', { requestId: r.id, claimerEmpId: me.id }),
+    });
   };
 
   const openMarket = swaps.filter(r => r.status === 'open' && (r.kind === 'full' || r.kind === 'partial'))
@@ -1640,7 +1751,7 @@ function SwapsTab({ me, empNames, published, swaps, onRefresh, showToast }) {
         <SwapCard key={r.id} row={r} published={published} empNames={empNames}>
           {r.kind === 'full' && r.from_emp_id !== me.id && (
             <button disabled={busy === r.id} style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginTop: 4 }}
-              onClick={() => act(r.id, () => callSwaps('claim', { requestId: r.id, claimerEmpId: me.id }))}>
+              onClick={() => askClaim(r)}>
               אני לוקח.ת את המשמרת
             </button>
           )}
@@ -1667,6 +1778,10 @@ function SwapsTab({ me, empNames, published, swaps, onRefresh, showToast }) {
           </div>
         </SwapCard>
       )) : <div style={{ fontSize: 13, color: '#8A867F' }}>עדיין לא פתחת בקשות חילוף.</div>}
+      {confirm && (
+        <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={confirm.confirmLabel}
+          busy={busy === confirm.id} onConfirm={runConfirmed} onCancel={() => setConfirm(null)} />
+      )}
     </div>
   );
 }

@@ -376,6 +376,17 @@ function overlapMates(timeline, ds, shiftId, myId) {
   return out;
 }
 
+// המשמרת שבאמת נגמרת ממש לפניי, והמשמרת שבאמת מתחילה ממש אחריי — לא "השכנה ברשימה הממוינת
+// לפי שעת התחלה", כי משמרת מקבילה (כמו "יום קצר" מול "יום ארוך", אותה שעת התחלה בדיוק) הייתה
+// נבחרת בטעות כ״קודמת״ למרות שהיא בכלל לא נגמרת — היא רצה איתי במקביל.
+function sequentialNeighbors(timeline, ds, shiftId) {
+  const mine = timeline.find(t => t.ds === ds && t.shiftId === shiftId);
+  if (!mine) return { prev: null, next: null };
+  const before = timeline.filter(t => t !== mine && t.endMs <= mine.startMs).sort((a, b) => b.endMs - a.endMs);
+  const after = timeline.filter(t => t !== mine && t.startMs >= mine.endMs).sort((a, b) => a.startMs - b.startMs);
+  return { prev: before[0] || null, next: after[0] || null };
+}
+
 // זמינות עובד למשמרת לפי הבקשה שהגיש. ערך "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת.
 function availOf(req, ds, shiftId) {
   if (!req) return null;
@@ -1323,9 +1334,7 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
   const myTimes = def ? personTimes(ds, def, me.id) : null;
 
   const timeline = React.useMemo(() => buildTimeline(published), [published]);
-  const idx = timeline.findIndex(t => t.ds === ds && t.shiftId === shiftId);
-  const prev = idx > 0 ? timeline[idx - 1] : null;
-  const next = idx !== -1 && idx < timeline.length - 1 ? timeline[idx + 1] : null;
+  const { prev, next } = sequentialNeighbors(timeline, ds, shiftId);
   // מי שנמצא איתי בפועל, כולל ממשמרת מקבילה עם מזהה אחר שרצה באותן שעות (למשל יום קצר מול יום ארוך)
   const overlapPeople = overlapMates(timeline, ds, shiftId, me.id);
   const mates = [...people.filter(p => p !== me.id), ...overlapPeople.map(o => o.id)];

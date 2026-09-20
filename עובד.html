@@ -458,6 +458,41 @@ function availOf(req, ds, shiftId) {
   return null;
 }
 
+// בדיקת קריטריוני הגשה מול תוצאה סופית (unavailable/high/can), לא מול marks גולמי — כדי
+// שהגמישות של מצב חסימות/זמינות לא תשפיע. אזהרה בלבד; שבוע חלקי בקצה הטווח שמבנית
+// לא יכול לעמוד במינימום (פחות ימים מהדרוש) מדולג, כדי לא להתריע על משהו שאי אפשר לתקן.
+function checkRequestCriteria(rangeDates, row, settings, criteria) {
+  const violations = [];
+  const weeks = {};
+  rangeDates.forEach(ds => {
+    const d = parseDate(ds);
+    const sun = new Date(d); sun.setDate(d.getDate() - d.getDay());
+    const key = dateStr(sun);
+    (weeks[key] = weeks[key] || []).push(ds);
+  });
+  let anyFriday = false, anySaturday = false;
+  Object.values(weeks).forEach(dates => {
+    let nights = 0, days = 0;
+    dates.forEach(ds => {
+      const shifts = shiftTypesFor(ds, settings).filter(s => !s.continuation);
+      const openShift = (s) => availOf(row, ds, s.id) !== 'unavailable';
+      if (shifts.some(s => s.id === 'night') && openShift({ id: 'night' })) nights++;
+      if (shifts.some(s => s.id !== 'night' && openShift(s))) days++;
+      const wd = weekdayOf(ds);
+      if (wd === 5 && shifts.some(openShift)) anyFriday = true;
+      if (wd === 6 && shifts.some(openShift)) anySaturday = true;
+    });
+    const label = `${dates[0].slice(8)}–${dates[dates.length - 1].slice(8)}`;
+    if (dates.length >= criteria.minNightsPerWeek && nights < criteria.minNightsPerWeek)
+      violations.push(`שבוע ${label}: ${nights}/${criteria.minNightsPerWeek} לילות פנויים בלבד`);
+    if (dates.length >= criteria.minDaysPerWeek && days < criteria.minDaysPerWeek)
+      violations.push(`שבוע ${label}: ${days}/${criteria.minDaysPerWeek} ימים פנויים בלבד`);
+  });
+  if (criteria.minFridaysCanPerMonth > 0 && !anyFriday) violations.push('לא סומן אף שישי שאפשר לעבוד בו');
+  if (criteria.minSaturdaysCanPerMonth > 0 && !anySaturday) violations.push('לא סומנה אף שבת שאפשר לעבוד בה');
+  return violations;
+}
+
 /* ============ רכיבים משותפים ============ */
 function PersonChip({ id, myId, empNames, time }) {
   const isMe = id === myId;
@@ -485,6 +520,8 @@ const SWAP_STATUS_LABEL = {
   approved: 'אושר', rejected: 'נדחה', cancelled: 'בוטל',
 };
 const DEFAULT_SWAP_SETTINGS = { peerApprovalFull: false, peerApprovalPartial: false, managerApprovalFull: false, managerApprovalPartial: false };
+// קריטריונים גורפים להגשת בקשות — ניתנים לדריסה אישית לכל עובד (emp.reqCriteria). אזהרה בלבד, לא חוסם.
+const DEFAULT_REQUEST_CRITERIA = { minNightsPerWeek: 2, minDaysPerWeek: 2, minFridaysCanPerMonth: 1, minSaturdaysCanPerMonth: 1 };
 
 // מה בפועל יקרה לבקשה מסוג kind, לפי ה-toggles שהמשבץ הגדיר — כדי שדיאלוג
 // האישור יגיד את האמת: "יועבר מיד" מול "יישלח לאישור"
@@ -743,7 +780,10 @@ function App() {
   const [swaps, setSwaps] = React.useState([]);               // כל בקשות החילוף (shift_swap_requests)
   const [mgrEmps, setMgrEmps] = React.useState([]);          // כרטיסי העובדים מהמשבץ (nights, max)
   const [swapSettings, setSwapSettings] = React.useState(DEFAULT_SWAP_SETTINGS);
+  const [recurring, setRecurring] = React.useState([]);       // בקשות קבועות (employee_recurring_requests)
+  const [criteria, setCriteria] = React.useState(DEFAULT_REQUEST_CRITERIA);
   const [detail, setDetail] = React.useState(null);          // { ym, ds, shiftId } — מסך פרטי משמרת
+  const [recurringOpen, setRecurringOpen] = React.useState(false); // מסך ניהול בקשות קבועות
   const [tab, setTab] = React.useState('home');
   const [toast, setToast] = React.useState(null);
 
@@ -764,6 +804,11 @@ function App() {
     sb.from('shift_swap_requests').select('*').order('created_at', { ascending: false })
       .then(({ data }) => setSwaps(data || [])).catch(() => {});
   }, []);
+  const refreshRecurring = React.useCallback(() => {
+    if (!me?.id) return;
+    sb.from('employee_recurring_requests').select('*').eq('emp_id', me.id).order('weekday', { ascending: true })
+      .then(({ data }) => setRecurring(data || [])).catch(() => {});
+  }, [me?.id]);
 
   /* --- טעינת נתונים --- */
   // byId=true → identifier הוא emp.id; byId=false (ברירת מחדל) → identifier הוא email
@@ -798,20 +843,23 @@ function App() {
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
 
-      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }] = await Promise.all([
+      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }, { data: recurRows }] = await Promise.all([
         sb.from('published_schedules').select('*'),
         sb.from('employee_requests').select('*'),
         sb.from('mishmarot_state').select('data').eq('id', 'main').maybeSingle(),
         sb.from('shift_swap_requests').select('*').order('created_at', { ascending: false }),
+        sb.from('employee_recurring_requests').select('*').eq('emp_id', mine.id).order('weekday', { ascending: true }),
       ]);
       if (e2) throw e2;
       if (e3) throw e3;
       setSwaps(swapRows || []);
+      setRecurring(recurRows || []);
       // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
       setMgrEmps(stateData.employees || []);
       setSwapSettings(s => ({ ...s, ...(stateData.swapSettings || {}) }));
+      setCriteria(c => ({ ...c, ...(stateData.requestCriteria || {}) }));
       setAnthropicKey(prev => prev || stateData.anthropicKey || '');
       // PWA: auto-subscribe only if user hasn't explicitly opted out
       if (stateData.vapidPublicKey && mine.id && window.subscribeToPush
@@ -980,6 +1028,9 @@ function App() {
     {detail ? (
       <ShiftDetail me={me} empNames={empNames} published={published} allReqs={allReqs} mgrEmps={mgrEmps}
         ctx={detail} onClose={() => setDetail(null)} showToast={showToast} onSwapsChanged={refreshSwaps} swapSettings={swapSettings} />
+    ) : recurringOpen ? (
+      <RecurringRequestsScreen me={me} TM={TM} globalSettings={globalSettings} recurring={recurring}
+        onClose={() => setRecurringOpen(false)} onChanged={refreshRecurring} showToast={showToast} />
     ) : (
     <Shell me={me} tab={tab} setTab={setTab} swapBadge={swaps.filter(r => r.status === 'pending_peer' && r.to_emp_id === me.id).length}>
       {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} swaps={swaps} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} goSwaps={() => setTab('swaps')}
@@ -987,7 +1038,8 @@ function App() {
       {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} serverReqs={serverReqs} goReq={() => setTab('requests')}
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
-        serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey} />}
+        serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey}
+        recurring={recurring} criteria={criteria} goRecurring={() => setRecurringOpen(true)} />}
       {tab === 'swaps' && <SwapsTab me={me} empNames={empNames} published={published} swaps={swaps} onRefresh={refreshSwaps} showToast={showToast} swapSettings={swapSettings} />}
       {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} />}
     </Shell>
@@ -2174,7 +2226,118 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, onOpenShi
 }
 
 /* ============ טאב הגשת בקשות ============ */
-function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, anthropicKey }) {
+/* ============ מסך ניהול בקשות קבועות ============ */
+const WEEKDAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const MARK_LABEL = { un: 'לא זמינ.ה', high: 'מעדיפ.ה', can: 'זמינ.ה' };
+// תאריך מייצג לכל יום בשבוע בחודש הנוכחי, כדי לדעת אילו משמרות קיימות בו (הן משתנות בין חול/שישי/שבת)
+function firstDateForWeekday(ym, wd) {
+  for (let d = 1; d <= daysInMonth(ym); d++) {
+    const ds = `${ym}-${pad(d)}`;
+    if (weekdayOf(ds) === wd) return ds;
+  }
+  return `${ym}-01`;
+}
+
+function RecurringRequestsScreen({ me, TM, globalSettings, recurring, onClose, onChanged, showToast }) {
+  const [busy, setBusy] = React.useState(false);
+  const [form, setForm] = React.useState({ weekday: 5, shiftId: '', mark: 'un' });
+
+  const shiftsFor = (wd) => shiftTypesFor(firstDateForWeekday(TM, wd), globalSettings).filter(s => !s.continuation);
+
+  const addRule = async () => {
+    setBusy(true);
+    try {
+      const { error } = await sb.from('employee_recurring_requests').insert({
+        emp_id: me.id, weekday: form.weekday, shift_id: form.shiftId || null, mark: form.mark, active: true,
+      });
+      if (error) throw error;
+      onChanged();
+      showToast && showToast('בקשה קבועה נוספה ✓');
+    } catch (e) {
+      showToast && showToast('שגיאה: ' + (e?.message || String(e)));
+    }
+    setBusy(false);
+  };
+  const toggleRule = async (r) => {
+    setBusy(true);
+    await sb.from('employee_recurring_requests').update({ active: !r.active }).eq('id', r.id);
+    onChanged();
+    setBusy(false);
+  };
+  const deleteRule = async (r) => {
+    setBusy(true);
+    await sb.from('employee_recurring_requests').delete().eq('id', r.id);
+    onChanged();
+    setBusy(false);
+  };
+
+  const byWeekday = {};
+  recurring.forEach(r => (byWeekday[r.weekday] = byWeekday[r.weekday] || []).push(r));
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', animation: 'fadeIn 0.2s' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px 6px' }}>
+        <span onClick={onClose} style={{ fontSize: 22, fontWeight: 900, color: INK, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>→</span>
+        <span style={{ fontSize: 16, fontWeight: 900 }}>בקשות קבועות</span>
+      </div>
+      <div style={{ padding: '10px 16px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ fontSize: 12.5, color: '#6B6760', lineHeight: 1.6 }}>
+          בקשה קבועה מתמלאת אוטומטית בכל חודש חדש, לפי יום בשבוע — עד שתכבו אותה. אפשר תמיד
+          לשנות ידנית יום ספציפי בהגשת הבקשות החודשית; זה לא משנה את הכלל הקבוע.
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {[0, 1, 2, 3, 4, 5, 6].map(wd => (byWeekday[wd] || []).length > 0 && (
+            <div key={wd} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#8A867F' }}>יום {WEEKDAY_NAMES[wd]}</div>
+              {byWeekday[wd].map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FFF', border: '1px solid #EAE7E1',
+                  borderRadius: 10, padding: '10px 12px', opacity: r.active ? 1 : 0.5 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{r.shift_id ? (shiftsFor(wd).find(s => s.id === r.shift_id)?.name || r.shift_id) : 'כל היום'}</span>
+                    <span style={{ fontSize: 12, color: '#8A867F', marginInlineStart: 8 }}>{MARK_LABEL[r.mark] || r.mark}</span>
+                  </div>
+                  <label style={{ position: 'relative', display: 'inline-block', width: 38, height: 22, flexShrink: 0 }}>
+                    <input type="checkbox" checked={r.active} disabled={busy} onChange={() => toggleRule(r)}
+                      style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }} />
+                    <span style={{ position: 'absolute', inset: 0, borderRadius: 11, background: r.active ? TEAL : '#D0CEC9', transition: 'background 0.2s', cursor: 'pointer', direction: 'ltr' }}>
+                      <span style={{ position: 'absolute', top: 3, left: r.active ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#FFF', transition: 'left 0.2s' }} />
+                    </span>
+                  </label>
+                  <span onClick={() => !busy && deleteRule(r)} style={{ cursor: busy ? 'default' : 'pointer', color: 'oklch(0.5 0.18 25)', fontWeight: 900, fontSize: 16, padding: '0 4px' }}>×</span>
+                </div>
+              ))}
+            </div>
+          ))}
+          {!recurring.length && <div style={{ fontSize: 13, color: '#8A867F' }}>עדיין אין בקשות קבועות.</div>}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, background: '#FBFAF8', border: '1px solid #ECEAE5', borderRadius: 12, padding: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 800 }}>+ הוספת בקשה קבועה</div>
+          <select value={form.weekday} onChange={e => setForm(f => ({ ...f, weekday: Number(e.target.value), shiftId: '' }))}
+            style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit' }}>
+            {[0, 1, 2, 3, 4, 5, 6].map(wd => <option key={wd} value={wd}>יום {WEEKDAY_NAMES[wd]}</option>)}
+          </select>
+          <select value={form.shiftId} onChange={e => setForm(f => ({ ...f, shiftId: e.target.value }))}
+            style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit' }}>
+            <option value="">כל היום</option>
+            {shiftsFor(form.weekday).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <select value={form.mark} onChange={e => setForm(f => ({ ...f, mark: e.target.value }))}
+            style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit' }}>
+            {Object.entries(MARK_LABEL).map(([m, label]) => <option key={m} value={m}>{label}</option>)}
+          </select>
+          <button disabled={busy} onClick={addRule}
+            style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 9, padding: '10px 0', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>
+            הוספה
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, anthropicKey, recurring, criteria, goRecurring }) {
   const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);
   const [mi, setMi] = React.useState(() => {
     // ברירת מחדל: החודש הקרוב שעדיין פתוח לבקשות (כולל "פתוח לבקשות")
@@ -2243,34 +2406,39 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
 
   const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', dirty: false }), ...patch } }));
 
-  // שחזור בקשות מהחודש הקודם: לפי יום בשבוע (הרוב בחודש הקודם לאותו יום), לא לפי תאריך מדויק —
-  // כדי ש"לא עובד.ת בשישי" יחול על כל השישי-שבתות ולא רק על התאריך הספציפי שהיה אשתקד.
-  // ממלא רק ימים שעדיין ריקים החודש; לא דורס סימון שכבר נעשה.
-  const prevYm = addMonths(ym, -1);
-  const prevMarks = localReqs[prevYm]?.marks || null;
-  const restoreFromLastMonth = () => {
-    if (!prevMarks || !Object.keys(prevMarks).length) { showToast && showToast('אין בקשות מהחודש הקודם לשחזור'); return; }
-    const votes = {};
-    Object.entries(prevMarks).forEach(([ds, v]) => {
-      const wd = weekdayOf(ds);
-      const token = typeof v === 'string' ? v : JSON.stringify(v);
-      votes[wd] = votes[wd] || {};
-      votes[wd][token] = (votes[wd][token] || 0) + 1;
+  // דפוס הבקשות הקבועות, לפי יום בשבוע. משמרת ספציפית → אובייקט per-shift; "כל היום" → מחרוזת.
+  // אם הוגדרו גם "כל היום" וגם משמרת ספציפית לאותו יום בשבוע, "כל היום" גובר (מוגדר אחרון בלולאה).
+  const recurringPattern = React.useMemo(() => {
+    const byWd = {};
+    (recurring || []).filter(r => r.active).forEach(r => {
+      if (r.shift_id) {
+        if (typeof byWd[r.weekday] !== 'object' || byWd[r.weekday] === null) byWd[r.weekday] = {};
+        if (typeof byWd[r.weekday] === 'object') byWd[r.weekday][r.shift_id] = r.mark;
+      } else {
+        byWd[r.weekday] = r.mark;
+      }
     });
-    const patternByWeekday = {};
-    Object.entries(votes).forEach(([wd, counts]) => {
-      const [token] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-      patternByWeekday[wd] = token[0] === '{' ? JSON.parse(token) : token;
-    });
-    const marks = { ...local.marks };
-    let filled = 0;
+    return byWd;
+  }, [recurring]);
+
+  // מה שבאמת יישלח: בקשות קבועות + דריסות ספציפיות לחודש הזה, שתמיד מנצחות.
+  // local.marks[ds] === null = "בוטל לחודש הזה בלבד" (הדריסה עצמה נשארת פעילה לחודשים הבאים).
+  const effectiveMarks = React.useMemo(() => {
+    const out = {};
     rangeDates.forEach(ds => {
-      if (marks[ds] !== undefined) return;
-      const wd = weekdayOf(ds);
-      if (patternByWeekday[wd] !== undefined) { marks[ds] = patternByWeekday[wd]; filled++; }
+      if (Object.prototype.hasOwnProperty.call(local.marks, ds)) {
+        if (local.marks[ds] !== null) out[ds] = local.marks[ds];
+      } else {
+        const p = recurringPattern[weekdayOf(ds)];
+        if (p !== undefined) out[ds] = p;
+      }
     });
-    if (filled) { setLocal({ marks, dirty: true }); showToast && showToast(`שוחזרו ${filled} ימים מ${monthName(prevYm)} ✓`); }
-    else showToast && showToast('אין ימים חדשים לשחזור — הכול כבר מסומן החודש');
+    return out;
+  }, [rangeDates, recurringPattern, local.marks]);
+
+  const resetMonth = () => {
+    setLocal({ marks: {}, dirty: true });
+    showToast && showToast('הבקשות אופסו — נשארו רק הבקשות הקבועות שלך');
   };
 
   const setReqMode = (mode) => {
@@ -2284,10 +2452,16 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const tapDay = (dStr) => {
     setSelDay(dStr);
     if (!editable || !brush) return;
-    const cur = local.marks[dStr];
+    const cur = effectiveMarks[dStr];
     if (cur && typeof cur === 'object' && brush !== 'erase') return;
     const marks = { ...local.marks };
-    if (brush === 'erase') delete marks[dStr]; else marks[dStr] = brush;
+    if (brush === 'erase') {
+      // אם יש כאן בקשה קבועה, "מחיקה" צריכה לבטל אותה לחודש הזה בלבד — לא סתם למחוק
+      // מפתח ולתת לה להציץ בחזרה. אם אין בקשה קבועה, מספיק להסיר את הדריסה המקומית.
+      if (recurringPattern[weekdayOf(dStr)] !== undefined) marks[dStr] = null; else delete marks[dStr];
+    } else {
+      marks[dStr] = brush;
+    }
     setLocal({ marks, dirty: true });
   };
 
@@ -2296,32 +2470,36 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     if (!editable) return;
     const ids = dayShifts.map(s => s.id);
     const marks = { ...local.marks };
-    const cur = marks[selDs];
+    const cur = effectiveMarks[selDs];
     let obj = {};
     if (typeof cur === 'string') ids.forEach(id => { obj[id] = cur; });
     else if (cur) obj = { ...cur };
     if (mark) obj[sid] = mark; else delete obj[sid];
     const vals = ids.map(id => obj[id]);
-    if (!Object.keys(obj).length) delete marks[selDs];
+    if (!Object.keys(obj).length) {
+      if (recurringPattern[weekdayOf(selDs)] !== undefined) marks[selDs] = null; else delete marks[selDs];
+    }
     else if (ids.length && vals.every(v => v && v === vals[0]) && Object.keys(obj).length === ids.length) marks[selDs] = vals[0];
     else marks[selDs] = obj;
     setLocal({ marks, dirty: true });
   };
 
+
   const submit = async () => {
     if (saving) return;
     setSaving(true);
-    // "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת בודדת
+    // "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת בודדת. משתמשים ב-effectiveMarks
+    // (לא local.marks) כדי שבקשות קבועות שלא נגעו בהן החודש ייכללו בהגשה בפועל.
     const toDates = (mark) => {
       const out = [];
-      Object.entries(local.marks).forEach(([ds, v]) => {
+      Object.entries(effectiveMarks).forEach(([ds, v]) => {
         if (typeof v === 'string') { if (v === mark) out.push(ds); }
         else Object.entries(v || {}).forEach(([sid, m]) => { if (m === mark) out.push(`${ds}@${sid}`); });
       });
       return out.sort();
     };
     // הרחבת סימונים משתמעים: ימים לא-מסומנים מקבלים את הסטטוס ברירת-מחדל של המצב הנוכחי
-    const markedDs = new Set(Object.keys(local.marks));
+    const markedDs = new Set(Object.keys(effectiveMarks));
     const unmarkedDates = rangeDates.filter(ds => !markedDs.has(ds));
     let unavailable = toDates('un');
     let canArr = toDates('can');
@@ -2332,7 +2510,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     }
     // משמרות לא-מסומנות בימים עם סימון חלקי → ברירת מחדל של המצב
     // (למשל: אם "לילה=יכול" ביום שלישי, שאר המשמרות של אותו יום נחסמות)
-    Object.entries(local.marks).forEach(([ds, v]) => {
+    Object.entries(effectiveMarks).forEach(([ds, v]) => {
       if (typeof v !== 'object' || !v) return;
       shiftTypesFor(ds, settings).filter(s => !s.continuation).forEach(sh => {
         if (v[sh.id]) return;
@@ -2542,17 +2720,30 @@ ${shiftsDesc}
     }
   };
 
-  const hasMarks = Object.keys(local.marks).length > 0;
+  const hasMarks = Object.keys(effectiveMarks).length > 0;
   const needSend = !server || local.dirty;
   const stats = React.useMemo(() => {
     const s = { un: 0, high: 0, can: 0, days: 0, shifts: 0 };
-    Object.values(local.marks).forEach(v => {
+    Object.values(effectiveMarks).forEach(v => {
       if (typeof v === 'string') { s.days++; s[v]++; }
       else Object.values(v || {}).forEach(m => { s.shifts++; s[m]++; });
     });
     return s;
-  }, [local.marks]);
+  }, [effectiveMarks]);
   const sentAt = fmtSentAt(server?.updated_at);
+
+  // אזהרה בלבד — לא חוסמת שליחה. נבדקת מול effectiveMarks + ברירת המחדל של המצב, בדיוק כמו submit()
+  const criteriaWarnings = React.useMemo(() => {
+    if (!editable) return [];
+    const unmarkedDates = rangeDates.filter(ds => !Object.prototype.hasOwnProperty.call(effectiveMarks, ds));
+    const row = { unavailable: [], high: [], can: [] };
+    Object.entries(effectiveMarks).forEach(([ds, v]) => {
+      if (typeof v === 'string') row[v === 'un' ? 'unavailable' : v === 'high' ? 'high' : 'can'].push(ds);
+      else Object.entries(v || {}).forEach(([sid, m]) => row[m === 'un' ? 'unavailable' : m === 'high' ? 'high' : 'can'].push(`${ds}@${sid}`));
+    });
+    (reqMode === 'block' ? row.can : row.unavailable).push(...unmarkedDates);
+    return checkRequestCriteria(rangeDates, row, settings, criteria || DEFAULT_REQUEST_CRITERIA);
+  }, [effectiveMarks, rangeDates, reqMode, settings, criteria, editable]);
 
   const BRUSHES = reqMode === 'block'
     ? [{ id: 'un', label: 'לא זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }, { id: 'erase', label: 'מחיקה' }]
@@ -2569,18 +2760,20 @@ ${shiftsDesc}
           📅 טווח הסידור: {rangeStart.slice(8)}.{rangeStart.slice(5,7)} – {rangeEnd.slice(8)}.{rangeEnd.slice(5,7)}
         </div>
       )}
-      {editable && (prevMarks && Object.keys(prevMarks).length > 0 ? (
-        <div onClick={restoreFromLastMonth} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: '#FFF',
-          border: `1.5px dashed ${TEAL}`, borderRadius: 10, padding: '10px 14px', cursor: 'pointer' }}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: TEAL_DARK }}>↻ שחזור בקשות מ{monthName(prevYm)}</span>
-          <span style={{ fontSize: 11.5, color: '#8A867F' }}>לפי הדפוס הרגיל שלך — ימים שכבר סימנת לא ישתנו</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <span onClick={goRecurring} style={{ fontSize: 13, fontWeight: 800, color: TEAL_DARK, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+          🔁 בקשות קבועות{recurring?.filter(r => r.active).length > 0 ? ` (${recurring.filter(r => r.active).length})` : ''}
+        </span>
+        {editable && hasMarks && (
+          <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס החודש</span>
+        )}
+      </div>
+      {editable && criteriaWarnings.length > 0 && (
+        <div style={{ background: 'oklch(0.97 0.04 80)', border: '1px solid oklch(0.8 0.1 70)', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'oklch(0.5 0.13 70)' }}>⚠ שימו לב — לא הוגש המינימום שהמשבץ ביקש:</div>
+          {criteriaWarnings.map((w, i) => <div key={i} style={{ fontSize: 12, color: '#6B5B3A' }}>{w}</div>)}
         </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: '#FAF9F7',
-          border: '1.5px dashed #D8D4CE', borderRadius: 10, padding: '10px 14px' }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94' }}>↻ אין בקשות שמורות מ{monthName(prevYm)} לשחזור</span>
-        </div>
-      ))}
+      )}
       {editable ? (<>
         {/* בחירת מצב הגשה */}
         <div style={{ display: 'flex', gap: 8 }}>
@@ -2624,7 +2817,8 @@ ${shiftsDesc}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
           {Array.from({ length: gridOffset }).map((_, i) => <div key={'pad' + i} />)}
           {rangeDates.map(dStr => {
-            const v = local.marks[dStr];
+            const v = effectiveMarks[dStr];
+            const isRecurring = v !== undefined && !Object.prototype.hasOwnProperty.call(local.marks, dStr);
             const whole = typeof v === 'string';
             const inCurMonth = dStr.startsWith(ym);
             const impliedMark = !v && editable ? (reqMode === 'block' ? 'can' : 'un') : null;
@@ -2635,13 +2829,14 @@ ${shiftsDesc}
             const isSel = dStr === selDs;
             const dayNum = Number(dStr.slice(8));
             return (
-              <div key={dStr} onClick={() => tapDay(dStr)} style={{ aspectRatio: '1', borderRadius: 10,
+              <div key={dStr} onClick={() => tapDay(dStr)} style={{ position: 'relative', aspectRatio: '1', borderRadius: 10,
                 background: s.bg,
-                border: isSel ? `2px solid ${INK}` : s.bd,
+                border: isSel ? `2px solid ${INK}` : (isRecurring ? `1.5px dashed ${s.fg}` : s.bd),
                 color: s.fg,
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
                 fontSize: 13, fontWeight: inCurMonth ? 700 : 500,
                 cursor: 'pointer', transition: 'background 0.15s, border 0.15s', opacity: inCurMonth ? 1 : 0.75 }}>
+                {isRecurring && <span style={{ position: 'absolute', top: 3, insetInlineEnd: 4, fontSize: 8 }}>🔁</span>}
                 <span>{dayNum}</span>
                 {dots.length > 0 && (
                   <span style={{ display: 'flex', gap: 2 }}>
@@ -2656,7 +2851,7 @@ ${shiftsDesc}
           {stats.un} לא זמין · {stats.high} מעדיף · {stats.can} יכול
           {stats.shifts > 0 && <> — {stats.days} ימים מלאים · {stats.shifts} משמרות</>}
           {editable && (() => {
-            const markedCount = Object.keys(local.marks).length;
+            const markedCount = Object.keys(effectiveMarks).length;
             const impliedCount = rangeDates.length - markedCount;
             return impliedCount > 0 ? (
               <span style={{ color: reqMode === 'block' ? MARK_STATUS_FADED.can.fg : MARK_STATUS_FADED.un.fg }}>
@@ -2669,9 +2864,12 @@ ${shiftsDesc}
         {/* כרטיס פירוט היום הנבחר — דיוק ברמת משמרת */}
         <div style={{ background: '#FFF', borderRadius: 14, border: '1px solid #EAE7E1', padding: 14, display: 'flex', flexDirection: 'column', gap: 9 }}>
           <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(selDs.slice(0, 7))}</div>
+          {editable && !Object.prototype.hasOwnProperty.call(local.marks, selDs) && recurringPattern[weekdayOf(selDs)] !== undefined && (
+            <div style={{ fontSize: 11.5, color: TEAL_DARK, background: TEAL_SOFT, borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔁 מהבקשה הקבועה שלך — שינוי כאן ישפיע רק על החודש הזה</div>
+          )}
           {editable && <div style={{ fontSize: 12, color: '#8A867F' }}>דיוק לפי משמרת — בחרו סימון לכל משמרת בנפרד:</div>}
           {dayShifts.map(sh => {
-            const dayMark = local.marks[selDs];
+            const dayMark = effectiveMarks[selDs];
             const cur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
             const CHIPS = [[null, '—'], ['un', 'לא'], ['high', 'מעדיף'], ['can', 'יכול']];
             return (

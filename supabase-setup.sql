@@ -179,3 +179,22 @@ alter table shift_swap_requests enable row level security;
 drop policy if exists "open access" on shift_swap_requests;
 create policy "open access" on shift_swap_requests
   for all to anon, authenticated using (true) with check (true);
+
+-- 10. בקשות קבועות (אפליקציית העובד כותבת וקוראת; מתמלאות אוטומטית בכל חודש חדש
+--     עד שהעובד מכבה אותן — ראו הודעה למשבץ שהוסיפה שדה requestCriteria/shabbatFrequencyDays)
+create table if not exists employee_recurring_requests (
+  id         uuid default gen_random_uuid() primary key,
+  emp_id     text not null,
+  weekday    int  not null,               -- 0=ראשון .. 6=שבת
+  shift_id   text,                        -- null = היום כולו; אחרת משמרת ספציפית
+  mark       text not null,               -- 'un' | 'high' | 'can'
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists employee_recurring_requests_emp on employee_recurring_requests (emp_id);
+
+alter table employee_recurring_requests enable row level security;
+drop policy if exists "open access" on employee_recurring_requests;
+create policy "open access" on employee_recurring_requests
+  for all to anon, authenticated using (true) with check (true);

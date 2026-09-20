@@ -862,7 +862,7 @@ function App() {
       if (e3) throw e3;
       setSwaps(swapRows || []);
       setRecurring(recurRows || []);
-      setMyPrefs(prefRow || { weekday_shifts_per_week: 2, wants_friday: true, wants_saturday: true });
+      setMyPrefs(prefRow || { weekday_shifts_per_week: 2, wants_friday: true, wants_saturday: true, no_weekday_nights: false });
       // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
@@ -1324,6 +1324,13 @@ function SettingsTab({ me, email, onLogout, myPrefs, onSavePref }) {
               label="מוכן למשמרות שבת (כולל שבת ארוכה)"
               value={myPrefs?.wants_saturday ?? true}
               onChange={v => onSavePref({ wants_saturday: v })}
+            />
+          </div>
+          <div style={divider}>
+            <PrefRow
+              label="ללא לילות באמצע השבוע (א׳–ה׳)"
+              value={myPrefs?.no_weekday_nights ?? false}
+              onChange={v => onSavePref({ no_weekday_nights: v })}
             />
           </div>
         </div>

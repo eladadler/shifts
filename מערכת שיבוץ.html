@@ -1301,9 +1301,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             if (av === 'unavailable') return false;
             if (counts[e.id] >= e.max) return false;
             if (shift.id === 'night' && !e.nights) return false;
-            // העדפות "מוכן לשישי/שבת" — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
+            // העדפות "מוכן לשישי/שבת"/"ללא לילות באמצע השבוע" — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
             if (isFridayNonShabbat && e.wantsFriday === false) return false;
             if (isSaturdayish && e.wantsSaturday === false) return false;
+            if (shift.id === 'night' && wdShift >= 0 && wdShift <= 4 && e.noWeekdayNights) return false;
             // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
             if (initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return false;
             // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
@@ -2771,6 +2772,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
         const isSaturdayish = shiftId === 'shabbat' || wd === 6;
         if (isFridayNonShabbat && p.wants_friday === false) return false;
         if (isSaturdayish && p.wants_saturday === false) return false;
+        if (shiftId === 'night' && wd >= 0 && wd <= 4 && p.no_weekday_nights) return false;
       }
     }
     return true;
@@ -2872,7 +2874,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
                       {assigned && <span className="assigned-badge">משובץ ✓</span>}
                       {managerNotes?.[emp.id] && <span title={'הערה למשבץ: ' + managerNotes[emp.id]} style={{fontSize:11}}>📌</span>}
                       {!compliesWithPrefs(emp) && (
-                        <span title="שובץ במשמרת שישי/שבת שסימן/ה שלא רוצה" style={{fontSize:10.5,fontWeight:700,color:'var(--danger)'}}>⚠ לא תואם העדפות</span>
+                        <span title="שובץ במשמרת שישי/שבת/לילה באמצע השבוע שסימן/ה שלא רוצה" style={{fontSize:10.5,fontWeight:700,color:'var(--danger)'}}>⚠ לא תואם העדפות</span>
                       )}
                     </>}
                     focused={focusedEmpId === emp.id}
@@ -3657,7 +3659,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
 
   const openAdd = () => {
     setEditEmp({ id: 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: '', role: '', email: '', color: COLORS[0], max: 14, anchor: false, nights: false,
-      weekdayShiftsPerWeek: 2, wantsFriday: true, wantsSaturday: true });
+      weekdayShiftsPerWeek: 2, wantsFriday: true, wantsSaturday: true, noWeekdayNights: false });
     setAcctPw(''); setAcctMsg(null);
     setShowForm(true);
   };
@@ -3667,14 +3669,15 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
       weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
       wantsFriday: p?.wants_friday ?? true,
       wantsSaturday: p?.wants_saturday ?? true,
+      noWeekdayNights: p?.no_weekday_nights ?? false,
     });
     setAcctPw(''); setAcctMsg(null); setShowForm(true);
   };
   const saveEmp = () => {
     if (!editEmp.name.trim()) return;
-    // weekdayShiftsPerWeek/wantsFriday/wantsSaturday חיים ב-employee_prefs (טבלה נפרדת,
-    // דו-כיוונית עם אפליקציית העובד) — לא נשמרים כפולים ברשומת העובד עצמה
-    const { weekdayShiftsPerWeek, wantsFriday, wantsSaturday, ...empRecord } = editEmp;
+    // weekdayShiftsPerWeek/wantsFriday/wantsSaturday/noWeekdayNights חיים ב-employee_prefs
+    // (טבלה נפרדת, דו-כיוונית עם אפליקציית העובד) — לא נשמרים כפולים ברשומת העובד עצמה
+    const { weekdayShiftsPerWeek, wantsFriday, wantsSaturday, noWeekdayNights, ...empRecord } = editEmp;
     updateEmps(prev => prev.find(e => e.id === empRecord.id)
       ? prev.map(e => e.id === empRecord.id ? empRecord : e)
       : [...prev, empRecord]);
@@ -3682,6 +3685,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
       weekday_shifts_per_week: weekdayShiftsPerWeek,
       wants_friday: wantsFriday,
       wants_saturday: wantsSaturday,
+      no_weekday_nights: noWeekdayNights,
     });
     setShowForm(false);
   };
@@ -3814,6 +3818,12 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
                 <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
                   <input type="checkbox" checked={editEmp.wantsSaturday} onChange={(e) => setEditEmp(p => ({...p, wantsSaturday: e.target.checked}))} />
                   מוכן למשמרות שבת
+                </label>
+              </div>
+              <div style={{display:'flex',gap:20}}>
+                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+                  <input type="checkbox" checked={editEmp.noWeekdayNights} onChange={(e) => setEditEmp(p => ({...p, noWeekdayNights: e.target.checked}))} />
+                  ללא לילות באמצע השבוע (א׳–ה׳)
                 </label>
               </div>
               <div className="field">
@@ -5317,7 +5327,7 @@ function App() {
 
   // סנכרון employees → window.ShiftData.EMPLOYEES
   // ממזג העדפות (employee_prefs) לתוך רשימת העובדים החיה, כך שהאלגוריתם רואה
-  // weekdayShiftsPerWeek/wantsFriday/wantsSaturday בלי לשכפל אותן ברשומת העובד עצמה
+  // weekdayShiftsPerWeek/wantsFriday/wantsSaturday/noWeekdayNights בלי לשכפל אותן ברשומת העובד עצמה
   React.useEffect(() => {
     window.ShiftData.EMPLOYEES = employees.map(e => {
       const p = prefs[e.id];
@@ -5326,6 +5336,7 @@ function App() {
         weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
         wantsFriday: p?.wants_friday ?? true,
         wantsSaturday: p?.wants_saturday ?? true,
+        noWeekdayNights: p?.no_weekday_nights ?? false,
       };
     });
   }, [employees, prefs]);
@@ -5435,6 +5446,7 @@ function App() {
           weekday_shifts_per_week: r.weekday_shifts_per_week,
           wants_friday: r.wants_friday,
           wants_saturday: r.wants_saturday,
+          no_weekday_nights: r.no_weekday_nights,
           updated_at: r.updated_at,
         };
       });

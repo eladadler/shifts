@@ -1214,7 +1214,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {} }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {} }) {
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
     const schedule = {};
     const log = [];
@@ -1223,6 +1223,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     // hist = משמרות מחודשים קודמים, ומשמש לאיזון עומסים בניקוד בלבד — הזרקתו
     // למונה החודשי הייתה חוסמת לאלתר כל מי שעבד בחודש שעבר.
     D.EMPLOYEES.forEach((e) => { counts[e.id] = 0; hist[e.id] = initialCounts[e.id] || 0; lastEnd[e.id] = null; });
+    // lastShabbat = התאריך האחרון שבו כל עובד שובץ ל"שבת ארוכה", כולל היסטוריה
+    // שהתקבלה מבחוץ — משמש להטיית הניקוד לעבר מי שמגיע לו תור (ראו score()).
+    const lastShabbat = { ...initialLastShabbat };
     const now = () => new Date().toISOString();
     const addLog = (type, message) => log.push({ timestamp: now(), type, message });
 
@@ -1234,6 +1237,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         (schedule[dStr][shift.id] || []).forEach((empId) => {
           counts[empId] = (counts[empId] || 0) + 1;
           lastEnd[empId] = D.personTimes(dStr, shift, empId).end;
+          if (shift.id === 'shabbat' && (!lastShabbat[empId] || dStr > lastShabbat[empId])) lastShabbat[empId] = dStr;
         });
       });
     });
@@ -1285,6 +1289,13 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             if (e.anchor) s += 3;
             if (e.nightOwl && shift.id === 'night') s += 5;
             s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
+            if (shift.id === 'shabbat') {
+              // הטיה לעבר מי שמגיע לו תור ל"שבת ארוכה" — יעד אישי per employee (ברירת מחדל 45 יום)
+              const target = e.shabbatFrequencyDays || 45;
+              const prev = lastShabbat[e.id];
+              const daysSince = prev ? (D.parseDate(dStr) - D.parseDate(prev)) / 864e5 : target * 2;
+              s += Math.min(8, (daysSince / target) * 4);
+            }
             s += hash(e.id + dStr + shift.id + slot) * 0.5;
             return s;
           };
@@ -1294,6 +1305,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           schedule[dStr][shift.id] = [...alreadyIn, best.id];
           counts[best.id] += 1;
           lastEnd[best.id] = t.end;
+          if (shift.id === 'shabbat') lastShabbat[best.id] = dStr;
 
           const av = D.availabilityOn(best.id, dStr, shift.id);
           if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
@@ -1389,7 +1401,43 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
-  window.ShiftEngine = { listDates, defaultRange, applyFixed, generate, detectConflicts, countShifts, exportCsv, MIN_REST_H, gapHours };
+  // בדיקת קריטריוני הגשה מול הבקשות שהוגשו בפועל (D.availabilityOn), לחודש/טווח נתון.
+  // מקבילה בדיוק ל-checkRequestCriteria שבאפליקציית העובד, אך קוראת מ-D.reqOf(empId)
+  // במקום משורת בקשות בודדת — כדי שרשימת החריגות למשבץ תשקף בדיוק את מה שהעובד רואה.
+  function checkRequestCriteria(rangeDates, empId, settings, criteria) {
+    const violations = [];
+    const weeks = {};
+    rangeDates.forEach(ds => {
+      const d = D.parseDate(ds);
+      const sun = new Date(d); sun.setDate(d.getDate() - d.getDay());
+      const key = D.dateStr(sun);
+      (weeks[key] = weeks[key] || []).push(ds);
+    });
+    let anyFriday = false, anySaturday = false;
+    Object.values(weeks).forEach(dates => {
+      let nights = 0, days = 0;
+      dates.forEach(ds => {
+        const shifts = D.shiftTypesFor(ds, settings).filter(s => !s.continuation);
+        const openShift = (s) => D.availabilityOn(empId, ds, s.id) !== 'unavailable';
+        if (shifts.some(s => s.id === 'night') && openShift({ id: 'night' })) nights++;
+        if (shifts.some(s => s.id !== 'night' && openShift(s))) days++;
+        const wd = D.weekdayOf(ds);
+        if (wd === 5 && shifts.some(openShift)) anyFriday = true;
+        if (wd === 6 && shifts.some(openShift)) anySaturday = true;
+      });
+      const label = `${dates[0].slice(8)}–${dates[dates.length - 1].slice(8)}`;
+      if (dates.length >= criteria.minNightsPerWeek && nights < criteria.minNightsPerWeek)
+        violations.push(`שבוע ${label}: ${nights}/${criteria.minNightsPerWeek} לילות פנויים בלבד`);
+      if (dates.length >= criteria.minDaysPerWeek && days < criteria.minDaysPerWeek)
+        violations.push(`שבוע ${label}: ${days}/${criteria.minDaysPerWeek} ימים פנויים בלבד`);
+    });
+    if (criteria.minFridaysCanPerMonth > 0 && !anyFriday) violations.push('לא סומן אף שישי שאפשר לעבוד בו');
+    if (criteria.minSaturdaysCanPerMonth > 0 && !anySaturday) violations.push('לא סומנה אף שבת שאפשר לעבוד בה');
+    return violations;
+  }
+
+  window.checkRequestCriteria = checkRequestCriteria;
+  window.ShiftEngine = { listDates, defaultRange, applyFixed, generate, detectConflicts, countShifts, exportCsv, checkRequestCriteria, MIN_REST_H, gapHours };
 
 })();
 </script>
@@ -3164,7 +3212,7 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 }
 
 // ---- SettingsDrawer ----
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showKey, setShowKey] = React.useState(false);
@@ -3328,6 +3376,27 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
               </div>
               <div style={{fontSize:'11px',color:'var(--ink-3)',marginTop:8,lineHeight:1.5}}>
                 קיצור משמרת בלי מחליף תמיד מיידי, בלי אישור. בקשות שממתינות לאישורכם מופיעות בכפתור ⇄ בסרגל העליון.
+              </div>
+            </div>
+            <div>
+              <div className="settings-sec-title">📋 קריטריוני הגשת בקשות</div>
+              <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:10,lineHeight:1.5}}>
+                דרישות מינימום גורפות להגשת בקשות באפליקציית העובד. אלה אזהרה בלבד לעובד (לא חוסמות הגשה), אך יוצגו לכם כרשימת חריגות לפני הרצת שיבוץ אוטומטי. ניתן לדרוס לכל עובד בנפרד מכרטיס העובד.
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:9}}>
+                {[
+                  ['minNightsPerWeek', 'מינימום לילות פנויים בשבוע'],
+                  ['minDaysPerWeek', 'מינימום ימים פנויים בשבוע'],
+                  ['minFridaysCanPerMonth', 'לפחות שישי אחד פנוי בחודש'],
+                  ['minSaturdaysCanPerMonth', 'לפחות שבת אחת פנויה בחודש'],
+                ].map(([key, label]) => (
+                  <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'0 2px'}}>
+                    <span style={{fontSize:'12.5px',lineHeight:1.4}}>{label}</span>
+                    <input type="number" min="0" max="7" value={requestCriteria[key]}
+                      onChange={(e) => onRequestCriteriaChange(c => ({ ...c, [key]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                      style={{width:52,border:'1px solid var(--line)',borderRadius:7,padding:'5px 7px',fontSize:'13px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'center',flexShrink:0}} />
+                  </div>
+                ))}
               </div>
             </div>
             <div>
@@ -3631,6 +3700,42 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
                   {COLORS.map(c => (
                     <button key={c} onClick={() => setEditEmp(p => ({...p, color: c}))}
                       style={{width:32,height:32,borderRadius:7,background:c,border:`2.5px solid ${editEmp.color === c ? 'var(--ink)' : 'transparent'}`,cursor:'pointer',transition:'border-color 0.1s'}} />
+                  ))}
+                </div>
+              </div>
+              <div className="field">
+                <label className="field-label">🔁 שיבוץ שבת (ארוכה) — כל כמה ימים בקירוב</label>
+                <div className="stepper">
+                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, shabbatFrequencyDays: Math.max(7, (p.shabbatFrequencyDays || 45) - 1)}))}>−</button>
+                  <span className="stepper-val">{editEmp.shabbatFrequencyDays || 45}</span>
+                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, shabbatFrequencyDays: (p.shabbatFrequencyDays || 45) + 1}))}>+</button>
+                  <span className="field-hint">ימים בין משמרות (ברירת מחדל 45)</span>
+                </div>
+              </div>
+              <div className="field">
+                <label className="field-label">📋 קריטריוני הגשת בקשות אישיים <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות — ריק = לפי ההגדרה הכללית)</span></label>
+                <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:4}}>
+                  {[
+                    ['minNightsPerWeek', 'מינימום לילות/שבוע'],
+                    ['minDaysPerWeek', 'מינימום ימים/שבוע'],
+                    ['minFridaysCanPerMonth', 'שישי פנוי אחד/חודש'],
+                    ['minSaturdaysCanPerMonth', 'שבת פנויה אחת/חודש'],
+                  ].map(([key, label]) => (
+                    <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                      <span style={{fontSize:'12.5px',color:'var(--ink-2)'}}>{label}</span>
+                      <input type="number" min="0" max="7"
+                        value={editEmp.reqCriteria?.[key] ?? ''}
+                        placeholder="—"
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          setEditEmp(p => {
+                            const rc = { ...(p.reqCriteria || {}) };
+                            if (raw === '') delete rc[key]; else rc[key] = Math.max(0, parseInt(raw) || 0);
+                            return { ...p, reqCriteria: rc };
+                          });
+                        }}
+                        style={{width:52,border:'1px solid var(--line)',borderRadius:7,padding:'5px 7px',fontSize:'13px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'center',flexShrink:0}} />
+                    </div>
                   ))}
                 </div>
               </div>
@@ -4566,7 +4671,47 @@ function SmartSummaryModal({ summary, onClose }) {
   );
 }
 
-Object.assign(window, { ShiftsDrawer, SettingsDrawer, EmployeesScreen, RequestsScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal });
+// חריגות קריטריוני הגשה, מוצגות למשבץ לפני הרצת שיבוץ אוטומטי — מאפשר להריץ
+// בכל זאת או לבטל ולדרוש מהעובדים לתקן קודם
+function CriteriaGateModal({ gate, onProceed, onCancel }) {
+  if (!gate) return null;
+  return (
+    <div onClick={onCancel} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background:'var(--surface)', borderRadius:16, padding:28, maxWidth:520, width:'100%',
+        maxHeight:'85vh', overflowY:'auto', boxShadow:'0 8px 40px rgba(0,0,0,0.25)',
+      }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
+          <div style={{ fontSize:32 }}>⚠️</div>
+          <div>
+            <div style={{ fontWeight:700, fontSize:16 }}>נמצאו חריגות מקריטריוני הגשה</div>
+            <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
+              {gate.violations.length} עובדים לא עמדו בדרישות המינימום להגשת בקשות. אפשר להריץ שיבוץ בכל זאת, או לבטל ולבקש מהם לתקן קודם.
+            </div>
+          </div>
+        </div>
+        <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
+          {gate.violations.map(v => (
+            <div key={v.empId} style={{ background:'var(--surface-2)', borderRadius:10, padding:'10px 12px' }}>
+              <div style={{ fontWeight:600, fontSize:13, marginBottom:5 }}>{v.name}</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                {v.violations.map((msg, i) => (
+                  <div key={i} style={{ fontSize:11.5, color:'var(--ink-3)' }}>· {msg}</div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display:'flex', gap:10 }}>
+          <button className="btn" style={{ flex:1 }} onClick={onCancel}>ביטול — אבקש מהם לתקן</button>
+          <button className="btn btn-primary" style={{ flex:1 }} onClick={onProceed}>הרץ שיבוץ בכל זאת</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { ShiftsDrawer, SettingsDrawer, EmployeesScreen, RequestsScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal, CriteriaGateModal });
 </script>
 
 <!-- ============ GenerateDraftModal + לוג AI ============ -->
@@ -4999,8 +5144,13 @@ function App() {
   const [admins, setAdmins] = React.useState(() => saved?.admins || ['eladadler@gmail.com']);
   const DEFAULT_SWAP_SETTINGS = { peerApprovalFull: false, peerApprovalPartial: false, managerApprovalFull: false, managerApprovalPartial: false };
   const [swapSettings, setSwapSettings] = React.useState(() => ({ ...DEFAULT_SWAP_SETTINGS, ...(saved?.swapSettings || {}) }));
+  // קריטריונים גורפים להגשת בקשות — ניתנים לדריסה אישית לכל עובד (emp.reqCriteria). אזהרה בלבד, לא חוסמת.
+  const DEFAULT_REQUEST_CRITERIA = { minNightsPerWeek: 2, minDaysPerWeek: 2, minFridaysCanPerMonth: 1, minSaturdaysCanPerMonth: 1 };
+  const [requestCriteria, setRequestCriteria] = React.useState(() => ({ ...DEFAULT_REQUEST_CRITERIA, ...(saved?.requestCriteria || {}) }));
   const [vapidPublicKey, setVapidPublicKey] = React.useState(() => saved?.vapidPublicKey || '');
   const [sendRemindersOpen, setSendRemindersOpen] = React.useState(false);
+  // חריגות קריטריוני הגשה שהתגלו לפני הרצת שיבוץ אוטומטי — { violations, proceed } | null
+  const [criteriaGate, setCriteriaGate] = React.useState(null);
   const [selectedDate, setSelectedDate] = React.useState(null);
   const [selectedShift, setSelectedShift] = React.useState(null);  // לחיצה על משמרת מסננת את פאנל הזמינות
   const [draggingEmp, setDraggingEmp] = React.useState(null);
@@ -5072,6 +5222,7 @@ function App() {
         // טען מפתח VAPID ציבורי
         if (remote.vapidPublicKey) setVapidPublicKey(remote.vapidPublicKey);
         if (remote.swapSettings) setSwapSettings(s => ({ ...s, ...remote.swapSettings }));
+        if (remote.requestCriteria) setRequestCriteria(c => ({ ...c, ...remote.requestCriteria }));
       }
       setSyncStatus('saved');
       isFirstLoad.current = false;
@@ -5134,7 +5285,7 @@ function App() {
     if (generatingId) return;
     if (isFirstLoad.current) return;
     if (employees.length === 0) return; // אל תכתוב רשימת עובדים ריקה — שמור על נתוני Supabase
-    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, swapSettings, empMaxV: EMP_MAX_V };
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, swapSettings, requestCriteria, empMaxV: EMP_MAX_V };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -5143,7 +5294,7 @@ function App() {
       const ok = await window.__db.save(state);
       setSyncStatus(ok ? 'saved' : 'error');
     }, 1200);
-  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, swapSettings, generatingId]);
+  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, swapSettings, requestCriteria, generatingId]);
 
   // ערכת נושא
   React.useEffect(() => {
@@ -5291,15 +5442,65 @@ function App() {
     return counts;
   };
 
+  // תאריך המשמרת האחרונה שכל עובד שובץ ל"שבת ארוכה" — לפי שלוש החודשים האחרונים
+  // (מספיק כדי לכסות את יעד ה-45 יום הדיפולטיבי). משמש להטיית השיבוץ האוטומטי.
+  const calcLastShabbatDates = () => {
+    const [y, m] = currentMonth.split('-').map(Number);
+    const pastMonths = [];
+    for (let i = 1; i <= 3; i++) {
+      let pm = m - i; let py = y;
+      if (pm <= 0) { pm += 12; py -= 1; }
+      pastMonths.push(`${py}-${String(pm).padStart(2, '0')}`);
+    }
+    const last = {};
+    pastMonths.forEach(pm => {
+      const ds = drafts.filter(d => d.month === pm && d.schedule);
+      const d = ds.find(x => x.status === 'final') || ds[ds.length - 1];
+      if (!d) return;
+      Object.entries(d.schedule).forEach(([dStr, dayShifts]) => {
+        (dayShifts.shabbat || []).forEach(empId => {
+          if (!last[empId] || dStr > last[empId]) last[empId] = dStr;
+        });
+      });
+    });
+    return last;
+  };
+
+  // בדיקת חריגות מקריטריוני הגשה, לפני הרצת שיבוץ אוטומטי — ראו runWithCriteriaGate
+  const checkCriteriaViolationsForScheduling = () => {
+    if (!currentDraft?.range?.start) return [];
+    const dates = [];
+    let cur = currentDraft.range.start;
+    while (cur <= currentDraft.range.end) {
+      if (!(currentDraft.excluded || []).includes(cur)) dates.push(cur);
+      cur = AD.addDays(cur, 1);
+    }
+    const out = [];
+    employees.forEach(emp => {
+      const criteria = { ...requestCriteria, ...(emp.reqCriteria || {}) };
+      const violations = AE.checkRequestCriteria(dates, emp.id, shiftSettings, criteria);
+      if (violations.length) out.push({ empId: emp.id, name: emp.name, violations });
+    });
+    return out;
+  };
+
+  // עוטף את שלוש פעולות השיבוץ (runAlgo/runSmart/runAI) בהקפצת חריגות קריטריונים
+  // למשבץ, לפני שהשיבוץ בפועל רץ — הוא בוחר אם להמשיך בכל זאת או לדרוש תיקון קודם
+  const runWithCriteriaGate = (fn) => () => {
+    const violations = checkCriteriaViolationsForScheduling();
+    if (violations.length) { setCriteriaGate({ violations, proceed: fn }); return; }
+    fn();
+  };
+
   // שיבוץ אלגוריתמי — ללא AI, מהיר, לא דורש מפתח API
-  const runAlgo = () => {
+  const runAlgoImpl = () => {
     if (!currentDraft) { alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.'); return; }
     const id = activeDraftId;
     setGeneratingId(id);
     const result = AE.generate({
       startDate: currentDraft.range.start, endDate: currentDraft.range.end,
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
-      initialLastEnd: carryOverEnds,
+      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(),
     });
     const ts = new Date().toISOString();
     const log = [
@@ -5311,7 +5512,7 @@ function App() {
   };
 
   // שיבוץ חכם: שלב א׳ מחשב עם היסטוריה → שלב ב׳ AI ממטב חורים
-  const runSmart = async () => {
+  const runSmartImpl = async () => {
     if (!currentDraft) { alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.'); return; }
     if (!currentDraft.range?.start) { alert('לטיוטה אין טווח תאריכים — צור טיוטה חדשה.'); return; }
     const id = activeDraftId;
@@ -5329,6 +5530,7 @@ function App() {
         startDate: currentDraft.range.start, endDate: currentDraft.range.end,
         excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule,
         shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds,
+        initialLastShabbat: calcLastShabbatDates(),
       });
       algoResult.log.filter(l => l.type !== 'info').forEach(l => smartLog.push({ ...l, timestamp: ts() }));
 
@@ -5465,7 +5667,7 @@ ${JSON.stringify(emptySlots, null, 2)}
   };
 
   // שיבוץ אוטומטי — Claude Sonnet 4.6
-  const runAI = async () => {
+  const runAIImpl = async () => {
     if (!currentDraft) {
       alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.');
       return;
@@ -5587,7 +5789,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       const topUp = AE.generate({
         startDate: snap.range.start, endDate: snap.range.end,
         excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
-        initialLastEnd: carryOverEnds,
+        initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(),
       });
 
       const ts = new Date().toISOString();
@@ -5609,6 +5811,11 @@ ${JSON.stringify(emptySlots, null, 2)}
       setGeneratingId(null);
     }
   };
+
+  // עוטפים את שלוש פעולות השיבוץ בהקפצת חריגות קריטריונים למשבץ לפני ההרצה בפועל
+  const runAlgo = runWithCriteriaGate(runAlgoImpl);
+  const runSmart = runWithCriteriaGate(runSmartImpl);
+  const runAI = runWithCriteriaGate(runAIImpl);
 
   const renameDraft = (id, name) => updateDraft(id, () => ({ name }));
   const deleteDraft = (id) => {
@@ -5935,7 +6142,8 @@ ${JSON.stringify(emptySlots, null, 2)}
         admins={admins} onAdminsChange={setAdmins}
         vapidPublicKey={vapidPublicKey}
         onVapidKeysGenerated={setVapidPublicKey}
-        swapSettings={swapSettings} onSwapSettingsChange={setSwapSettings} />
+        swapSettings={swapSettings} onSwapSettingsChange={setSwapSettings}
+        requestCriteria={requestCriteria} onRequestCriteriaChange={setRequestCriteria} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
         month={currentMonth}
@@ -5963,6 +6171,9 @@ ${JSON.stringify(emptySlots, null, 2)}
         draft={currentDraft} employees={employees} currentMonth={currentMonth} />
       <window.ScriptRunnerModal open={scriptRunnerOpen} onClose={() => setScriptRunnerOpen(false)} />
       <window.SmartSummaryModal summary={smartSummary} onClose={() => setSmartSummary(null)} />
+      <window.CriteriaGateModal gate={criteriaGate}
+        onCancel={() => setCriteriaGate(null)}
+        onProceed={() => { const fn = criteriaGate?.proceed; setCriteriaGate(null); if (fn) fn(); }} />
       {pendingApproveModal && (
         <ApprovePendingModal
           pending={pendingApproveModal}

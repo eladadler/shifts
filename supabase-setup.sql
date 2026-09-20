@@ -198,3 +198,23 @@ alter table employee_recurring_requests enable row level security;
 drop policy if exists "open access" on employee_recurring_requests;
 create policy "open access" on employee_recurring_requests
   for all to anon, authenticated using (true) with check (true);
+
+-- 11. העדפות עובד — כמה משמרות בשבוע בימי חול, והאם מוכן למשמרות שישי/שבת.
+--     שתי האפליקציות קוראות וכותבות כאן ישירות (במקום ב-mishmarot_state הכללי),
+--     כדי שעריכה מכל צד לא תדרוס את הצד השני. נכנס גם לאלגוריתם השיבוץ האוטומטי.
+create table if not exists employee_prefs (
+  emp_id                  text primary key,
+  weekday_shifts_per_week int     not null default 2,  -- יעד משמרות/שבוע בימי א'-ה'
+  wants_friday            boolean not null default true,
+  wants_saturday          boolean not null default true, -- כולל משמרת "שבת ארוכה" (shabbat)
+  updated_at              timestamptz not null default now()
+);
+
+alter table employee_prefs enable row level security;
+drop policy if exists "open access" on employee_prefs;
+create policy "open access" on employee_prefs
+  for all to anon, authenticated using (true) with check (true);
+
+-- 12. הערה מיוחדת למשבץ, מלווה את הבקשה החודשית (נפרדת מהטקסט החופשי ל-AI)
+alter table employee_requests
+  add column if not exists manager_note text not null default '';

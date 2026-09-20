@@ -730,6 +730,29 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return null;
       }
     },
+    async fetchEmployeePrefs() {
+      if (!client) return null;
+      try {
+        const { data, error } = await client.from('employee_prefs').select('*');
+        if (error) throw error;
+        return data || [];
+      } catch (e) {
+        console.warn('DB fetchEmployeePrefs failed:', e.message);
+        return null;
+      }
+    },
+    async saveEmployeePref(empId, patch) {
+      if (!client) return false;
+      try {
+        const { error } = await client.from('employee_prefs')
+          .upsert({ emp_id: empId, ...patch, updated_at: new Date().toISOString() });
+        if (error) throw error;
+        return true;
+      } catch (e) {
+        console.warn('DB saveEmployeePref failed:', e.message);
+        return false;
+      }
+    },
     async syncEmployees(employees) {
       if (!client) return false;
       try {
@@ -1226,18 +1249,31 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     // lastShabbat = התאריך האחרון שבו כל עובד שובץ ל"שבת ארוכה", כולל היסטוריה
     // שהתקבלה מבחוץ — משמש להטיית הניקוד לעבר מי שמגיע לו תור (ראו score()).
     const lastShabbat = { ...initialLastShabbat };
+    // weekCounts = כמה משמרות בימי א׳-ה׳ (חול) כבר שובצו לכל עובד בכל שבוע (מפתח = יום ראשון
+    // של אותו שבוע) — משמש לאיזון רך מול יעד weekdayShiftsPerWeek האישי (ראו score())
+    const weekCounts = {};
+    const weekKeyOf = (dStr) => {
+      const d = D.parseDate(dStr);
+      const sun = new Date(d); sun.setDate(d.getDate() - d.getDay());
+      return D.dateStr(sun);
+    };
     const now = () => new Date().toISOString();
     const addLog = (type, message) => log.push({ timestamp: now(), type, message });
 
     // העתק שיבוצים קיימים וספור אותם
     dates.forEach((dStr) => {
       schedule[dStr] = { ...(existingSchedule[dStr] || {}) };
+      const wd0 = D.weekdayOf(dStr);
       D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
         if (shift.continuation) return;
         (schedule[dStr][shift.id] || []).forEach((empId) => {
           counts[empId] = (counts[empId] || 0) + 1;
           lastEnd[empId] = D.personTimes(dStr, shift, empId).end;
           if (shift.id === 'shabbat' && (!lastShabbat[empId] || dStr > lastShabbat[empId])) lastShabbat[empId] = dStr;
+          if (wd0 >= 0 && wd0 <= 4) {
+            const wk = weekKeyOf(dStr);
+            (weekCounts[wk] = weekCounts[wk] || {})[empId] = (weekCounts[wk][empId] || 0) + 1;
+          }
         });
       });
     });
@@ -1256,12 +1292,18 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
 
         for (let slot = 0; slot < needed; slot++) {
           const alreadyIn = schedule[dStr][shift.id] || [];
+          const wdShift = D.weekdayOf(dStr);
+          const isFridayNonShabbat = wdShift === 5 && shift.id !== 'shabbat';
+          const isSaturdayish = shift.id === 'shabbat' || wdShift === 6;
           const cands = D.EMPLOYEES.filter((e) => {
             if (alreadyIn.includes(e.id)) return false;
             const av = D.availabilityOn(e.id, dStr, shift.id);
             if (av === 'unavailable') return false;
             if (counts[e.id] >= e.max) return false;
             if (shift.id === 'night' && !e.nights) return false;
+            // העדפות "מוכן לשישי/שבת" — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
+            if (isFridayNonShabbat && e.wantsFriday === false) return false;
+            if (isSaturdayish && e.wantsSaturday === false) return false;
             // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
             if (initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return false;
             // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
@@ -1289,6 +1331,13 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             if (e.anchor) s += 3;
             if (e.nightOwl && shift.id === 'night') s += 5;
             s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
+            if (wdShift >= 0 && wdShift <= 4) {
+              // איזון רך מול יעד משמרות/שבוע אישי בימי חול — לא חוסם, רק מטה ניקוד
+              const wk = weekKeyOf(dStr);
+              const already = (weekCounts[wk] || {})[e.id] || 0;
+              const target = e.weekdayShiftsPerWeek ?? 2;
+              s += (target - already) * 1.2;
+            }
             if (shift.id === 'shabbat') {
               // הטיה לעבר מי שמגיע לו תור ל"שבת ארוכה" — יעד אישי per employee (ברירת מחדל 45 יום)
               const target = e.shabbatFrequencyDays || 45;
@@ -1306,6 +1355,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           counts[best.id] += 1;
           lastEnd[best.id] = t.end;
           if (shift.id === 'shabbat') lastShabbat[best.id] = dStr;
+          if (wdShift >= 0 && wdShift <= 4) {
+            const wk = weekKeyOf(dStr);
+            (weekCounts[wk] = weekCounts[wk] || {})[best.id] = (weekCounts[wk][best.id] || 0) + 1;
+          }
 
           const av = D.availabilityOn(best.id, dStr, shift.id);
           if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
@@ -2681,7 +2734,7 @@ ${editable ? '' : 'שים לב: הסידור נעול כרגע לעריכה — 
 }
 
 // ---- חלונית צד ראשית ----
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey, employees, onEmployeesChange, onAssign, onRemove, focusedEmpId, onFocusEmpChange, focusShift }) {
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey, employees, onEmployeesChange, onAssign, onRemove, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, prefs }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
   const [shiftFilter, setShiftFilter] = React.useState('all');
@@ -2701,6 +2754,25 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
     if (PD.availabilityOn(emp.id, selectedDate) === 'unavailable') return false;
     if (isNightHour(shift.start) && !emp.nights) return false;
     if (PE.countShifts(schedule, emp.id) >= emp.max) return false;
+    return true;
+  };
+
+  // האם השיבוץ בפועל של העובד סותר את מה שסימן שהוא רוצה (שישי/שבת) — לא בודק
+  // את יעד המשמרות/שבוע הרך, רק חריגה קשיחה וברורה שהמשבץ צריך לדעת עליה
+  const compliesWithPrefs = (emp) => {
+    const p = prefs?.[emp.id];
+    if (!p) return true;
+    for (const dStr of Object.keys(schedule)) {
+      const dayShifts = schedule[dStr] || {};
+      const wd = PD.weekdayOf(dStr);
+      for (const shiftId of Object.keys(dayShifts)) {
+        if (!(dayShifts[shiftId] || []).includes(emp.id)) continue;
+        const isFridayNonShabbat = wd === 5 && shiftId !== 'shabbat';
+        const isSaturdayish = shiftId === 'shabbat' || wd === 6;
+        if (isFridayNonShabbat && p.wants_friday === false) return false;
+        if (isSaturdayish && p.wants_saturday === false) return false;
+      }
+    }
     return true;
   };
 
@@ -2796,7 +2868,13 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
                   <EmployeeCard emp={emp} schedule={schedule}
                     selectedDate={tab === 'available' ? selectedDate : null}
                     onDragEmpStart={onDragEmpStart} onDragEnd={onDragEnd} editable={editable}
-                    extraBadge={assigned ? <span className="assigned-badge">משובץ ✓</span> : null}
+                    extraBadge={<>
+                      {assigned && <span className="assigned-badge">משובץ ✓</span>}
+                      {managerNotes?.[emp.id] && <span title={'הערה למשבץ: ' + managerNotes[emp.id]} style={{fontSize:11}}>📌</span>}
+                      {!compliesWithPrefs(emp) && (
+                        <span title="שובץ במשמרת שישי/שבת שסימן/ה שלא רוצה" style={{fontSize:10.5,fontWeight:700,color:'var(--danger)'}}>⚠ לא תואם העדפות</span>
+                      )}
+                    </>}
                     focused={focusedEmpId === emp.id}
                     onFocus={(id) => onFocusEmpChange && onFocusEmpChange(focusedEmpId === id ? null : id)}
                     onMaxChange={onEmployeesChange ? (empId, newMax) => onEmployeesChange(prev => prev.map(e => e.id === empId ? { ...e, max: newMax } : e)) : null} />
@@ -3545,7 +3623,7 @@ function ApprovePendingModal({ pending, COLORS, onClose, onApproved }) {
 }
 
 // ---- EmployeesScreen ----
-function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pendingEmps: _unused, onPendingChange: _unused2, requestCriteria }) {
+function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pendingEmps: _unused, onPendingChange: _unused2, requestCriteria, prefs, onSavePref }) {
   const [emps, setEmps] = React.useState(initEmps);
   React.useEffect(() => { setEmps(initEmps); }, [initEmps]);
   const [showForm, setShowForm] = React.useState(false);
@@ -3578,16 +3656,33 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
   };
 
   const openAdd = () => {
-    setEditEmp({ id: 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: '', role: '', email: '', color: COLORS[0], max: 14, anchor: false, nights: false });
+    setEditEmp({ id: 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: '', role: '', email: '', color: COLORS[0], max: 14, anchor: false, nights: false,
+      weekdayShiftsPerWeek: 2, wantsFriday: true, wantsSaturday: true });
     setAcctPw(''); setAcctMsg(null);
     setShowForm(true);
   };
-  const openEdit = (emp) => { setEditEmp({ ...emp }); setAcctPw(''); setAcctMsg(null); setShowForm(true); };
+  const openEdit = (emp) => {
+    const p = prefs?.[emp.id];
+    setEditEmp({ ...emp,
+      weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
+      wantsFriday: p?.wants_friday ?? true,
+      wantsSaturday: p?.wants_saturday ?? true,
+    });
+    setAcctPw(''); setAcctMsg(null); setShowForm(true);
+  };
   const saveEmp = () => {
     if (!editEmp.name.trim()) return;
-    updateEmps(prev => prev.find(e => e.id === editEmp.id)
-      ? prev.map(e => e.id === editEmp.id ? editEmp : e)
-      : [...prev, editEmp]);
+    // weekdayShiftsPerWeek/wantsFriday/wantsSaturday חיים ב-employee_prefs (טבלה נפרדת,
+    // דו-כיוונית עם אפליקציית העובד) — לא נשמרים כפולים ברשומת העובד עצמה
+    const { weekdayShiftsPerWeek, wantsFriday, wantsSaturday, ...empRecord } = editEmp;
+    updateEmps(prev => prev.find(e => e.id === empRecord.id)
+      ? prev.map(e => e.id === empRecord.id ? empRecord : e)
+      : [...prev, empRecord]);
+    onSavePref?.(empRecord.id, {
+      weekday_shifts_per_week: weekdayShiftsPerWeek,
+      wants_friday: wantsFriday,
+      wants_saturday: wantsSaturday,
+    });
     setShowForm(false);
   };
   const deleteEmp = (id) => { if (window.confirm('למחוק עובד זה?')) updateEmps(prev => prev.filter(e => e.id !== id)); };
@@ -3614,6 +3709,11 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
                 <div style={{fontWeight:600,fontSize:'13px'}}>{emp.name}</div>
                 {emp.email && <div style={{fontSize:'10.5px',color:'var(--ink-3)',direction:'ltr',textAlign:'right'}}>{emp.email}</div>}
                 {emp.anchor && <span style={{fontSize:'10px',color:'var(--ink-3)'}}>⚓ עוגן</span>}
+                {(prefs?.[emp.id]?.weekday_shifts_per_week ?? 2) < 2 && (
+                  <span style={{fontSize:'10px',color:'var(--danger)',fontWeight:600,marginInlineStart:6}} title="מבקש פחות מ-2 משמרות/שבוע בימי חול">
+                    ⚠ {prefs[emp.id].weekday_shifts_per_week}/שבוע
+                  </span>
+                )}
               </div>
             </div>
             <span style={{fontSize:'13px',color:'var(--ink-2)'}}>{emp.role}</span>
@@ -3692,6 +3792,28 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
                 <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
                   <input type="checkbox" checked={editEmp.nights} onChange={(e) => setEditEmp(p => ({...p, nights: e.target.checked}))} />
                   משמרות לילה
+                </label>
+              </div>
+              <div className="field">
+                <label className="field-label">
+                  יעד משמרות/שבוע בימי חול (א׳–ה׳)
+                  {editEmp.weekdayShiftsPerWeek < 2 && <span style={{color:'var(--danger)',fontWeight:600}}> ⚠ מתחת ל-2</span>}
+                </label>
+                <div className="stepper">
+                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, weekdayShiftsPerWeek: Math.max(0, p.weekdayShiftsPerWeek - 1)}))}>−</button>
+                  <span className="stepper-val">{editEmp.weekdayShiftsPerWeek}</span>
+                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, weekdayShiftsPerWeek: p.weekdayShiftsPerWeek + 1}))}>+</button>
+                  <span className="field-hint">גם מתעדכן/ניתן לעריכה מאפליקציית העובד</span>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:20}}>
+                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+                  <input type="checkbox" checked={editEmp.wantsFriday} onChange={(e) => setEditEmp(p => ({...p, wantsFriday: e.target.checked}))} />
+                  מוכן למשמרות שישי
+                </label>
+                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+                  <input type="checkbox" checked={editEmp.wantsSaturday} onChange={(e) => setEditEmp(p => ({...p, wantsSaturday: e.target.checked}))} />
+                  מוכן למשמרות שבת
                 </label>
               </div>
               <div className="field">
@@ -3949,6 +4071,16 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
           </button>
         )}
       </div>
+
+      {entry?.managerNote && (
+        <div style={{flexShrink:0,background:'color-mix(in oklab, var(--warn) 10%, transparent)',border:'1.5px solid color-mix(in oklab, var(--warn) 40%, transparent)',borderRadius:9,padding:'9px 12px',display:'flex',gap:8,alignItems:'flex-start'}}>
+          <span style={{flexShrink:0,fontSize:14}}>📌</span>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:10.5,fontWeight:700,color:'var(--ink-3)',marginBottom:2}}>הערה למשבץ מ-{emp.name}</div>
+            <div style={{fontSize:12.5,lineHeight:1.5}}>{entry.managerNote}</div>
+          </div>
+        </div>
+      )}
 
       {/* Brush mode */}
       <div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0,background:'var(--surface)',borderRadius:8,padding:'6px 10px',border:'1px solid var(--line)'}}>
@@ -4467,7 +4599,10 @@ ${shiftsDesc}
               }}>
                 <window.Avatar emp={emp} size={26} />
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.name}</div>
+                  <div style={{fontSize:12.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4}}>
+                    <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.name}</span>
+                    {entry?.managerNote && <span title={'הערה למשבץ: ' + entry.managerNote} style={{flexShrink:0}}>📌</span>}
+                  </div>
                   {emp.role && <div style={{fontSize:10.5,color:'var(--ink-3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.role}</div>}
                 </div>
                 <div style={{flexShrink:0,textAlign:'end',minWidth:36}}>
@@ -5141,6 +5276,9 @@ function App() {
   });
   // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
   const [requests, setRequests] = React.useState(() => saved?.requests || {});
+  // העדפות עובד (employee_prefs) — יעד משמרות/שבוע בימי חול, מוכן לשישי/שבת.
+  // חי בטבלה ייעודית, לא ב-state הכללי, כדי שעריכה מהעובד לא תיחסם ע"י שמירה חוזרת מהמשבץ
+  const [prefs, setPrefs] = React.useState({});
   const [admins, setAdmins] = React.useState(() => saved?.admins || ['eladadler@gmail.com']);
   const DEFAULT_SWAP_SETTINGS = { peerApprovalFull: false, peerApprovalPartial: false, managerApprovalFull: false, managerApprovalPartial: false };
   const [swapSettings, setSwapSettings] = React.useState(() => ({ ...DEFAULT_SWAP_SETTINGS, ...(saved?.swapSettings || {}) }));
@@ -5178,7 +5316,19 @@ function App() {
   const dbAvailable = React.useRef(typeof window.__db !== 'undefined');
 
   // סנכרון employees → window.ShiftData.EMPLOYEES
-  React.useEffect(() => { window.ShiftData.EMPLOYEES = employees; }, [employees]);
+  // ממזג העדפות (employee_prefs) לתוך רשימת העובדים החיה, כך שהאלגוריתם רואה
+  // weekdayShiftsPerWeek/wantsFriday/wantsSaturday בלי לשכפל אותן ברשומת העובד עצמה
+  React.useEffect(() => {
+    window.ShiftData.EMPLOYEES = employees.map(e => {
+      const p = prefs[e.id];
+      return {
+        ...e,
+        weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
+        wantsFriday: p?.wants_friday ?? true,
+        wantsSaturday: p?.wants_saturday ?? true,
+      };
+    });
+  }, [employees, prefs]);
 
   // סנכרון requests → window.ShiftData.REQUESTS (שטוח לפי עובד, כל החודשים יחד — לתאימות המנוע)
   React.useEffect(() => {
@@ -5232,6 +5382,7 @@ function App() {
       // ממשק לאפליקציית העובדים: סנכרון עובדים + קליטת בקשות שהוגשו
       window.__db.syncEmployees?.(loadedEmployees);
       refreshEmployeeRequests();
+      refreshEmployeePrefs();
       // סנכרון מפתח Anthropic ל-Supabase אם קיים ב-localStorage (למען אפליקציית העובדים)
       const existingKey = localStorage.getItem('anthropic-api-key');
       if (existingKey) window.__db.saveAnthropicKey(existingKey);
@@ -5258,6 +5409,7 @@ function App() {
             high: r.high || [],
             can: r.can || [],
             note: r.note || '',
+            managerNote: r.manager_note || '',
             fromEmployee: true,
             employeeUpdatedAt: r.updated_at,
           },
@@ -5268,10 +5420,32 @@ function App() {
     });
   }, []);
 
+  // קליטת העדפות עובד (employee_prefs) — יעד משמרות/שבוע, מוכן לשישי/שבת.
+  // דו-כיווני: גם המשבץ עורך את זה, ולכן ריענון תקופתי קולט עדכונים מהעובד בלי לדרוס עריכה מקומית טרייה
+  const refreshEmployeePrefs = React.useCallback(async () => {
+    if (!dbAvailable.current || !window.__db.fetchEmployeePrefs) return;
+    const rows = await window.__db.fetchEmployeePrefs();
+    if (!rows) return;
+    setPrefs(prev => {
+      const next = { ...prev };
+      rows.forEach(r => {
+        const cur = next[r.emp_id];
+        if (cur && cur.updated_at === r.updated_at) return;
+        next[r.emp_id] = {
+          weekday_shifts_per_week: r.weekday_shifts_per_week,
+          wants_friday: r.wants_friday,
+          wants_saturday: r.wants_saturday,
+          updated_at: r.updated_at,
+        };
+      });
+      return next;
+    });
+  }, []);
+
   React.useEffect(() => {
-    const t = setInterval(refreshEmployeeRequests, 60000);
+    const t = setInterval(() => { refreshEmployeeRequests(); refreshEmployeePrefs(); }, 60000);
     return () => clearInterval(t);
-  }, [refreshEmployeeRequests]);
+  }, [refreshEmployeeRequests, refreshEmployeePrefs]);
 
   // סנכרון רשימת העובדים לטבלת app_employees — כך אפליקציית העובדים מזהה עובד לפי אימייל
   React.useEffect(() => {
@@ -5479,6 +5653,8 @@ function App() {
     employees.forEach(emp => {
       const criteria = { ...requestCriteria, ...(emp.reqCriteria || {}) };
       const violations = AE.checkRequestCriteria(dates, emp.id, shiftSettings, criteria);
+      const weeklyTarget = prefs[emp.id]?.weekday_shifts_per_week ?? 2;
+      if (weeklyTarget < 2) violations.push(`מבקש רק ${weeklyTarget} משמרות/שבוע בימי חול (מתחת למינימום המומלץ 2)`);
       if (violations.length) out.push({ empId: emp.id, name: emp.name, violations });
     });
     return out;
@@ -6075,7 +6251,11 @@ ${JSON.stringify(emptySlots, null, 2)}
       )}
 
       <ShiftSettingsCtx.Provider value={shiftSettings}>
-        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} pendingEmps={pendingEmps} onPendingChange={setPendingEmps} requestCriteria={requestCriteria} />}
+        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} pendingEmps={pendingEmps} onPendingChange={setPendingEmps} requestCriteria={requestCriteria}
+          prefs={prefs} onSavePref={(empId, patch) => {
+            setPrefs(p => ({ ...p, [empId]: { ...(p[empId] || {}), ...patch, updated_at: new Date().toISOString() } }));
+            window.__db.saveEmployeePref?.(empId, patch);
+          }} />}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
           onEmployeesChange={setEmployees}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth} />}
@@ -6121,7 +6301,9 @@ ${JSON.stringify(emptySlots, null, 2)}
               onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
               apiKey={anthropicKey} employees={employees} onEmployeesChange={setEmployees}
               onAssign={assign} onRemove={remove}
-              focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift} />
+              focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift}
+              managerNotes={Object.fromEntries(employees.map(e => [e.id, requests[e.id]?.[currentMonth]?.managerNote || '']).filter(([, n]) => n))}
+              prefs={prefs} />
           </main>
         )}
       </ShiftSettingsCtx.Provider>

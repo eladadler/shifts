@@ -782,6 +782,7 @@ function App() {
   const [swapSettings, setSwapSettings] = React.useState(DEFAULT_SWAP_SETTINGS);
   const [recurring, setRecurring] = React.useState([]);       // בקשות קבועות (employee_recurring_requests)
   const [criteria, setCriteria] = React.useState(DEFAULT_REQUEST_CRITERIA);
+  const [myPrefs, setMyPrefs] = React.useState(null);          // employee_prefs שלי — יעד משמרות/שבוע, שישי/שבת
   const [detail, setDetail] = React.useState(null);          // { ym, ds, shiftId } — מסך פרטי משמרת
   const [recurringOpen, setRecurringOpen] = React.useState(false); // מסך ניהול בקשות קבועות
   const [tab, setTab] = React.useState('home');
@@ -808,6 +809,12 @@ function App() {
     if (!me?.id) return;
     sb.from('employee_recurring_requests').select('*').eq('emp_id', me.id).order('weekday', { ascending: true })
       .then(({ data }) => setRecurring(data || [])).catch(() => {});
+  }, [me?.id]);
+  // עדכון העדפות שלי (employee_prefs) — דו-כיווני עם אפליקציית המשבץ
+  const saveMyPref = React.useCallback((patch) => {
+    if (!me?.id) return;
+    setMyPrefs(p => ({ ...p, ...patch }));
+    sb.from('employee_prefs').upsert({ emp_id: me.id, ...patch, updated_at: new Date().toISOString() }).then(() => {}).catch(() => {});
   }, [me?.id]);
 
   /* --- טעינת נתונים --- */
@@ -843,17 +850,19 @@ function App() {
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
 
-      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }, { data: recurRows }] = await Promise.all([
+      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }, { data: recurRows }, { data: prefRow }] = await Promise.all([
         sb.from('published_schedules').select('*'),
         sb.from('employee_requests').select('*'),
         sb.from('mishmarot_state').select('data').eq('id', 'main').maybeSingle(),
         sb.from('shift_swap_requests').select('*').order('created_at', { ascending: false }),
         sb.from('employee_recurring_requests').select('*').eq('emp_id', mine.id).order('weekday', { ascending: true }),
+        sb.from('employee_prefs').select('*').eq('emp_id', mine.id).maybeSingle(),
       ]);
       if (e2) throw e2;
       if (e3) throw e3;
       setSwaps(swapRows || []);
       setRecurring(recurRows || []);
+      setMyPrefs(prefRow || { weekday_shifts_per_week: 2, wants_friday: true, wants_saturday: true });
       // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
@@ -897,7 +906,7 @@ function App() {
               }
             });
           });
-          next[m] = { marks, note: r.note || '', dirty: false };
+          next[m] = { marks, note: r.note || '', mgrNote: r.manager_note || '', dirty: false };
         });
         return next;
       });
@@ -1041,7 +1050,7 @@ function App() {
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey}
         recurring={recurring} criteria={criteria} goRecurring={() => setRecurringOpen(true)} />}
       {tab === 'swaps' && <SwapsTab me={me} empNames={empNames} published={published} swaps={swaps} onRefresh={refreshSwaps} showToast={showToast} swapSettings={swapSettings} />}
-      {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} />}
+      {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} myPrefs={myPrefs} onSavePref={saveMyPref} />}
     </Shell>
     )}
   </>);
@@ -1110,7 +1119,7 @@ function PrefRow({ label, sub, value, onChange, disabled }) {
   );
 }
 
-function SettingsTab({ me, email, onLogout }) {
+function SettingsTab({ me, email, onLogout, myPrefs, onSavePref }) {
   const PREFS_KEY = 'mishmarot-notif-prefs';
   const [prefs, setPrefs] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || { alert24h: true, alertCustom: false, alertCustomHours: 2 }; }
@@ -1281,6 +1290,45 @@ function SettingsTab({ me, email, onLogout }) {
             <div style={{ fontSize: 16, fontWeight: 800 }}>{me.name}</div>
             <div style={{ fontSize: 11.5, color: '#8A867F', direction: 'ltr', textAlign: 'right', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>
           </div>
+        </div>
+      </div>
+
+      {/* Weekly shift preferences — feeds the manager app + the scheduling algorithm directly */}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#8A867F', padding: '0 4px 8px', letterSpacing: '0.04em' }}>העדפות שיבוץ</div>
+        <div style={sectionStyle}>
+          <div style={{ padding: '13px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600 }}>משמרות בשבוע בימי חול (א׳–ה׳)</div>
+              <div style={{ fontSize: 11.5, color: '#8A867F', marginTop: 2 }}>
+                {(myPrefs?.weekday_shifts_per_week ?? 2) < 2 ? 'פחות מ-2 — המשבץ יקבל התראה על כך' : 'כמה משמרות תרצה בממוצע לשבוע'}
+              </div>
+            </div>
+            <select
+              value={myPrefs?.weekday_shifts_per_week ?? 2}
+              onChange={e => onSavePref({ weekday_shifts_per_week: Number(e.target.value) })}
+              style={{ border: `1.5px solid ${TEAL}`, borderRadius: 9, padding: '7px 10px', fontSize: 14, fontWeight: 700, fontFamily: 'inherit', outline: 'none', color: INK, background: '#FFF', cursor: 'pointer', flexShrink: 0 }}
+            >
+              {[0, 1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          <div style={divider}>
+            <PrefRow
+              label="מוכן למשמרות שישי"
+              value={myPrefs?.wants_friday ?? true}
+              onChange={v => onSavePref({ wants_friday: v })}
+            />
+          </div>
+          <div style={divider}>
+            <PrefRow
+              label="מוכן למשמרות שבת (כולל שבת ארוכה)"
+              value={myPrefs?.wants_saturday ?? true}
+              onChange={v => onSavePref({ wants_saturday: v })}
+            />
+          </div>
+        </div>
+        <div style={{ fontSize: 11.5, color: '#A09C94', padding: '7px 4px 0', lineHeight: 1.5 }}>
+          ההעדפות האלה משותפות עם המשבץ (ניתן לערוך גם משם) ונכנסות ישירות לשיבוץ האוטומטי.
         </div>
       </div>
 
@@ -2358,7 +2406,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const openStatus = pubRow?.shift_settings?._status === 'open';
   const editable = !pubRow || openStatus;
   const openRange = openStatus ? (pubRow?.shift_settings?._range || null) : null;
-  const local = localReqs[ym] || { marks: {}, note: '', dirty: false };
+  const local = localReqs[ym] || { marks: {}, note: '', mgrNote: '', dirty: false };
   const reqMode = local.reqMode || 'block';
   const server = serverReqs[ym] || null;
   const nDays = daysInMonth(ym);
@@ -2404,7 +2452,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const dayShifts = dayShiftsAll.filter(s => !s.continuation);       // ניתנות לסימון ביום זה
   const contShifts = dayShiftsAll.filter(s => s.continuation);       // המשך משמרת רב-יומית — מידע בלבד
 
-  const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', dirty: false }), ...patch } }));
+  const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', mgrNote: '', dirty: false }), ...patch } }));
 
   // דפוס הבקשות הקבועות, לפי יום בשבוע. משמרת ספציפית → אובייקט per-shift; "כל היום" → מחרוזת.
   // אם הוגדרו גם "כל היום" וגם משמרת ספציפית לאותו יום בשבוע, "כל היום" גובר (מוגדר אחרון בלולאה).
@@ -2523,7 +2571,8 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     const row = {
       emp_id: me.id, month: ym,
       unavailable, high: toDates('high'), can: canArr,
-      note: local.note || '', updated_at: new Date().toISOString(), updated_by: email,
+      note: local.note || '', manager_note: local.mgrNote || '',
+      updated_at: new Date().toISOString(), updated_by: email,
     };
     const { data, error } = await sb.from('employee_requests').upsert(row).select().single();
     setSaving(false);
@@ -2962,6 +3011,17 @@ ${shiftsDesc}
             </div>
           )}
         </div>
+
+        {/* הערה למשבץ — נפרדת מהטקסט ל-AI, לא מתפרשת לתאריכים, רק מוצגת למשבץ כפי שהיא */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>הערה למשבץ (רשות)</div>
+          <div style={{ fontSize: 11.5, color: '#8A867F', marginTop: -4 }}>לא מתורגמת אוטומטית לתאריכים — תוצג למשבץ כפי שהיא, ליד השם שלך.</div>
+          <textarea placeholder='למשל: "יש לי אירוע משפחתי בסוף החודש, אשמח לגמישות" או בקשה מיוחדת אחרת'
+            value={local.mgrNote || ''}
+            onChange={e => setLocal({ mgrNote: e.target.value, dirty: true })}
+            style={{ border: '1.5px solid #D8D4CE', borderRadius: 10, padding: '12px 14px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 64, font: 'inherit' }} />
+        </div>
+
         <div onClick={needSend ? submit : undefined} style={{
           background: needSend ? INK : '#FFF', color: needSend ? '#FFF' : TEAL_DARK,
           border: needSend ? `1.5px solid ${INK}` : `1.5px solid ${TEAL}`,
@@ -2982,8 +3042,14 @@ ${shiftsDesc}
           <div style={{ fontSize: 14, lineHeight: 1.6 }}>{local.note}</div>
         </div>
       )}
+      {!editable && local.mgrNote && (
+        <div style={{ background: '#FFF', border: '1px solid #EAE7E1', borderRadius: 12, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#8A867F' }}>הערה למשבץ</div>
+          <div style={{ fontSize: 14, lineHeight: 1.6 }}>{local.mgrNote}</div>
+        </div>
+      )}
       {!editable && sentAt && <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>נשלח לאחרונה: {sentAt}</div>}
-      {!editable && !hasMarks && !local.note && (
+      {!editable && !hasMarks && !local.note && !local.mgrNote && (
         <div style={{ padding: '36px 24px', textAlign: 'center', fontSize: 14, color: '#8A867F' }}>לא הגשת בקשות לחודש זה.</div>
       )}
     </div>

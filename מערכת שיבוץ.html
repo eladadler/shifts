@@ -3545,7 +3545,7 @@ function ApprovePendingModal({ pending, COLORS, onClose, onApproved }) {
 }
 
 // ---- EmployeesScreen ----
-function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pendingEmps: _unused, onPendingChange: _unused2 }) {
+function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pendingEmps: _unused, onPendingChange: _unused2, requestCriteria }) {
   const [emps, setEmps] = React.useState(initEmps);
   React.useEffect(() => { setEmps(initEmps); }, [initEmps]);
   const [showForm, setShowForm] = React.useState(false);
@@ -3725,7 +3725,7 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
                       <span style={{fontSize:'12.5px',color:'var(--ink-2)'}}>{label}</span>
                       <input type="number" min="0" max="7"
                         value={editEmp.reqCriteria?.[key] ?? ''}
-                        placeholder="—"
+                        placeholder={String(requestCriteria?.[key] ?? '')}
                         onChange={(e) => {
                           const raw = e.target.value;
                           setEditEmp(p => {
@@ -6075,7 +6075,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       )}
 
       <ShiftSettingsCtx.Provider value={shiftSettings}>
-        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} pendingEmps={pendingEmps} onPendingChange={setPendingEmps} />}
+        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} pendingEmps={pendingEmps} onPendingChange={setPendingEmps} requestCriteria={requestCriteria} />}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
           onEmployeesChange={setEmployees}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth} />}

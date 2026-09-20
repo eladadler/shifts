@@ -1252,6 +1252,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     // weekCounts = כמה משמרות בימי א׳-ה׳ (חול) כבר שובצו לכל עובד בכל שבוע (מפתח = יום ראשון
     // של אותו שבוע) — משמש לאיזון רך מול יעד weekdayShiftsPerWeek האישי (ראו score())
     const weekCounts = {};
+    // shabbatWeeks[weekKey] = Set של מי ששובץ ל"שבת ארוכה" באותו שבוע — תנאי קשיח:
+    // מי שיש לו שבת ארוכה באותו שבוע מקבל משמרת חול אחת פחות מהיעד הרגיל שלו (ראו תנאי #8 במסך "תנאי שיבוץ")
+    const shabbatWeeks = {};
     const weekKeyOf = (dStr) => {
       const d = D.parseDate(dStr);
       const sun = new Date(d); sun.setDate(d.getDate() - d.getDay());
@@ -1269,7 +1272,11 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         (schedule[dStr][shift.id] || []).forEach((empId) => {
           counts[empId] = (counts[empId] || 0) + 1;
           lastEnd[empId] = D.personTimes(dStr, shift, empId).end;
-          if (shift.id === 'shabbat' && (!lastShabbat[empId] || dStr > lastShabbat[empId])) lastShabbat[empId] = dStr;
+          if (shift.id === 'shabbat') {
+            if (!lastShabbat[empId] || dStr > lastShabbat[empId]) lastShabbat[empId] = dStr;
+            const wk = weekKeyOf(dStr);
+            (shabbatWeeks[wk] = shabbatWeeks[wk] || new Set()).add(empId);
+          }
           if (wd0 >= 0 && wd0 <= 4) {
             const wk = weekKeyOf(dStr);
             (weekCounts[wk] = weekCounts[wk] || {})[empId] = (weekCounts[wk][empId] || 0) + 1;
@@ -1281,90 +1288,112 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     addLog('info', `התחלת שיבוץ אוטומטי: ${D.shortDate(startDate)}–${D.shortDate(endDate)}, ${dates.length} ימים`);
     excluded.forEach((d) => addLog('info', `יום ${D.shortDate(d)} הוחרג מהסידור`));
 
+    // מטפל בהקצאת עובדים למשמרת בודדת (dStr/shift) — משותף לשני המעברים למטה
+    function assignOne(dStr, shift) {
+      const required = shift.required || 1;
+      const needed = required - (schedule[dStr][shift.id] || []).length;
+      if (needed <= 0) return;
+
+      const t = D.shiftTimes(dStr, shift);
+
+      for (let slot = 0; slot < needed; slot++) {
+        const alreadyIn = schedule[dStr][shift.id] || [];
+        const wdShift = D.weekdayOf(dStr);
+        const isFridayNonShabbat = wdShift === 5 && shift.id !== 'shabbat';
+        const isSaturdayish = shift.id === 'shabbat' || wdShift === 6;
+        const wk = weekKeyOf(dStr);
+        const cands = D.EMPLOYEES.filter((e) => {
+          if (alreadyIn.includes(e.id)) return false;
+          const av = D.availabilityOn(e.id, dStr, shift.id);
+          if (av === 'unavailable') return false;
+          if (counts[e.id] >= e.max) return false;
+          if (shift.id === 'night' && !e.nights) return false;
+          // העדפות "מוכן לשישי/שבת"/"ללא לילות באמצע השבוע" — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
+          if (isFridayNonShabbat && e.wantsFriday === false) return false;
+          if (isSaturdayish && e.wantsSaturday === false) return false;
+          if (shift.id === 'night' && wdShift >= 0 && wdShift <= 4 && e.noWeekdayNights) return false;
+          // מי שיש לו "שבת ארוכה" באותו שבוע מוגבל למשמרת חול אחת פחות מהיעד הרגיל שלו
+          if (wdShift >= 0 && wdShift <= 4 && shabbatWeeks[wk]?.has(e.id)) {
+            const cap = Math.max(0, (e.weekdayShiftsPerWeek ?? 2) - 1);
+            if ((weekCounts[wk]?.[e.id] || 0) >= cap) return false;
+          }
+          // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
+          if (initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return false;
+          // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
+          // הרשימה חוסמת רק בחודש שבו הוגשה: הבקשות מאוחדות מכל החודשים,
+          // ובלי הסייג הזה בקשה מחודש קודם הייתה חוסמת את העובד בכל החודשים הבאים.
+          const r = D.reqOf(e.id);
+          const ym = dStr.slice(0, 7);
+          if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') return false;
+          return true;
+        });
+        const clean = cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H);
+        const pool = clean.length ? clean : cands;
+
+        if (!pool.length) {
+          if (slot === 0) addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
+          else addLog('dilemma', `אין עובד נוסף זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)} (שובץ ${slot}/${required})`);
+          break;
+        }
+
+        const score = (e) => {
+          const av = D.availabilityOn(e.id, dStr, shift.id);
+          let s = 0;
+          if (av === 'high') s += 6;
+          if (av === 'can') s += 2;
+          if (e.anchor) s += 3;
+          if (e.nightOwl && shift.id === 'night') s += 5;
+          s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
+          if (wdShift >= 0 && wdShift <= 4) {
+            // איזון רך מול יעד משמרות/שבוע אישי בימי חול — לא חוסם, רק מטה ניקוד
+            const already = (weekCounts[wk] || {})[e.id] || 0;
+            const target = e.weekdayShiftsPerWeek ?? 2;
+            s += (target - already) * 1.2;
+          }
+          if (shift.id === 'shabbat') {
+            // הטיה לעבר מי שמגיע לו תור ל"שבת ארוכה" — יעד אישי per employee (ברירת מחדל 45 יום)
+            const target = e.shabbatFrequencyDays || 45;
+            const prev = lastShabbat[e.id];
+            const daysSince = prev ? (D.parseDate(dStr) - D.parseDate(prev)) / 864e5 : target * 2;
+            s += Math.min(8, (daysSince / target) * 4);
+          }
+          s += hash(e.id + dStr + shift.id + slot) * 0.5;
+          return s;
+        };
+        const best = pool.slice().sort((a, b) => score(b) - score(a))[0];
+        const restViolation = !clean.includes(best);
+
+        schedule[dStr][shift.id] = [...alreadyIn, best.id];
+        counts[best.id] += 1;
+        lastEnd[best.id] = t.end;
+        if (shift.id === 'shabbat') {
+          lastShabbat[best.id] = dStr;
+          (shabbatWeeks[wk] = shabbatWeeks[wk] || new Set()).add(best.id);
+        }
+        if (wdShift >= 0 && wdShift <= 4) {
+          (weekCounts[wk] = weekCounts[wk] || {})[best.id] = (weekCounts[wk][best.id] || 0) + 1;
+        }
+
+        const av = D.availabilityOn(best.id, dStr, shift.id);
+        if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
+        else if (av === 'high') addLog('info', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} לפי בקשה בעדיפות גבוהה`);
+      }
+    }
+
+    // מעבר ראשון: משמרות "שבת ארוכה" בלבד — כדי שברגע שמגיעים למשמרות החול של אותו
+    // שבוע כבר ידוע מי קיבל שבת, ואפשר לאכוף עליו תקרה מופחתת (ראו shabbatWeeks למעלה)
     dates.forEach((dStr) => {
       D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
-        if (shift.continuation) return;
-        const required = shift.required || 1;
-        const needed = required - (schedule[dStr][shift.id] || []).length;
-        if (needed <= 0) return;
+        if (shift.continuation || shift.id !== 'shabbat') return;
+        assignOne(dStr, shift);
+      });
+    });
 
-        const t = D.shiftTimes(dStr, shift);
-
-        for (let slot = 0; slot < needed; slot++) {
-          const alreadyIn = schedule[dStr][shift.id] || [];
-          const wdShift = D.weekdayOf(dStr);
-          const isFridayNonShabbat = wdShift === 5 && shift.id !== 'shabbat';
-          const isSaturdayish = shift.id === 'shabbat' || wdShift === 6;
-          const cands = D.EMPLOYEES.filter((e) => {
-            if (alreadyIn.includes(e.id)) return false;
-            const av = D.availabilityOn(e.id, dStr, shift.id);
-            if (av === 'unavailable') return false;
-            if (counts[e.id] >= e.max) return false;
-            if (shift.id === 'night' && !e.nights) return false;
-            // העדפות "מוכן לשישי/שבת"/"ללא לילות באמצע השבוע" — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
-            if (isFridayNonShabbat && e.wantsFriday === false) return false;
-            if (isSaturdayish && e.wantsSaturday === false) return false;
-            if (shift.id === 'night' && wdShift >= 0 && wdShift <= 4 && e.noWeekdayNights) return false;
-            // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
-            if (initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return false;
-            // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
-            // הרשימה חוסמת רק בחודש שבו הוגשה: הבקשות מאוחדות מכל החודשים,
-            // ובלי הסייג הזה בקשה מחודש קודם הייתה חוסמת את העובד בכל החודשים הבאים.
-            const r = D.reqOf(e.id);
-            const ym = dStr.slice(0, 7);
-            if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') return false;
-            return true;
-          });
-          const clean = cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H);
-          const pool = clean.length ? clean : cands;
-
-          if (!pool.length) {
-            if (slot === 0) addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
-            else addLog('dilemma', `אין עובד נוסף זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)} (שובץ ${slot}/${required})`);
-            break;
-          }
-
-          const score = (e) => {
-            const av = D.availabilityOn(e.id, dStr, shift.id);
-            let s = 0;
-            if (av === 'high') s += 6;
-            if (av === 'can') s += 2;
-            if (e.anchor) s += 3;
-            if (e.nightOwl && shift.id === 'night') s += 5;
-            s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
-            if (wdShift >= 0 && wdShift <= 4) {
-              // איזון רך מול יעד משמרות/שבוע אישי בימי חול — לא חוסם, רק מטה ניקוד
-              const wk = weekKeyOf(dStr);
-              const already = (weekCounts[wk] || {})[e.id] || 0;
-              const target = e.weekdayShiftsPerWeek ?? 2;
-              s += (target - already) * 1.2;
-            }
-            if (shift.id === 'shabbat') {
-              // הטיה לעבר מי שמגיע לו תור ל"שבת ארוכה" — יעד אישי per employee (ברירת מחדל 45 יום)
-              const target = e.shabbatFrequencyDays || 45;
-              const prev = lastShabbat[e.id];
-              const daysSince = prev ? (D.parseDate(dStr) - D.parseDate(prev)) / 864e5 : target * 2;
-              s += Math.min(8, (daysSince / target) * 4);
-            }
-            s += hash(e.id + dStr + shift.id + slot) * 0.5;
-            return s;
-          };
-          const best = pool.slice().sort((a, b) => score(b) - score(a))[0];
-          const restViolation = !clean.includes(best);
-
-          schedule[dStr][shift.id] = [...alreadyIn, best.id];
-          counts[best.id] += 1;
-          lastEnd[best.id] = t.end;
-          if (shift.id === 'shabbat') lastShabbat[best.id] = dStr;
-          if (wdShift >= 0 && wdShift <= 4) {
-            const wk = weekKeyOf(dStr);
-            (weekCounts[wk] = weekCounts[wk] || {})[best.id] = (weekCounts[wk][best.id] || 0) + 1;
-          }
-
-          const av = D.availabilityOn(best.id, dStr, shift.id);
-          if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
-          else if (av === 'high') addLog('info', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} לפי בקשה בעדיפות גבוהה`);
-        }
+    // מעבר שני: כל שאר המשמרות
+    dates.forEach((dStr) => {
+      D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
+        if (shift.continuation || shift.id === 'shabbat') return;
+        assignOne(dStr, shift);
       });
     });
 
@@ -4694,6 +4723,9 @@ function HamburgerMenu({ screen, onNavigate }) {
           <button className={'ham-item' + (screen === 'requests' ? ' active' : '')} onClick={() => nav('requests')}>
             📋 בקשות
           </button>
+          <button className={'ham-item' + (screen === 'rules' ? ' active' : '')} onClick={() => nav('rules')}>
+            📐 תנאי שיבוץ
+          </button>
         </div>
       )}
     </div>
@@ -4856,7 +4888,63 @@ function CriteriaGateModal({ gate, onProceed, onCancel }) {
   );
 }
 
-Object.assign(window, { ShiftsDrawer, SettingsDrawer, EmployeesScreen, RequestsScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal, CriteriaGateModal });
+// מסך תיעוד בלבד — אינו ניתן לעריכה. מטרתו לרכז במקום אחד את כל התנאים הקבועים
+// בקוד מנוע השיבוץ האוטומטי (ShiftEngine.generate), כדי שהמשבץ תמיד יידע מה בדיוק
+// המנוע אוכף בלי לחפש בקוד. כל שינוי בהתנהגות המנוע חייב להתעדכן גם כאן.
+function SchedulingRulesScreen() {
+  const HARD = [
+    { t: 'עובד סימן "לא יכול"', d: 'משמרת/יום שסומנו unavailable — לעולם לא ישובצו שם אוטומטית.' },
+    { t: 'מכסה חודשית', d: 'לא משבצים עובד שכבר הגיע למכסת המשמרות החודשית שלו (שדה "מכסה" בכרטיס העובד).' },
+    { t: 'משמרת לילה', d: 'רק עובד שסומן "משמרות לילה" בכרטיסו יכול להישבץ למשמרת מסוג night.' },
+    { t: 'מוכן למשמרות שישי', d: 'עובד שסימן שאינו מוכן לשישי לא ישובץ למשמרות יום שישי (למעט שבת ארוכה — ראו הבא).' },
+    { t: 'מוכן למשמרות שבת', d: 'עובד שסימן שאינו מוכן לשבת לא ישובץ ל"שבת ארוכה" (shabbat), וגם לא לאף משמרת שחלה בתאריך שבת בפועל.' },
+    { t: 'ללא לילות באמצע השבוע', d: 'עובד שסימן זאת לא ישובץ למשמרת לילה בימי א׳-ה׳ (בשישי/שבת עדיין אפשרי, בכפוף לתנאים למעלה).' },
+    { t: 'שבת ארוכה מפחיתה משמרת חול באותו שבוע', d: 'עובד ששובץ ל"שבת ארוכה" בשבוע מסוים מוגבל, באותו שבוע, למשמרת חול אחת פחות מיעד המשמרות/שבוע הרגיל שלו. לדוגמה: יעד 2 + שבת ארוכה באותו שבוע ⇐ לכל היותר משמרת חול אחת נוספת באותו שבוע.' },
+    { t: 'מנוחה מול המשמרת האחרונה בחודש הקודם', d: 'פחות מ-8 שעות מנוחה מהמשמרת האחרונה שהעובד עשה בסוף החודש הקודם — חוסם לגמרי, בלי חריגה אוטומטית.' },
+    { t: 'רשימת "יכול" חודשית', d: 'עובד שהגיש רשימת "יכול" (can) מצומצמת לחודש הנוכחי לא ישובץ מחוץ לרשימה שהגיש, גם אם יש לו זמינות אחרת.' },
+  ];
+  const SOFT = [
+    { t: 'עדיפות גבוהה / יכול', d: 'עובד שסימן "מעדיף" למשמרת מסוימת מקבל ניקוד גבוה יותר ממי שסימן "יכול" בלבד.' },
+    { t: 'עוגן (ותיק)', d: 'מקבל בונוס קל בניקוד.' },
+    { t: 'Night owl', d: 'עובד שמסומן ככזה מקבל עדיפות למשמרות לילה.' },
+    { t: 'איזון עומס', d: 'ככל שעובד שובץ ליותר משמרות (החודש ובחודשיים האחרונים) הניקוד שלו יורד, כדי לפזר עומס שווה יותר.' },
+    { t: 'יעד משמרות/שבוע בימי חול', d: 'הטיה רכה בלבד (לא חוסמת) — עובד רחוק מהיעד שלו מקבל ניקוד גבוה יותר למשמרות חול, ועובד שכבר עבר את היעד מקבל ניקוד נמוך יותר.' },
+    { t: 'תדירות שבת ארוכה אישית', d: 'ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה ל"שבת ארוכה" ביחס ליעד האישי שלו (ברירת מחדל 45 יום), כך גובר הניקוד שלו למשמרת הבאה.' },
+    { t: 'מנוחה מינימלית באמצע החודש', d: '8 שעות מנוחה בין משמרות מועדפות מאוד, אך אם אין שום מועמד עומד בכך — המנוע יחרוג כמוצא אחרון, ותתועד "חריגת מנוחה" ביומן השיבוץ.' },
+  ];
+  const Item = ({ t, d }) => (
+    <div style={{padding:'10px 12px',borderRadius:9,background:'var(--surface)',border:'1px solid var(--line)'}}>
+      <div style={{fontWeight:700,fontSize:'13px',marginBottom:3}}>{t}</div>
+      <div style={{fontSize:'12px',color:'var(--ink-2)',lineHeight:1.5}}>{d}</div>
+    </div>
+  );
+  return (
+    <div className="mgmt-screen">
+      <div className="mgmt-toolbar">
+        <h2 className="mgmt-title">📐 תנאי שיבוץ</h2>
+      </div>
+      <div style={{padding:'0 28px 28px',display:'flex',flexDirection:'column',gap:22,maxWidth:760}}>
+        <div style={{fontSize:'12.5px',color:'var(--ink-3)',lineHeight:1.6}}>
+          מסך תיעוד בלבד, לא ניתן לעריכה כאן — רשימה מלאה ומדויקת של התנאים שקבועים בקוד מנוע השיבוץ האוטומטי (⚙ מחשב / ✦⚙ חכם / ✦ AI). שיבוץ ידני תמיד יכול לעקוף כל תנאי קשיח; המנוע האוטומטי לעולם לא.
+        </div>
+        <div>
+          <div className="settings-sec-title" style={{marginBottom:10}}>🚫 חוקים קשיחים — חוסמים לגמרי בשיבוץ האוטומטי</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {HARD.map((r, i) => <Item key={i} {...r} />)}
+          </div>
+        </div>
+        <div>
+          <div className="settings-sec-title" style={{marginBottom:10}}>⚖ עדיפויות רכות — משפיעות על הבחירה, לא חוסמות</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {SOFT.map((r, i) => <Item key={i} {...r} />)}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { ShiftsDrawer, SettingsDrawer, EmployeesScreen, RequestsScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal, CriteriaGateModal, SchedulingRulesScreen });
 </script>
 
 <!-- ============ GenerateDraftModal + לוג AI ============ -->
@@ -6271,6 +6359,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
           onEmployeesChange={setEmployees}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth} />}
+        {screen === 'rules'     && <SchedulingRulesScreen />}
         {screen === 'calendar'  && (
           <main className="layout">
             <section className="board">

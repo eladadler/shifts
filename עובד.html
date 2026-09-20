@@ -2243,6 +2243,36 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
 
   const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', dirty: false }), ...patch } }));
 
+  // שחזור בקשות מהחודש הקודם: לפי יום בשבוע (הרוב בחודש הקודם לאותו יום), לא לפי תאריך מדויק —
+  // כדי ש"לא עובד.ת בשישי" יחול על כל השישי-שבתות ולא רק על התאריך הספציפי שהיה אשתקד.
+  // ממלא רק ימים שעדיין ריקים החודש; לא דורס סימון שכבר נעשה.
+  const prevYm = addMonths(ym, -1);
+  const prevMarks = localReqs[prevYm]?.marks || null;
+  const restoreFromLastMonth = () => {
+    if (!prevMarks || !Object.keys(prevMarks).length) { showToast && showToast('אין בקשות מהחודש הקודם לשחזור'); return; }
+    const votes = {};
+    Object.entries(prevMarks).forEach(([ds, v]) => {
+      const wd = weekdayOf(ds);
+      const token = typeof v === 'string' ? v : JSON.stringify(v);
+      votes[wd] = votes[wd] || {};
+      votes[wd][token] = (votes[wd][token] || 0) + 1;
+    });
+    const patternByWeekday = {};
+    Object.entries(votes).forEach(([wd, counts]) => {
+      const [token] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      patternByWeekday[wd] = token[0] === '{' ? JSON.parse(token) : token;
+    });
+    const marks = { ...local.marks };
+    let filled = 0;
+    rangeDates.forEach(ds => {
+      if (marks[ds] !== undefined) return;
+      const wd = weekdayOf(ds);
+      if (patternByWeekday[wd] !== undefined) { marks[ds] = patternByWeekday[wd]; filled++; }
+    });
+    if (filled) { setLocal({ marks, dirty: true }); showToast && showToast(`שוחזרו ${filled} ימים מ${monthName(prevYm)} ✓`); }
+    else showToast && showToast('אין ימים חדשים לשחזור — הכול כבר מסומן החודש');
+  };
+
   const setReqMode = (mode) => {
     if (mode === reqMode) return;
     setLocal({ reqMode: mode });
@@ -2537,6 +2567,13 @@ ${shiftsDesc}
       {editable && openRange && (
         <div style={{ background: 'color-mix(in oklab, oklch(0.65 0.15 200) 8%, #FFF)', borderRadius: 10, padding: '9px 14px', fontSize: 12.5, fontWeight: 600, color: 'oklch(0.38 0.14 200)', border: '1px solid color-mix(in oklab, oklch(0.65 0.15 200) 25%, transparent)' }}>
           📅 טווח הסידור: {rangeStart.slice(8)}.{rangeStart.slice(5,7)} – {rangeEnd.slice(8)}.{rangeEnd.slice(5,7)}
+        </div>
+      )}
+      {editable && prevMarks && Object.keys(prevMarks).length > 0 && (
+        <div onClick={restoreFromLastMonth} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: '#FFF',
+          border: `1.5px dashed ${TEAL}`, borderRadius: 10, padding: '10px 14px', cursor: 'pointer' }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: TEAL_DARK }}>↻ שחזור בקשות מ{monthName(prevYm)}</span>
+          <span style={{ fontSize: 11.5, color: '#8A867F' }}>לפי הדפוס הרגיל שלך — ימים שכבר סימנת לא ישתנו</span>
         </div>
       )}
       {editable ? (<>

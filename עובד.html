@@ -2569,13 +2569,18 @@ ${shiftsDesc}
           📅 טווח הסידור: {rangeStart.slice(8)}.{rangeStart.slice(5,7)} – {rangeEnd.slice(8)}.{rangeEnd.slice(5,7)}
         </div>
       )}
-      {editable && prevMarks && Object.keys(prevMarks).length > 0 && (
+      {editable && (prevMarks && Object.keys(prevMarks).length > 0 ? (
         <div onClick={restoreFromLastMonth} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: '#FFF',
           border: `1.5px dashed ${TEAL}`, borderRadius: 10, padding: '10px 14px', cursor: 'pointer' }}>
           <span style={{ fontSize: 13, fontWeight: 800, color: TEAL_DARK }}>↻ שחזור בקשות מ{monthName(prevYm)}</span>
           <span style={{ fontSize: 11.5, color: '#8A867F' }}>לפי הדפוס הרגיל שלך — ימים שכבר סימנת לא ישתנו</span>
         </div>
-      )}
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: '#FAF9F7',
+          border: '1.5px dashed #D8D4CE', borderRadius: 10, padding: '10px 14px' }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94' }}>↻ אין בקשות שמורות מ{monthName(prevYm)} לשחזור</span>
+        </div>
+      ))}
       {editable ? (<>
         {/* בחירת מצב הגשה */}
         <div style={{ display: 'flex', gap: 8 }}>

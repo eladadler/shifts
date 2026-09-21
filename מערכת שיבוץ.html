@@ -1237,7 +1237,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {} }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, ruleToggles = {} }) {
+    // כל תנאי דלוק כברירת מחדל — כבוי רק אם המשבץ כיבה אותו במפורש במסך "תנאי שיבוץ"
+    const on = (key) => ruleToggles[key] !== false;
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
     const schedule = {};
     const log = [];
@@ -1305,29 +1307,33 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         const cands = D.EMPLOYEES.filter((e) => {
           if (alreadyIn.includes(e.id)) return false;
           const av = D.availabilityOn(e.id, dStr, shift.id);
-          if (av === 'unavailable') return false;
-          if (counts[e.id] >= e.max) return false;
-          if (shift.id === 'night' && !e.nights) return false;
+          if (on('unavailable') && av === 'unavailable') return false;
+          if (on('maxQuota') && counts[e.id] >= e.max) return false;
+          if (on('nightCapability') && shift.id === 'night' && !e.nights) return false;
           // העדפות "מוכן לשישי/שבת"/"ללא לילות באמצע השבוע" — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
-          if (isFridayNonShabbat && e.wantsFriday === false) return false;
-          if (isSaturdayish && e.wantsSaturday === false) return false;
-          if (shift.id === 'night' && wdShift >= 0 && wdShift <= 4 && e.noWeekdayNights) return false;
+          if (on('wantsFriday') && isFridayNonShabbat && e.wantsFriday === false) return false;
+          if (on('wantsSaturday') && isSaturdayish && e.wantsSaturday === false) return false;
+          if (on('noWeekdayNights') && shift.id === 'night' && wdShift >= 0 && wdShift <= 4 && e.noWeekdayNights) return false;
           // מי שיש לו "שבת ארוכה" באותו שבוע מוגבל למשמרת חול אחת פחות מהיעד הרגיל שלו
-          if (wdShift >= 0 && wdShift <= 4 && shabbatWeeks[wk]?.has(e.id)) {
+          if (on('shabbatWeeklyCap') && wdShift >= 0 && wdShift <= 4 && shabbatWeeks[wk]?.has(e.id)) {
             const cap = Math.max(0, (e.weekdayShiftsPerWeek ?? 2) - 1);
             if ((weekCounts[wk]?.[e.id] || 0) >= cap) return false;
           }
           // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
-          if (initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return false;
+          if (on('crossMonthRest') && initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return false;
           // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
           // הרשימה חוסמת רק בחודש שבו הוגשה: הבקשות מאוחדות מכל החודשים,
           // ובלי הסייג הזה בקשה מחודש קודם הייתה חוסמת את העובד בכל החודשים הבאים.
-          const r = D.reqOf(e.id);
-          const ym = dStr.slice(0, 7);
-          if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') return false;
+          if (on('canWhitelist')) {
+            const r = D.reqOf(e.id);
+            const ym = dStr.slice(0, 7);
+            if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') return false;
+          }
           return true;
         });
-        const clean = cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H);
+        const clean = on('biasMidMonthRest')
+          ? cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H)
+          : cands;
         const pool = clean.length ? clean : cands;
 
         if (!pool.length) {
@@ -1339,18 +1345,20 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         const score = (e) => {
           const av = D.availabilityOn(e.id, dStr, shift.id);
           let s = 0;
-          if (av === 'high') s += 6;
-          if (av === 'can') s += 2;
-          if (e.anchor) s += 3;
-          if (e.nightOwl && shift.id === 'night') s += 5;
-          s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
-          if (wdShift >= 0 && wdShift <= 4) {
+          if (on('biasHighCan')) {
+            if (av === 'high') s += 6;
+            if (av === 'can') s += 2;
+          }
+          if (on('biasAnchor') && e.anchor) s += 3;
+          if (on('biasNightOwl') && e.nightOwl && shift.id === 'night') s += 5;
+          if (on('biasLoadBalance')) s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
+          if (on('biasWeeklyTarget') && wdShift >= 0 && wdShift <= 4) {
             // איזון רך מול יעד משמרות/שבוע אישי בימי חול — לא חוסם, רק מטה ניקוד
             const already = (weekCounts[wk] || {})[e.id] || 0;
             const target = e.weekdayShiftsPerWeek ?? 2;
             s += (target - already) * 1.2;
           }
-          if (shift.id === 'shabbat') {
+          if (on('biasShabbatFrequency') && shift.id === 'shabbat') {
             // הטיה לעבר מי שמגיע לו תור ל"שבת ארוכה" — יעד אישי per employee (ברירת מחדל 45 יום)
             const target = e.shabbatFrequencyDays || 45;
             const prev = lastShabbat[e.id];
@@ -4888,36 +4896,45 @@ function CriteriaGateModal({ gate, onProceed, onCancel }) {
   );
 }
 
-// מסך תיעוד בלבד — אינו ניתן לעריכה. מטרתו לרכז במקום אחד את כל התנאים הקבועים
-// בקוד מנוע השיבוץ האוטומטי (ShiftEngine.generate), כדי שהמשבץ תמיד יידע מה בדיוק
-// המנוע אוכף בלי לחפש בקוד. כל שינוי בהתנהגות המנוע חייב להתעדכן גם כאן.
-function SchedulingRulesScreen() {
+// מרכז במקום אחד את כל התנאים הקבועים בקוד מנוע השיבוץ האוטומטי (ShiftEngine.generate),
+// עם toggle לכל תנאי — כיבוי toggle מנטרל אותו בפועל במנוע (ruleToggles מועבר ל-generate).
+// כל שינוי בהתנהגות המנוע (הוספת/הסרת תנאי) חייב להתעדכן גם ברשימות HARD/SOFT כאן.
+function SchedulingRulesScreen({ ruleToggles, onToggle }) {
   const HARD = [
-    { t: 'עובד סימן "לא יכול"', d: 'משמרת/יום שסומנו unavailable — לעולם לא ישובצו שם אוטומטית.' },
-    { t: 'מכסה חודשית', d: 'לא משבצים עובד שכבר הגיע למכסת המשמרות החודשית שלו (שדה "מכסה" בכרטיס העובד).' },
-    { t: 'משמרת לילה', d: 'רק עובד שסומן "משמרות לילה" בכרטיסו יכול להישבץ למשמרת מסוג night.' },
-    { t: 'מוכן למשמרות שישי', d: 'עובד שסימן שאינו מוכן לשישי לא ישובץ למשמרות יום שישי (למעט שבת ארוכה — ראו הבא).' },
-    { t: 'מוכן למשמרות שבת', d: 'עובד שסימן שאינו מוכן לשבת לא ישובץ ל"שבת ארוכה" (shabbat), וגם לא לאף משמרת שחלה בתאריך שבת בפועל.' },
-    { t: 'ללא לילות באמצע השבוע', d: 'עובד שסימן זאת לא ישובץ למשמרת לילה בימי א׳-ה׳ (בשישי/שבת עדיין אפשרי, בכפוף לתנאים למעלה).' },
-    { t: 'שבת ארוכה מפחיתה משמרת חול באותו שבוע', d: 'עובד ששובץ ל"שבת ארוכה" בשבוע מסוים מוגבל, באותו שבוע, למשמרת חול אחת פחות מיעד המשמרות/שבוע הרגיל שלו. לדוגמה: יעד 2 + שבת ארוכה באותו שבוע ⇐ לכל היותר משמרת חול אחת נוספת באותו שבוע.' },
-    { t: 'מנוחה מול המשמרת האחרונה בחודש הקודם', d: 'פחות מ-8 שעות מנוחה מהמשמרת האחרונה שהעובד עשה בסוף החודש הקודם — חוסם לגמרי, בלי חריגה אוטומטית.' },
-    { t: 'רשימת "יכול" חודשית', d: 'עובד שהגיש רשימת "יכול" (can) מצומצמת לחודש הנוכחי לא ישובץ מחוץ לרשימה שהגיש, גם אם יש לו זמינות אחרת.' },
+    { key: 'unavailable', t: 'עובד סימן "לא יכול"', d: 'משמרת/יום שסומנו unavailable — לעולם לא ישובצו שם אוטומטית.' },
+    { key: 'maxQuota', t: 'מכסה חודשית', d: 'לא משבצים עובד שכבר הגיע למכסת המשמרות החודשית שלו (שדה "מכסה" בכרטיס העובד).' },
+    { key: 'nightCapability', t: 'משמרת לילה', d: 'רק עובד שסומן "משמרות לילה" בכרטיסו יכול להישבץ למשמרת מסוג night.' },
+    { key: 'wantsFriday', t: 'מוכן למשמרות שישי', d: 'עובד שסימן שאינו מוכן לשישי לא ישובץ למשמרות יום שישי (למעט שבת ארוכה — ראו הבא).' },
+    { key: 'wantsSaturday', t: 'מוכן למשמרות שבת', d: 'עובד שסימן שאינו מוכן לשבת לא ישובץ ל"שבת ארוכה" (shabbat), וגם לא לאף משמרת שחלה בתאריך שבת בפועל.' },
+    { key: 'noWeekdayNights', t: 'ללא לילות באמצע השבוע', d: 'עובד שסימן זאת לא ישובץ למשמרת לילה בימי א׳-ה׳ (בשישי/שבת עדיין אפשרי, בכפוף לתנאים למעלה).' },
+    { key: 'shabbatWeeklyCap', t: 'שבת ארוכה מפחיתה משמרת חול באותו שבוע', d: 'עובד ששובץ ל"שבת ארוכה" בשבוע מסוים מוגבל, באותו שבוע, למשמרת חול אחת פחות מיעד המשמרות/שבוע הרגיל שלו. לדוגמה: יעד 2 + שבת ארוכה באותו שבוע ⇐ לכל היותר משמרת חול אחת נוספת באותו שבוע.' },
+    { key: 'crossMonthRest', t: 'מנוחה מול המשמרת האחרונה בחודש הקודם', d: 'פחות מ-8 שעות מנוחה מהמשמרת האחרונה שהעובד עשה בסוף החודש הקודם — חוסם לגמרי, בלי חריגה אוטומטית.' },
+    { key: 'canWhitelist', t: 'רשימת "יכול" חודשית', d: 'עובד שהגיש רשימת "יכול" (can) מצומצמת לחודש הנוכחי לא ישובץ מחוץ לרשימה שהגיש, גם אם יש לו זמינות אחרת.' },
   ];
   const SOFT = [
-    { t: 'עדיפות גבוהה / יכול', d: 'עובד שסימן "מעדיף" למשמרת מסוימת מקבל ניקוד גבוה יותר ממי שסימן "יכול" בלבד.' },
-    { t: 'עוגן (ותיק)', d: 'מקבל בונוס קל בניקוד.' },
-    { t: 'Night owl', d: 'עובד שמסומן ככזה מקבל עדיפות למשמרות לילה.' },
-    { t: 'איזון עומס', d: 'ככל שעובד שובץ ליותר משמרות (החודש ובחודשיים האחרונים) הניקוד שלו יורד, כדי לפזר עומס שווה יותר.' },
-    { t: 'יעד משמרות/שבוע בימי חול', d: 'הטיה רכה בלבד (לא חוסמת) — עובד רחוק מהיעד שלו מקבל ניקוד גבוה יותר למשמרות חול, ועובד שכבר עבר את היעד מקבל ניקוד נמוך יותר.' },
-    { t: 'תדירות שבת ארוכה אישית', d: 'ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה ל"שבת ארוכה" ביחס ליעד האישי שלו (ברירת מחדל 45 יום), כך גובר הניקוד שלו למשמרת הבאה.' },
-    { t: 'מנוחה מינימלית באמצע החודש', d: '8 שעות מנוחה בין משמרות מועדפות מאוד, אך אם אין שום מועמד עומד בכך — המנוע יחרוג כמוצא אחרון, ותתועד "חריגת מנוחה" ביומן השיבוץ.' },
+    { key: 'biasHighCan', t: 'עדיפות גבוהה / יכול', d: 'עובד שסימן "מעדיף" למשמרת מסוימת מקבל ניקוד גבוה יותר ממי שסימן "יכול" בלבד.' },
+    { key: 'biasAnchor', t: 'עוגן (ותיק)', d: 'מקבל בונוס קל בניקוד.' },
+    { key: 'biasNightOwl', t: 'Night owl', d: 'עובד שמסומן ככזה מקבל עדיפות למשמרות לילה.' },
+    { key: 'biasLoadBalance', t: 'איזון עומס', d: 'ככל שעובד שובץ ליותר משמרות (החודש ובחודשיים האחרונים) הניקוד שלו יורד, כדי לפזר עומס שווה יותר.' },
+    { key: 'biasWeeklyTarget', t: 'יעד משמרות/שבוע בימי חול', d: 'הטיה רכה בלבד (לא חוסמת) — עובד רחוק מהיעד שלו מקבל ניקוד גבוה יותר למשמרות חול, ועובד שכבר עבר את היעד מקבל ניקוד נמוך יותר.' },
+    { key: 'biasShabbatFrequency', t: 'תדירות שבת ארוכה אישית', d: 'ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה ל"שבת ארוכה" ביחס ליעד האישי שלו (ברירת מחדל 45 יום), כך גובר הניקוד שלו למשמרת הבאה.' },
+    { key: 'biasMidMonthRest', t: 'מנוחה מינימלית באמצע החודש', d: '8 שעות מנוחה בין משמרות מועדפות מאוד. כשדלוק: אם אין שום מועמד עומד בכך המנוע יחרוג כמוצא אחרון, ותתועד "חריגת מנוחה" ביומן השיבוץ. כשכבוי: המנוע לא מתחשב בשעות מנוחה בין משמרות באמצע החודש בכלל.' },
   ];
-  const Item = ({ t, d }) => (
-    <div style={{padding:'10px 12px',borderRadius:9,background:'var(--surface)',border:'1px solid var(--line)'}}>
-      <div style={{fontWeight:700,fontSize:'13px',marginBottom:3}}>{t}</div>
-      <div style={{fontSize:'12px',color:'var(--ink-2)',lineHeight:1.5}}>{d}</div>
-    </div>
-  );
+  const Item = ({ item }) => {
+    const on = ruleToggles?.[item.key] !== false;
+    return (
+      <div style={{padding:'10px 12px',borderRadius:9,background:'var(--surface)',border:'1px solid var(--line)',display:'flex',alignItems:'flex-start',gap:12,opacity:on?1:0.55}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:700,fontSize:'13px',marginBottom:3}}>{item.t}</div>
+          <div style={{fontSize:'12px',color:'var(--ink-2)',lineHeight:1.5}}>{item.d}</div>
+        </div>
+        <label className="toggle-switch" style={{flexShrink:0,marginTop:2}}>
+          <input type="checkbox" checked={on} onChange={(e) => onToggle(item.key, e.target.checked)} />
+          <span className="toggle-slider"></span>
+        </label>
+      </div>
+    );
+  };
   return (
     <div className="mgmt-screen">
       <div className="mgmt-toolbar">
@@ -4925,18 +4942,18 @@ function SchedulingRulesScreen() {
       </div>
       <div style={{padding:'0 28px 28px',display:'flex',flexDirection:'column',gap:22,maxWidth:760}}>
         <div style={{fontSize:'12.5px',color:'var(--ink-3)',lineHeight:1.6}}>
-          מסך תיעוד בלבד, לא ניתן לעריכה כאן — רשימה מלאה ומדויקת של התנאים שקבועים בקוד מנוע השיבוץ האוטומטי (⚙ מחשב / ✦⚙ חכם / ✦ AI). שיבוץ ידני תמיד יכול לעקוף כל תנאי קשיח; המנוע האוטומטי לעולם לא.
+          רשימה מלאה ומדויקת של התנאים שקבועים בקוד מנוע השיבוץ האוטומטי (⚙ מחשב / ✦⚙ חכם / ✦ AI). לכל תנאי יש toggle — כיבוי מנטרל אותו בפועל בהרצה הבאה של השיבוץ האוטומטי. שיבוץ ידני תמיד יכול לעקוף כל תנאי קשיח, גם כשהוא דלוק; המנוע האוטומטי אוכף רק תנאים דלוקים.
         </div>
         <div>
           <div className="settings-sec-title" style={{marginBottom:10}}>🚫 חוקים קשיחים — חוסמים לגמרי בשיבוץ האוטומטי</div>
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
-            {HARD.map((r, i) => <Item key={i} {...r} />)}
+            {HARD.map((r) => <Item key={r.key} item={r} />)}
           </div>
         </div>
         <div>
           <div className="settings-sec-title" style={{marginBottom:10}}>⚖ עדיפויות רכות — משפיעות על הבחירה, לא חוסמות</div>
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
-            {SOFT.map((r, i) => <Item key={i} {...r} />)}
+            {SOFT.map((r) => <Item key={r.key} item={r} />)}
           </div>
         </div>
       </div>
@@ -5383,6 +5400,15 @@ function App() {
   // קריטריונים גורפים להגשת בקשות — ניתנים לדריסה אישית לכל עובד (emp.reqCriteria). אזהרה בלבד, לא חוסמת.
   const DEFAULT_REQUEST_CRITERIA = { minNightsPerWeek: 2, minDaysPerWeek: 2, minFridaysCanPerMonth: 1, minSaturdaysCanPerMonth: 1 };
   const [requestCriteria, setRequestCriteria] = React.useState(() => ({ ...DEFAULT_REQUEST_CRITERIA, ...(saved?.requestCriteria || {}) }));
+  // מפתח/ברירת מחדל לכל תנאי שיבוץ (ראו מסך "תנאי שיבוץ") — כולם דלוקים כברירת מחדל.
+  // כיבוי מפתח כלשהו כאן מנטרל אותו בפועל במנוע (ShiftEngine.generate מקבל ruleToggles).
+  const DEFAULT_RULE_TOGGLES = {
+    unavailable: true, maxQuota: true, nightCapability: true, wantsFriday: true, wantsSaturday: true,
+    noWeekdayNights: true, shabbatWeeklyCap: true, crossMonthRest: true, canWhitelist: true,
+    biasHighCan: true, biasAnchor: true, biasNightOwl: true, biasLoadBalance: true,
+    biasWeeklyTarget: true, biasShabbatFrequency: true, biasMidMonthRest: true,
+  };
+  const [ruleToggles, setRuleToggles] = React.useState(() => ({ ...DEFAULT_RULE_TOGGLES, ...(saved?.ruleToggles || {}) }));
   const [vapidPublicKey, setVapidPublicKey] = React.useState(() => saved?.vapidPublicKey || '');
   const [sendRemindersOpen, setSendRemindersOpen] = React.useState(false);
   // חריגות קריטריוני הגשה שהתגלו לפני הרצת שיבוץ אוטומטי — { violations, proceed } | null
@@ -5472,6 +5498,7 @@ function App() {
         if (remote.vapidPublicKey) setVapidPublicKey(remote.vapidPublicKey);
         if (remote.swapSettings) setSwapSettings(s => ({ ...s, ...remote.swapSettings }));
         if (remote.requestCriteria) setRequestCriteria(c => ({ ...c, ...remote.requestCriteria }));
+        if (remote.ruleToggles) setRuleToggles(t => ({ ...t, ...remote.ruleToggles }));
       }
       setSyncStatus('saved');
       isFirstLoad.current = false;
@@ -5559,7 +5586,7 @@ function App() {
     if (generatingId) return;
     if (isFirstLoad.current) return;
     if (employees.length === 0) return; // אל תכתוב רשימת עובדים ריקה — שמור על נתוני Supabase
-    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, swapSettings, requestCriteria, empMaxV: EMP_MAX_V };
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, swapSettings, requestCriteria, ruleToggles, empMaxV: EMP_MAX_V };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -5568,7 +5595,7 @@ function App() {
       const ok = await window.__db.save(state);
       setSyncStatus(ok ? 'saved' : 'error');
     }, 1200);
-  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, swapSettings, requestCriteria, generatingId]);
+  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, swapSettings, requestCriteria, ruleToggles, generatingId]);
 
   // ערכת נושא
   React.useEffect(() => {
@@ -5776,7 +5803,7 @@ function App() {
     const result = AE.generate({
       startDate: currentDraft.range.start, endDate: currentDraft.range.end,
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
-      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(),
+      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), ruleToggles,
     });
     const ts = new Date().toISOString();
     const log = [
@@ -5806,7 +5833,7 @@ function App() {
         startDate: currentDraft.range.start, endDate: currentDraft.range.end,
         excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule,
         shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds,
-        initialLastShabbat: calcLastShabbatDates(),
+        initialLastShabbat: calcLastShabbatDates(), ruleToggles,
       });
       algoResult.log.filter(l => l.type !== 'info').forEach(l => smartLog.push({ ...l, timestamp: ts() }));
 
@@ -6065,7 +6092,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       const topUp = AE.generate({
         startDate: snap.range.start, endDate: snap.range.end,
         excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
-        initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(),
+        initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), ruleToggles,
       });
 
       const ts = new Date().toISOString();
@@ -6359,7 +6386,8 @@ ${JSON.stringify(emptySlots, null, 2)}
         {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
           onEmployeesChange={setEmployees}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth} />}
-        {screen === 'rules'     && <SchedulingRulesScreen />}
+        {screen === 'rules'     && <SchedulingRulesScreen ruleToggles={ruleToggles}
+          onToggle={(key, val) => setRuleToggles(t => ({ ...t, [key]: val }))} />}
         {screen === 'calendar'  && (
           <main className="layout">
             <section className="board">

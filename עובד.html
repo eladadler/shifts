@@ -2283,7 +2283,7 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, onOpenShi
 /* ============ טאב הגשת בקשות ============ */
 /* ============ מסך ניהול בקשות קבועות ============ */
 const WEEKDAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
-const MARK_LABEL = { un: 'לא זמינ.ה', high: 'מעדיפ.ה', can: 'זמינ.ה' };
+const MARK_LABEL = { un: 'לא זמינ.ה', high: 'מעדיפ.ה', can: 'זמינ.ה', iron: '🔒 ברזל (קבוע ע"י המשבץ)' };
 // תאריך מייצג לכל יום בשבוע בחודש הנוכחי, כדי לדעת אילו משמרות קיימות בו (הן משתנות בין חול/שישי/שבת)
 function firstDateForWeekday(ym, wd) {
   for (let d = 1; d <= daysInMonth(ym); d++) {
@@ -2345,7 +2345,16 @@ function RecurringRequestsScreen({ me, TM, globalSettings, recurring, onClose, o
           {[0, 1, 2, 3, 4, 5, 6].map(wd => (byWeekday[wd] || []).length > 0 && (
             <div key={wd} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: '#8A867F' }}>יום {WEEKDAY_NAMES[wd]}</div>
-              {byWeekday[wd].map(r => (
+              {byWeekday[wd].map(r => r.mark === 'iron' ? (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'oklch(0.97 0.02 300)', border: '1.5px solid oklch(0.45 0.18 300)',
+                  borderRadius: 10, padding: '10px 12px' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{r.shift_id ? (shiftsFor(wd).find(s => s.id === r.shift_id)?.name || r.shift_id) : 'כל היום'}</span>
+                    <span style={{ fontSize: 12, color: 'oklch(0.45 0.18 300)', marginInlineStart: 8, fontWeight: 700 }}>{MARK_LABEL[r.mark]}</span>
+                    <div style={{ fontSize: 11, color: '#8A867F', marginTop: 3 }}>נקבע ע"י המשבץ — לביטול תאריך ספציפי, סמנו אותו כ"לא זמין" בהגשת הבקשות</div>
+                  </div>
+                </div>
+              ) : (
                 <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FFF', border: '1px solid #EAE7E1',
                   borderRadius: 10, padding: '10px 12px', opacity: r.active ? 1 : 0.5 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -2380,7 +2389,7 @@ function RecurringRequestsScreen({ me, TM, globalSettings, recurring, onClose, o
           </select>
           <select value={form.mark} onChange={e => setForm(f => ({ ...f, mark: e.target.value }))}
             style={{ border: '1px solid #E2DFD9', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit' }}>
-            {Object.entries(MARK_LABEL).map(([m, label]) => <option key={m} value={m}>{label}</option>)}
+            {['un', 'high', 'can'].map(m => <option key={m} value={m}>{MARK_LABEL[m]}</option>)}
           </select>
           <button disabled={busy} onClick={addRule}
             style={{ background: TEAL, color: '#FFF', border: 'none', borderRadius: 9, padding: '10px 0', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>
@@ -2463,14 +2472,31 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
 
   // דפוס הבקשות הקבועות, לפי יום בשבוע. משמרת ספציפית → אובייקט per-shift; "כל היום" → מחרוזת.
   // אם הוגדרו גם "כל היום" וגם משמרת ספציפית לאותו יום בשבוע, "כל היום" גובר (מוגדר אחרון בלולאה).
+  // "ברזל" (מוגדר ע"י המשבץ) מתנהג בדיוק כמו "מעדיפ.ה" (high) בכל הלוגיקה הזו — הוא
+  // רק מוצג אחרת (🔒, ראו ironPattern) ואי אפשר לכבות/למחוק אותו כאן, רק לבטל תאריך ספציפי.
   const recurringPattern = React.useMemo(() => {
     const byWd = {};
     (recurring || []).filter(r => r.active).forEach(r => {
+      const mark = r.mark === 'iron' ? 'high' : r.mark;
       if (r.shift_id) {
         if (typeof byWd[r.weekday] !== 'object' || byWd[r.weekday] === null) byWd[r.weekday] = {};
-        if (typeof byWd[r.weekday] === 'object') byWd[r.weekday][r.shift_id] = r.mark;
+        if (typeof byWd[r.weekday] === 'object') byWd[r.weekday][r.shift_id] = mark;
       } else {
-        byWd[r.weekday] = r.mark;
+        byWd[r.weekday] = mark;
+      }
+    });
+    return byWd;
+  }, [recurring]);
+
+  // רק לצורך תג 🔒 — אילו ימי/משמרות בשבוע הם "ברזל" (קבוע ע"י המשבץ)
+  const ironPattern = React.useMemo(() => {
+    const byWd = {};
+    (recurring || []).filter(r => r.active && r.mark === 'iron').forEach(r => {
+      if (r.shift_id) {
+        if (typeof byWd[r.weekday] !== 'object' || byWd[r.weekday] === null) byWd[r.weekday] = {};
+        if (typeof byWd[r.weekday] === 'object') byWd[r.weekday][r.shift_id] = true;
+      } else {
+        byWd[r.weekday] = true;
       }
     });
     return byWd;
@@ -2875,6 +2901,8 @@ ${shiftsDesc}
           {rangeDates.map(dStr => {
             const v = effectiveMarks[dStr];
             const isRecurring = v !== undefined && !Object.prototype.hasOwnProperty.call(local.marks, dStr);
+            const ironVal = ironPattern[weekdayOf(dStr)];
+            const isIron = isRecurring && (ironVal === true || (ironVal && typeof ironVal === 'object' && Object.keys(ironVal).length > 0));
             const whole = typeof v === 'string';
             const inCurMonth = dStr.startsWith(ym);
             const impliedMark = !v && editable ? (reqMode === 'block' ? 'can' : 'un') : null;
@@ -2892,7 +2920,7 @@ ${shiftsDesc}
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
                 fontSize: 13, fontWeight: inCurMonth ? 700 : 500,
                 cursor: 'pointer', transition: 'background 0.15s, border 0.15s', opacity: inCurMonth ? 1 : 0.75 }}>
-                {isRecurring && <span style={{ position: 'absolute', top: 3, insetInlineEnd: 4, fontSize: 8 }}>🔁</span>}
+                {isRecurring && <span style={{ position: 'absolute', top: 3, insetInlineEnd: 4, fontSize: 8 }}>{isIron ? '🔒' : '🔁'}</span>}
                 <span>{dayNum}</span>
                 {dots.length > 0 && (
                   <span style={{ display: 'flex', gap: 2 }}>
@@ -2920,9 +2948,15 @@ ${shiftsDesc}
         {/* כרטיס פירוט היום הנבחר — דיוק ברמת משמרת */}
         <div style={{ background: '#FFF', borderRadius: 14, border: '1px solid #EAE7E1', padding: 14, display: 'flex', flexDirection: 'column', gap: 9 }}>
           <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(selDs.slice(0, 7))}</div>
-          {editable && !Object.prototype.hasOwnProperty.call(local.marks, selDs) && recurringPattern[weekdayOf(selDs)] !== undefined && (
-            <div style={{ fontSize: 11.5, color: TEAL_DARK, background: TEAL_SOFT, borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔁 מהבקשה הקבועה שלך — שינוי כאן ישפיע רק על החודש הזה</div>
-          )}
+          {editable && !Object.prototype.hasOwnProperty.call(local.marks, selDs) && recurringPattern[weekdayOf(selDs)] !== undefined && (() => {
+            const ironVal = ironPattern[weekdayOf(selDs)];
+            const isIron = ironVal === true || (ironVal && typeof ironVal === 'object' && Object.keys(ironVal).length > 0);
+            return isIron ? (
+              <div style={{ fontSize: 11.5, color: 'oklch(0.45 0.18 300)', background: 'oklch(0.97 0.02 300)', borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔒 משמרת קבועה שהמשבץ סימן — אפשר לבטל ליום הזה בלבד באמצעות סימון "לא זמין"</div>
+            ) : (
+              <div style={{ fontSize: 11.5, color: TEAL_DARK, background: TEAL_SOFT, borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔁 מהבקשה הקבועה שלך — שינוי כאן ישפיע רק על החודש הזה</div>
+            );
+          })()}
           {editable && <div style={{ fontSize: 12, color: '#8A867F' }}>דיוק לפי משמרת — בחרו סימון לכל משמרת בנפרד:</div>}
           {dayShifts.map(sh => {
             const dayMark = effectiveMarks[selDs];

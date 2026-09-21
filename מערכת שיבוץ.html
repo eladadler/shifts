@@ -764,6 +764,16 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return data || [];
       } catch (e) { console.warn('fetchRecurringForEmployee failed:', e.message); return []; }
     },
+    // כל הבקשות הקבועות של כל העובדים — משמש למשמרות "ברזל", שהאלגוריתם צריך להכיר
+    // בלי קשר להגשה חודשית של אף עובד ספציפי
+    async fetchAllRecurringRequests() {
+      if (!client) return [];
+      try {
+        const { data, error } = await client.from('employee_recurring_requests').select('*');
+        if (error) throw error;
+        return data || [];
+      } catch (e) { console.warn('fetchAllRecurringRequests failed:', e.message); return []; }
+    },
     async addRecurringRequest(row) {
       if (!client) return null;
       try {
@@ -1272,7 +1282,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, ruleToggles = {} }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, ruleToggles = {}, ironAssignments = {} }) {
     // כל תנאי דלוק כברירת מחדל — כבוי רק אם המשבץ כיבה אותו במפורש במסך "תנאי שיבוץ"
     const on = (key) => ruleToggles[key] !== false;
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
@@ -1333,47 +1343,84 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
 
       const t = D.shiftTimes(dStr, shift);
 
-      for (let slot = 0; slot < needed; slot++) {
-        const alreadyIn = schedule[dStr][shift.id] || [];
-        const wdShift = D.weekdayOf(dStr);
-        const isFridayNonShabbat = wdShift === 5 && shift.id !== 'shabbat';
-        const isSaturdayish = shift.id === 'shabbat' || wdShift === 6;
-        const wk = weekKeyOf(dStr);
-        const cands = D.EMPLOYEES.filter((e) => {
-          if (alreadyIn.includes(e.id)) return false;
-          const av = D.availabilityOn(e.id, dStr, shift.id);
-          if (on('unavailable') && av === 'unavailable') return false;
-          if (on('maxQuota') && counts[e.id] >= e.max) return false;
-          if (on('nightCapability') && shift.id === 'night' && !e.nights) return false;
-          // העדפות "מוכן לשישי/שבת"/"ללא לילות באמצע השבוע" — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
-          if (on('wantsFriday') && isFridayNonShabbat && e.wantsFriday === false) return false;
-          if (on('wantsSaturday') && isSaturdayish && e.wantsSaturday === false) return false;
-          if (on('noWeekdayNights') && shift.id === 'night' && wdShift >= 0 && wdShift <= 4 && e.noWeekdayNights) return false;
-          // מי שיש לו "שבת ארוכה" באותו שבוע מוגבל למשמרת חול אחת פחות מהיעד הרגיל שלו
-          if (on('shabbatWeeklyCap') && wdShift >= 0 && wdShift <= 4 && shabbatWeeks[wk]?.has(e.id)) {
-            const cap = Math.max(0, (e.weekdayShiftsPerWeek ?? 2) - 1);
-            if ((weekCounts[wk]?.[e.id] || 0) >= cap) return false;
+      const wdShift0 = D.weekdayOf(dStr);
+      const isFridayNonShabbat0 = wdShift0 === 5 && shift.id !== 'shabbat';
+      const isSaturdayish0 = shift.id === 'shabbat' || wdShift0 === 6;
+      const wk0 = weekKeyOf(dStr);
+      // חסימות קשיחות "רגילות" — לא כולל "כבר בתפוסה"/מכסת שיבוץ ברזל, כדי שאפשר יהיה
+      // להשתמש באותה בדיקה גם עבור שיבוץ ברזל וגם עבור התחרות הרגילה בין מועמדים
+      const hardBlocked = (e) => {
+        const av = D.availabilityOn(e.id, dStr, shift.id);
+        if (on('unavailable') && av === 'unavailable') return true;
+        if (on('maxQuota') && counts[e.id] >= e.max) return true;
+        if (on('nightCapability') && shift.id === 'night' && !e.nights) return true;
+        // העדפות "מוכן לשישי/שבת"/"ללא לילות באמצע השבוע" — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
+        if (on('wantsFriday') && isFridayNonShabbat0 && e.wantsFriday === false) return true;
+        if (on('wantsSaturday') && isSaturdayish0 && e.wantsSaturday === false) return true;
+        if (on('noWeekdayNights') && shift.id === 'night' && wdShift0 >= 0 && wdShift0 <= 4 && e.noWeekdayNights) return true;
+        // מי שיש לו "שבת ארוכה" באותו שבוע מוגבל למשמרת חול אחת פחות מהיעד הרגיל שלו
+        if (on('shabbatWeeklyCap') && wdShift0 >= 0 && wdShift0 <= 4 && shabbatWeeks[wk0]?.has(e.id)) {
+          const cap = Math.max(0, (e.weekdayShiftsPerWeek ?? 2) - 1);
+          if ((weekCounts[wk0]?.[e.id] || 0) >= cap) return true;
+        }
+        // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
+        if (on('crossMonthRest') && initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return true;
+        // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
+        // הרשימה חוסמת רק בחודש שבו הוגשה: הבקשות מאוחדות מכל החודשים,
+        // ובלי הסייג הזה בקשה מחודש קודם הייתה חוסמת את העובד בכל החודשים הבאים.
+        if (on('canWhitelist')) {
+          const r = D.reqOf(e.id);
+          const ym = dStr.slice(0, 7);
+          if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') return true;
+        }
+        return false;
+      };
+
+      // משמרות ברזל (עובד קבוע חובה) — משובצים ראשונים, לפני התחרות הרגילה בין מועמדים.
+      // עדיין כפופים לחסימות הקשיחות הרגילות (כולל "לא יכול" — כך העובד יכול לבטל מופע
+      // ספציפי) ולתפוסת המשמרת; אם יש יותר עובדי ברזל ממקום פנוי, העודפים מתועדים כדילמה.
+      if (on('ironStanding')) {
+        (ironAssignments[dStr]?.[shift.id] || []).forEach((empId) => {
+          if ((schedule[dStr][shift.id] || []).includes(empId)) return;
+          if ((schedule[dStr][shift.id] || []).length >= required) {
+            addLog('dilemma', `עובד ברזל ${D.empById(empId)?.name || empId} לא שובץ ל${shift.name} ב־${D.shortDate(dStr)} — המשמרת כבר בתפוסה מלאה`);
+            return;
           }
-          // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
-          if (on('crossMonthRest') && initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return false;
-          // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
-          // הרשימה חוסמת רק בחודש שבו הוגשה: הבקשות מאוחדות מכל החודשים,
-          // ובלי הסייג הזה בקשה מחודש קודם הייתה חוסמת את העובד בכל החודשים הבאים.
-          if (on('canWhitelist')) {
-            const r = D.reqOf(e.id);
-            const ym = dStr.slice(0, 7);
-            if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') return false;
+          const e = D.EMPLOYEES.find((x) => x.id === empId);
+          if (!e) return;
+          if (hardBlocked(e)) {
+            addLog('dilemma', `עובד ברזל ${e.name} לא ניתן לשיבוץ ל${shift.name} ב־${D.shortDate(dStr)} — נחסם ע"י תנאי אחר`);
+            return;
           }
-          return true;
+          schedule[dStr][shift.id] = [...(schedule[dStr][shift.id] || []), empId];
+          counts[empId] += 1;
+          lastEnd[empId] = t.end;
+          if (shift.id === 'shabbat') {
+            lastShabbat[empId] = dStr;
+            (shabbatWeeks[wk0] = shabbatWeeks[wk0] || new Set()).add(empId);
+          }
+          if (wdShift0 >= 0 && wdShift0 <= 4) {
+            (weekCounts[wk0] = weekCounts[wk0] || {})[empId] = (weekCounts[wk0][empId] || 0) + 1;
+          }
+          addLog('info', `שובץ ${e.name} ל${shift.name} ב־${D.shortDate(dStr)} — משמרת ברזל קבועה`);
         });
+      }
+
+      for (let slot = 0; slot < (required - (schedule[dStr][shift.id] || []).length); slot++) {
+        const alreadyIn = schedule[dStr][shift.id] || [];
+        const wdShift = wdShift0;
+        const isFridayNonShabbat = isFridayNonShabbat0;
+        const isSaturdayish = isSaturdayish0;
+        const wk = wk0;
+        const cands = D.EMPLOYEES.filter((e) => !alreadyIn.includes(e.id) && !hardBlocked(e));
         const clean = on('biasMidMonthRest')
           ? cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H)
           : cands;
         const pool = clean.length ? clean : cands;
 
         if (!pool.length) {
-          if (slot === 0) addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
-          else addLog('dilemma', `אין עובד נוסף זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)} (שובץ ${slot}/${required})`);
+          if (alreadyIn.length === 0) addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
+          else addLog('dilemma', `אין עובד נוסף זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)} (שובץ ${alreadyIn.length}/${required})`);
           break;
         }
 
@@ -3992,6 +4039,7 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
     un:   { bg: 'var(--danger-bg)', bd: '1.5px solid color-mix(in oklab, var(--danger) 50%, transparent)', fg: 'var(--danger)' },
     high: { bg: 'var(--ok-bg)',     bd: '1.5px solid color-mix(in oklab, var(--ok) 50%, transparent)',     fg: 'var(--ok)' },
     can:  { bg: 'var(--warn-bg)',   bd: '1.5px solid color-mix(in oklab, var(--warn) 50%, transparent)',   fg: 'var(--warn)' },
+    iron: { bg: 'color-mix(in oklab, oklch(0.45 0.18 300) 15%, transparent)', bd: '1.5px solid oklch(0.45 0.18 300)', fg: 'oklch(0.45 0.18 300)' },
     none: { bg: 'var(--surface)',   bd: '1px solid var(--line)',   fg: 'var(--ink)' },
   };
   const SHIFT_DOTS = { morning: 'oklch(0.78 0.13 80)', evening: 'oklch(0.62 0.12 250)', short: 'oklch(0.68 0.11 160)', night: 'oklch(0.45 0.09 290)' };
@@ -4362,10 +4410,10 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
                   <div style={{fontSize:11.5,color:'var(--ink-3)',textAlign:'center',padding:'4px 0'}}>אין משמרות קבועות עדיין</div>
                 )}
                 {standingReqs.map(rule => {
-                  const markLabels = { un:'לא זמין', high:'מבקש לעבוד', can:'יכול' };
+                  const markLabels = { un:'לא זמין', high:'מבקש לעבוד', can:'יכול', iron:'🔒 ברזל (חובה)' };
                   const shiftName = rule.shift_id ? (allShifts.find(s => s.id === rule.shift_id)?.name || rule.shift_id) : null;
                   return (
-                    <div key={rule.id} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 8px',borderRadius:7,background:'var(--bg)',border:'1px solid var(--line)',opacity:rule.active?1:0.5}}>
+                    <div key={rule.id} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 8px',borderRadius:7,background:rule.mark === 'iron' ? MARK_ST.iron.bg : 'var(--bg)',border:rule.mark === 'iron' ? MARK_ST.iron.bd : '1px solid var(--line)',opacity:rule.active?1:0.5}}>
                       <span style={{fontSize:11,fontWeight:700,color:MARK_ST[rule.mark]?.fg}}>{markLabels[rule.mark]}</span>
                       <span style={{fontSize:11,color:'var(--ink-3)'}}>ביום</span>
                       <span style={{fontSize:11,fontWeight:700}}>{SD.HEB_DAYS[rule.weekday]}</span>
@@ -4386,6 +4434,7 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
                     <option value="high">מבקש לעבוד</option>
                     <option value="can">יכול</option>
                     <option value="un">לא זמין</option>
+                    <option value="iron">🔒 ברזל (חובה)</option>
                   </select>
                   <span style={{fontSize:11,color:'var(--ink-3)'}}>ביום</span>
                   <select value={newRule.weekday} onChange={e => setNewRule(r => ({...r, weekday: Number(e.target.value)}))}
@@ -4399,6 +4448,11 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
                   </select>
                   <button className="btn" style={{fontSize:11.5,padding:'4px 10px',flexShrink:0}} disabled={standingBusy} onClick={addRule}>+ הוסף</button>
                 </div>
+                {newRule.mark === 'iron' && (
+                  <div style={{fontSize:10.5,color:'oklch(0.45 0.18 300)',lineHeight:1.5,background:MARK_ST.iron.bg,borderRadius:7,padding:'6px 8px'}}>
+                    🔒 המנוע האוטומטי ישבץ את העובד כמעט תמיד, לפני כל מועמד אחר (בכפוף לתנאים קשיחים אחרים כמו מכסה ומנוחה). העובד עדיין יכול לבטל תאריך ספציפי בעצמו.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -4887,6 +4941,7 @@ function SmartSummaryModal({ summary, onClose }) {
 // בכל זאת או לבטל ולדרוש מהעובדים לתקן קודם
 function CriteriaGateModal({ gate, onProceed, onCancel }) {
   if (!gate) return null;
+  const ironConflicts = gate.ironConflicts || [];
   return (
     <div onClick={onCancel} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
       <div onClick={e => e.stopPropagation()} style={{
@@ -4896,26 +4951,41 @@ function CriteriaGateModal({ gate, onProceed, onCancel }) {
         <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
           <div style={{ fontSize:32 }}>⚠️</div>
           <div>
-            <div style={{ fontWeight:700, fontSize:16 }}>נמצאו חריגות מקריטריוני הגשה</div>
+            <div style={{ fontWeight:700, fontSize:16 }}>נמצאו חריגות לפני שיבוץ אוטומטי</div>
             <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
-              {gate.violations.length} עובדים לא עמדו בדרישות המינימום להגשת בקשות. אפשר להריץ שיבוץ בכל זאת, או לבטל ולבקש מהם לתקן קודם.
+              אפשר להריץ שיבוץ בכל זאת, או לבטל ולתקן קודם.
             </div>
           </div>
         </div>
-        <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
-          {gate.violations.map(v => (
-            <div key={v.empId} style={{ background:'var(--surface-2)', borderRadius:10, padding:'10px 12px' }}>
-              <div style={{ fontWeight:600, fontSize:13, marginBottom:5 }}>{v.name}</div>
-              <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
-                {v.violations.map((msg, i) => (
-                  <div key={i} style={{ fontSize:11.5, color:'var(--ink-3)' }}>· {msg}</div>
-                ))}
-              </div>
+        {ironConflicts.length > 0 && (
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontWeight:700, fontSize:13, marginBottom:8, color:'var(--danger)' }}>🔒 התנגשויות משמרות ברזל ({ironConflicts.length})</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              {ironConflicts.map((msg, i) => (
+                <div key={i} style={{ background:'var(--danger-bg)', borderRadius:9, padding:'8px 10px', fontSize:12 }}>{msg}</div>
+              ))}
             </div>
-          ))}
-        </div>
-        <div style={{ display:'flex', gap:10 }}>
-          <button className="btn" style={{ flex:1 }} onClick={onCancel}>ביטול — אבקש מהם לתקן</button>
+          </div>
+        )}
+        {gate.violations.length > 0 && (
+          <div>
+            <div style={{ fontWeight:700, fontSize:13, marginBottom:8 }}>📋 חריגות מקריטריוני הגשה ({gate.violations.length})</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
+              {gate.violations.map(v => (
+                <div key={v.empId} style={{ background:'var(--surface-2)', borderRadius:10, padding:'10px 12px' }}>
+                  <div style={{ fontWeight:600, fontSize:13, marginBottom:5 }}>{v.name}</div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                    {v.violations.map((msg, i) => (
+                      <div key={i} style={{ fontSize:11.5, color:'var(--ink-3)' }}>· {msg}</div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ display:'flex', gap:10, marginTop:12 }}>
+          <button className="btn" style={{ flex:1 }} onClick={onCancel}>ביטול — אתקן קודם</button>
           <button className="btn btn-primary" style={{ flex:1 }} onClick={onProceed}>הרץ שיבוץ בכל זאת</button>
         </div>
       </div>
@@ -4937,6 +5007,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'shabbatWeeklyCap', t: 'שבת ארוכה מפחיתה משמרת חול באותו שבוע', d: 'עובד ששובץ ל"שבת ארוכה" בשבוע מסוים מוגבל, באותו שבוע, למשמרת חול אחת פחות מיעד המשמרות/שבוע הרגיל שלו. לדוגמה: יעד 2 + שבת ארוכה באותו שבוע ⇐ לכל היותר משמרת חול אחת נוספת באותו שבוע.' },
     { key: 'crossMonthRest', t: 'מנוחה מול המשמרת האחרונה בחודש הקודם', d: 'פחות מ-8 שעות מנוחה מהמשמרת האחרונה שהעובד עשה בסוף החודש הקודם — חוסם לגמרי, בלי חריגה אוטומטית.' },
     { key: 'canWhitelist', t: 'רשימת "יכול" חודשית', d: 'עובד שהגיש רשימת "יכול" (can) מצומצמת לחודש הנוכחי לא ישובץ מחוץ לרשימה שהגיש, גם אם יש לו זמינות אחרת.' },
+    { key: 'ironStanding', t: '🔒 משמרת ברזל (קבועה)', d: 'משמרת קבועה שהמשבץ סימן כ"ברזל" (מכרטיס הבקשות של העובד) משובצת כמעט תמיד באופן אוטומטי, לפני כל שאר המועמדים — עדיין בכפוף לתנאים הקשיחים האחרים (מכסה, מנוחה וכו׳), וניתנת לביטול לתאריך ספציפי ע"י העובד עצמו (בדיוק כמו ביטול בקשה קבועה רגילה). אם יש יותר עובדי ברזל ממקום פנוי במשמרת, זה מוצג כאזהרה למשבץ לפני ההרצה.' },
   ];
   const SOFT = [
     { key: 'biasHighCan', t: 'עדיפות גבוהה / יכול', d: 'עובד שסימן "מעדיף" למשמרת מסוימת מקבל ניקוד גבוה יותר ממי שסימן "יכול" בלבד.' },
@@ -5426,6 +5497,7 @@ function App() {
   // העדפות עובד (employee_prefs) — יעד משמרות/שבוע בימי חול, מוכן לשישי/שבת.
   // חי בטבלה ייעודית, לא ב-state הכללי, כדי שעריכה מהעובד לא תיחסם ע"י שמירה חוזרת מהמשבץ
   const [prefs, setPrefs] = React.useState({});
+  const [allRecurring, setAllRecurring] = React.useState([]); // כל employee_recurring_requests — למשמרות ברזל
   const [admins, setAdmins] = React.useState(() => saved?.admins || ['eladadler@gmail.com']);
   const DEFAULT_SWAP_SETTINGS = { peerApprovalFull: false, peerApprovalPartial: false, managerApprovalFull: false, managerApprovalPartial: false };
   const [swapSettings, setSwapSettings] = React.useState(() => ({ ...DEFAULT_SWAP_SETTINGS, ...(saved?.swapSettings || {}) }));
@@ -5436,7 +5508,7 @@ function App() {
   // כיבוי מפתח כלשהו כאן מנטרל אותו בפועל במנוע (ShiftEngine.generate מקבל ruleToggles).
   const DEFAULT_RULE_TOGGLES = {
     unavailable: true, maxQuota: true, nightCapability: true, wantsFriday: true, wantsSaturday: true,
-    noWeekdayNights: true, shabbatWeeklyCap: true, crossMonthRest: true, canWhitelist: true,
+    noWeekdayNights: true, shabbatWeeklyCap: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
     biasHighCan: true, biasAnchor: true, biasNightOwl: true, biasLoadBalance: true,
     biasWeeklyTarget: true, biasShabbatFrequency: true, biasMidMonthRest: true,
   };
@@ -5542,6 +5614,7 @@ function App() {
       window.__db.syncEmployees?.(loadedEmployees);
       refreshEmployeeRequests();
       refreshEmployeePrefs();
+      refreshAllRecurring();
       // סנכרון מפתח Anthropic ל-Supabase אם קיים ב-localStorage (למען אפליקציית העובדים)
       const existingKey = localStorage.getItem('anthropic-api-key');
       if (existingKey) window.__db.saveAnthropicKey(existingKey);
@@ -5602,10 +5675,18 @@ function App() {
     });
   }, []);
 
+  // כל הבקשות הקבועות (employee_recurring_requests) — נדרש עבור משמרות "ברזל"
+  // באלגוריתם, שצריך להכיר את כולן בלי תלות בהגשה חודשית (ראו computeIronAssignments)
+  const refreshAllRecurring = React.useCallback(async () => {
+    if (!dbAvailable.current || !window.__db.fetchAllRecurringRequests) return;
+    const rows = await window.__db.fetchAllRecurringRequests();
+    setAllRecurring(rows || []);
+  }, []);
+
   React.useEffect(() => {
-    const t = setInterval(() => { refreshEmployeeRequests(); refreshEmployeePrefs(); }, 60000);
+    const t = setInterval(() => { refreshEmployeeRequests(); refreshEmployeePrefs(); refreshAllRecurring(); }, 60000);
     return () => clearInterval(t);
-  }, [refreshEmployeeRequests, refreshEmployeePrefs]);
+  }, [refreshEmployeeRequests, refreshEmployeePrefs, refreshAllRecurring]);
 
   // סנכרון רשימת העובדים לטבלת app_employees — כך אפליקציית העובדים מזהה עובד לפי אימייל
   React.useEffect(() => {
@@ -5800,15 +5881,62 @@ function App() {
     return last;
   };
 
-  // בדיקת חריגות מקריטריוני הגשה, לפני הרצת שיבוץ אוטומטי — ראו runWithCriteriaGate
-  const checkCriteriaViolationsForScheduling = () => {
-    if (!currentDraft?.range?.start) return [];
-    const dates = [];
-    let cur = currentDraft.range.start;
-    while (cur <= currentDraft.range.end) {
-      if (!(currentDraft.excluded || []).includes(cur)) dates.push(cur);
+  const datesForDraft = (draft) => {
+    if (!draft?.range?.start) return [];
+    const out = [];
+    let cur = draft.range.start;
+    while (cur <= draft.range.end) {
+      if (!(draft.excluded || []).includes(cur)) out.push(cur);
       cur = AD.addDays(cur, 1);
     }
+    return out;
+  };
+
+  // מחשב אילו עובדים משובצים בכפייה ("ברזל") לכל תאריך/משמרת בטווח נתון, מתוך
+  // employee_recurring_requests — בלי תלות בהגשת בקשה חודשית של אף עובד. עובד
+  // שביטל מופע ספציפי (סימן "לא זמין" לתאריך/משמרת הזו בבקשה שהגיש) מוחרג משם.
+  const computeIronAssignments = (dates) => {
+    const out = {};
+    allRecurring.filter(r => r.active && r.mark === 'iron').forEach(rule => {
+      dates.forEach(dStr => {
+        if (AD.weekdayOf(dStr) !== rule.weekday) return;
+        const shiftIds = rule.shift_id
+          ? [rule.shift_id]
+          : AD.shiftTypesFor(dStr, shiftSettings).filter(s => !s.continuation).map(s => s.id);
+        shiftIds.forEach(sid => {
+          if (AD.availabilityOn(rule.emp_id, dStr, sid) === 'unavailable') return;
+          if (!out[dStr]) out[dStr] = {};
+          if (!out[dStr][sid]) out[dStr][sid] = [];
+          if (!out[dStr][sid].includes(rule.emp_id)) out[dStr][sid].push(rule.emp_id);
+        });
+      });
+    });
+    return out;
+  };
+
+  // בדיקת חריגה: יותר עובדי ברזל ממקומות פנויים באותה משמרת — מוצג למשבץ לפני הרצה
+  const computeIronConflicts = () => {
+    const dates = datesForDraft(currentDraft);
+    if (!dates.length) return [];
+    const ironAssignments = computeIronAssignments(dates);
+    const conflicts = [];
+    Object.entries(ironAssignments).forEach(([dStr, byShift]) => {
+      Object.entries(byShift).forEach(([shiftId, empIds]) => {
+        const shift = AD.shiftDef(dStr, shiftId, shiftSettings);
+        const required = shift?.required || 1;
+        if (empIds.length > required) {
+          const names = empIds.map(id => employees.find(e => e.id === id)?.name || id).join(', ');
+          conflicts.push(`${AD.shortDate(dStr)} — ${shift?.name || shiftId}: ${empIds.length} עובדי ברזל למקום ${required} (${names})`);
+        }
+      });
+    });
+    return conflicts;
+  };
+
+  // בדיקת חריגות מקריטריוני הגשה, לפני הרצת שיבוץ אוטומטי — ראו runWithCriteriaGate
+  const checkCriteriaViolationsForScheduling = () => {
+    const dates = datesForDraft(currentDraft);
+    if (!dates.length) return [];
     const out = [];
     employees.forEach(emp => {
       const criteria = { ...requestCriteria, ...(emp.reqCriteria || {}) };
@@ -5824,7 +5952,8 @@ function App() {
   // למשבץ, לפני שהשיבוץ בפועל רץ — הוא בוחר אם להמשיך בכל זאת או לדרוש תיקון קודם
   const runWithCriteriaGate = (fn) => () => {
     const violations = checkCriteriaViolationsForScheduling();
-    if (violations.length) { setCriteriaGate({ violations, proceed: fn }); return; }
+    const ironConflicts = computeIronConflicts();
+    if (violations.length || ironConflicts.length) { setCriteriaGate({ violations, ironConflicts, proceed: fn }); return; }
     fn();
   };
 
@@ -5837,6 +5966,7 @@ function App() {
       startDate: currentDraft.range.start, endDate: currentDraft.range.end,
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
       initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), ruleToggles,
+      ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
     });
     const ts = new Date().toISOString();
     const log = [
@@ -5867,6 +5997,7 @@ function App() {
         excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule,
         shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds,
         initialLastShabbat: calcLastShabbatDates(), ruleToggles,
+        ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
       });
       algoResult.log.filter(l => l.type !== 'info').forEach(l => smartLog.push({ ...l, timestamp: ts() }));
 
@@ -6126,6 +6257,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         startDate: snap.range.start, endDate: snap.range.end,
         excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
         initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), ruleToggles,
+        ironAssignments: computeIronAssignments(datesForDraft(snap)),
       });
 
       const ts = new Date().toISOString();

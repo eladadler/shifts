@@ -3521,7 +3521,7 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
             <div>
               <div className="settings-sec-title">🔑 חשבונות עובדים — מפתח אדמין</div>
               <div style={{marginTop:10,fontSize:'12px',color:'var(--ink-3)',marginBottom:8,lineHeight:1.5}}>
-                נדרש ליצירת חשבונות וקביעת סיסמאות לעובדים ממסך העובדים.
+                נדרש ליצירת חשבונות וקביעת סיסמאות לעובדים ממסך "עובדים ובקשות".
                 העתיקו מ-Supabase: Project Settings ← API Keys ← <code>service_role</code>.
                 <b> אל תשתפו את המפתח עם איש</b> — הוא מקנה שליטה מלאה במסד הנתונים.
               </div>
@@ -3743,17 +3743,36 @@ function ApprovePendingModal({ pending, COLORS, onClose, onApproved }) {
   );
 }
 
-// ---- EmployeesScreen ----
-function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pendingEmps: _unused, onPendingChange: _unused2, requestCriteria, prefs, onSavePref }) {
-  const [emps, setEmps] = React.useState(initEmps);
-  React.useEffect(() => { setEmps(initEmps); }, [initEmps]);
-  const [showForm, setShowForm] = React.useState(false);
-  const [editEmp, setEditEmp] = React.useState(null);
+// ---- EmployeeProfileForm ----
+// טופס פרטי עובד — מוצג inline בתוך הטאב "⚙ פרטי עובד" (במקום המודאל הישן של
+// מסך "עובדים" הנפרד, שהתמזג לתוך מסך "עובדים ובקשות" האחוד). emp=null → הוספת עובד חדש.
+function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onSave, onCancel, onDelete }) {
+  const COLORS = ['oklch(0.62 0.14 250)','oklch(0.62 0.14 330)','oklch(0.62 0.14 160)','oklch(0.62 0.14 50)','oklch(0.62 0.14 210)','oklch(0.62 0.14 10)','oklch(0.62 0.14 290)','oklch(0.62 0.14 130)'];
+  const buildDraft = (e) => {
+    const p = prefs?.[e?.id];
+    return {
+      id: e?.id || ('emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)),
+      name: e?.name || '', role: e?.role || '', email: e?.email || '',
+      color: e?.color || COLORS[0], max: e?.max ?? 14, anchor: !!e?.anchor, nights: !!e?.nights,
+      shabbatFrequencyDays: e?.shabbatFrequencyDays || 45, reqCriteria: e?.reqCriteria || {},
+      weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
+      wantsFriday: p?.wants_friday ?? true,
+      wantsSaturday: p?.wants_saturday ?? true,
+      noWeekdayNights: p?.no_weekday_nights ?? false,
+    };
+  };
+  const [draft, setDraft] = React.useState(() => buildDraft(emp));
   const [acctPw, setAcctPw] = React.useState('');
   const [acctBusy, setAcctBusy] = React.useState(false);
   const [acctMsg, setAcctMsg] = React.useState(null);
+
+  React.useEffect(() => {
+    setDraft(buildDraft(emp));
+    setAcctPw(''); setAcctMsg(null);
+  }, [emp?.id, isNew]);
+
   const setAccountPassword = async () => {
-    const email = (editEmp.email || '').trim();
+    const email = (draft.email || '').trim();
     if (!email) { setAcctMsg({ err: true, text: 'מלאו קודם את שדה האימייל' }); return; }
     if (acctPw.length < 6) { setAcctMsg({ err: true, text: 'הסיסמה צריכה להכיל לפחות 6 תווים' }); return; }
     setAcctBusy(true); setAcctMsg(null);
@@ -3766,242 +3785,161 @@ function EmployeesScreen({ employees: initEmps, onEmployeesChange, adminKey, pen
       setAcctMsg({ err: true, text: 'שגיאה: ' + res.error });
     }
   };
-  const COLORS = ['oklch(0.62 0.14 250)','oklch(0.62 0.14 330)','oklch(0.62 0.14 160)','oklch(0.62 0.14 50)','oklch(0.62 0.14 210)','oklch(0.62 0.14 10)','oklch(0.62 0.14 290)','oklch(0.62 0.14 130)'];
 
-  const updateEmps = (fn) => {
-    setEmps(prev => {
-      const next = fn(prev);
-      if (onEmployeesChange) onEmployeesChange(next);
-      return next;
-    });
-  };
-
-  const openAdd = () => {
-    setEditEmp({ id: 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: '', role: '', email: '', color: COLORS[0], max: 14, anchor: false, nights: false,
-      weekdayShiftsPerWeek: 2, wantsFriday: true, wantsSaturday: true, noWeekdayNights: false });
-    setAcctPw(''); setAcctMsg(null);
-    setShowForm(true);
-  };
-  const openEdit = (emp) => {
-    const p = prefs?.[emp.id];
-    setEditEmp({ ...emp,
-      weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
-      wantsFriday: p?.wants_friday ?? true,
-      wantsSaturday: p?.wants_saturday ?? true,
-      noWeekdayNights: p?.no_weekday_nights ?? false,
-    });
-    setAcctPw(''); setAcctMsg(null); setShowForm(true);
-  };
-  const saveEmp = () => {
-    if (!editEmp.name.trim()) return;
+  const save = () => {
+    if (!draft.name.trim()) return;
     // weekdayShiftsPerWeek/wantsFriday/wantsSaturday/noWeekdayNights חיים ב-employee_prefs
     // (טבלה נפרדת, דו-כיוונית עם אפליקציית העובד) — לא נשמרים כפולים ברשומת העובד עצמה
-    const { weekdayShiftsPerWeek, wantsFriday, wantsSaturday, noWeekdayNights, ...empRecord } = editEmp;
-    updateEmps(prev => prev.find(e => e.id === empRecord.id)
-      ? prev.map(e => e.id === empRecord.id ? empRecord : e)
-      : [...prev, empRecord]);
-    onSavePref?.(empRecord.id, {
+    const { weekdayShiftsPerWeek, wantsFriday, wantsSaturday, noWeekdayNights, ...empRecord } = draft;
+    onSave(empRecord, {
       weekday_shifts_per_week: weekdayShiftsPerWeek,
       wants_friday: wantsFriday,
       wants_saturday: wantsSaturday,
       no_weekday_nights: noWeekdayNights,
     });
-    setShowForm(false);
   };
-  const deleteEmp = (id) => { if (window.confirm('למחוק עובד זה?')) updateEmps(prev => prev.filter(e => e.id !== id)); };
 
   return (
-    <div className="mgmt-screen">
-      <div className="mgmt-toolbar">
-        <h2 className="mgmt-title">👥 עובדים</h2>
-        <button className="btn btn-primary" style={{marginInlineStart:'auto'}} onClick={openAdd}>+ הוספת עובד</button>
-      </div>
-
-      <div className="emp-table">
-        <div className="emp-table-row emp-table-head">
-          <span>שם</span><span>תפקיד</span>
-          <span style={{textAlign:'center'}}>מכסה</span>
-          <span style={{textAlign:'center'}}>לילות</span>
-          <span></span>
+    <div style={{flex:1,overflow:'auto',padding:'18px 22px 28px'}}>
+      <div style={{display:'flex',flexDirection:'column',gap:16,maxWidth:520}}>
+        <div className="field">
+          <label className="field-label">שם פרטי <span style={{color:'var(--danger)'}}>*</span></label>
+          <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
+            value={draft.name} onChange={(e) => setDraft(p => ({...p, name: e.target.value}))} autoFocus
+            placeholder="שדה חובה יחיד — אפשר להוסיף שם משפחה אם רוצים" />
         </div>
-        {emps.map((emp) => (
-          <div key={emp.id} className="emp-table-row">
-            <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <window.Avatar emp={emp} size={30} />
-              <div>
-                <div style={{fontWeight:600,fontSize:'13px'}}>{emp.name}</div>
-                {emp.email && <div style={{fontSize:'10.5px',color:'var(--ink-3)',direction:'ltr',textAlign:'right'}}>{emp.email}</div>}
-                {emp.anchor && <span style={{fontSize:'10px',color:'var(--ink-3)'}}>⚓ עוגן</span>}
-                {(prefs?.[emp.id]?.weekday_shifts_per_week ?? 2) < 2 && (
-                  <span style={{fontSize:'10px',color:'var(--danger)',fontWeight:600,marginInlineStart:6}} title="מבקש פחות מ-2 משמרות/שבוע בימי חול">
-                    ⚠ {prefs[emp.id].weekday_shifts_per_week}/שבוע
-                  </span>
-                )}
+        <div className="field">
+          <label className="field-label">תפקיד <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
+          <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
+            value={draft.role} onChange={(e) => setDraft(p => ({...p, role: e.target.value}))} />
+        </div>
+        <div className="field">
+          <label className="field-label">אימייל <span style={{color:'var(--ink-3)',fontWeight:400}}>(לכניסה לאפליקציית העובדים)</span></label>
+          <input type="email" dir="ltr" style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%',textAlign:'left'}}
+            value={draft.email || ''} onChange={(e) => setDraft(p => ({...p, email: e.target.value}))}
+            placeholder="dana@example.com" />
+        </div>
+        <div className="field">
+          <label className="field-label">סיסמה לאפליקציית העובדים</label>
+          {!adminKey ? (
+            <span className="field-hint" style={{fontSize:'11.5px'}}>כדי ליצור חשבון ולקבוע סיסמה מכאן, הזינו מפתח אדמין בהגדרות (⚙)</span>
+          ) : (
+            <>
+              <div style={{display:'flex',gap:6}}>
+                <input type="text" dir="ltr" style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'left'}}
+                  value={acctPw} onChange={(e) => { setAcctPw(e.target.value); setAcctMsg(null); }}
+                  placeholder="סיסמה חדשה (6 תווים לפחות)" />
+                <button className="btn btn-primary" style={{whiteSpace:'nowrap',fontSize:'12.5px'}} disabled={acctBusy}
+                  onClick={setAccountPassword}>
+                  {acctBusy ? <><span className="spin">↻</span> שומר…</> : 'צור חשבון / קבע סיסמה'}
+                </button>
               </div>
-            </div>
-            <span style={{fontSize:'13px',color:'var(--ink-2)'}}>{emp.role}</span>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
-              <button className="emp-max-btn" onClick={() => updateEmps(prev => prev.map(e => e.id === emp.id ? {...e, max: Math.max(1, e.max - 1)} : e))}>−</button>
-              <span style={{fontSize:'13px',fontWeight:600,minWidth:20,textAlign:'center'}}>{emp.max}</span>
-              <button className="emp-max-btn" onClick={() => updateEmps(prev => prev.map(e => e.id === emp.id ? {...e, max: e.max + 1} : e))}>+</button>
-            </div>
-            <span style={{textAlign:'center',fontSize:'14px'}}>{emp.nights ? '✓' : '—'}</span>
-            <div style={{display:'flex',gap:6,justifyContent:'flex-end'}}>
-              <button className="btn" style={{padding:'4px 10px',fontSize:'12px'}} onClick={() => openEdit(emp)}>עריכה</button>
-              <button className="btn" style={{padding:'4px 10px',fontSize:'12px',color:'var(--danger)',borderColor:'color-mix(in oklab, var(--danger) 40%, transparent)'}} onClick={() => deleteEmp(emp.id)}>מחיקה</button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {showForm && editEmp && (
-        <div className="modal-backdrop" onClick={() => setShowForm(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h2 className="modal-title">{emps.find(e => e.id === editEmp.id) ? 'עריכת עובד' : 'הוספת עובד'}</h2>
-              <button className="icon-btn" onClick={() => setShowForm(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <div className="field">
-                <label className="field-label">שם פרטי <span style={{color:'var(--danger)'}}>*</span></label>
-                <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
-                  value={editEmp.name} onChange={(e) => setEditEmp(p => ({...p, name: e.target.value}))} autoFocus
-                  placeholder="שדה חובה יחיד — אפשר להוסיף שם משפחה אם רוצים" />
-              </div>
-              <div className="field">
-                <label className="field-label">תפקיד <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
-                <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
-                  value={editEmp.role} onChange={(e) => setEditEmp(p => ({...p, role: e.target.value}))} />
-              </div>
-              <div className="field">
-                <label className="field-label">אימייל <span style={{color:'var(--ink-3)',fontWeight:400}}>(לכניסה לאפליקציית העובדים)</span></label>
-                <input type="email" dir="ltr" style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%',textAlign:'left'}}
-                  value={editEmp.email || ''} onChange={(e) => setEditEmp(p => ({...p, email: e.target.value}))}
-                  placeholder="dana@example.com" />
-              </div>
-              <div className="field">
-                <label className="field-label">סיסמה לאפליקציית העובדים</label>
-                {!adminKey ? (
-                  <span className="field-hint" style={{fontSize:'11.5px'}}>כדי ליצור חשבון ולקבוע סיסמה מכאן, הזינו מפתח אדמין בהגדרות (⚙)</span>
-                ) : (
-                  <>
-                    <div style={{display:'flex',gap:6}}>
-                      <input type="text" dir="ltr" style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'left'}}
-                        value={acctPw} onChange={(e) => { setAcctPw(e.target.value); setAcctMsg(null); }}
-                        placeholder="סיסמה חדשה (6 תווים לפחות)" />
-                      <button className="btn btn-primary" style={{whiteSpace:'nowrap',fontSize:'12.5px'}} disabled={acctBusy}
-                        onClick={setAccountPassword}>
-                        {acctBusy ? <><span className="spin">↻</span> שומר…</> : 'צור חשבון / קבע סיסמה'}
-                      </button>
-                    </div>
-                    {acctMsg && <div style={{marginTop:6,fontSize:'12px',color:acctMsg.err ? 'var(--danger)' : 'var(--ok)'}}>{acctMsg.text}</div>}
-                  </>
-                )}
-              </div>
-              <div className="field">
-                <label className="field-label">מכסה חודשית <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
-                <div className="stepper">
-                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, max: Math.max(1, p.max - 1)}))}>−</button>
-                  <span className="stepper-val">{editEmp.max}</span>
-                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, max: p.max + 1}))}>+</button>
-                  <span className="field-hint">משמרות לחודש</span>
-                </div>
-              </div>
-              <div style={{display:'flex',gap:20}}>
-                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-                  <input type="checkbox" checked={editEmp.anchor} onChange={(e) => setEditEmp(p => ({...p, anchor: e.target.checked}))} />
-                  עוגן (ותיק)
-                </label>
-                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-                  <input type="checkbox" checked={editEmp.nights} onChange={(e) => setEditEmp(p => ({...p, nights: e.target.checked}))} />
-                  משמרות לילה
-                </label>
-              </div>
-              <div className="field">
-                <label className="field-label">
-                  יעד משמרות/שבוע בימי חול (א׳–ה׳)
-                  {editEmp.weekdayShiftsPerWeek < 2 && <span style={{color:'var(--danger)',fontWeight:600}}> ⚠ מתחת ל-2</span>}
-                </label>
-                <div className="stepper">
-                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, weekdayShiftsPerWeek: Math.max(0, p.weekdayShiftsPerWeek - 1)}))}>−</button>
-                  <span className="stepper-val">{editEmp.weekdayShiftsPerWeek}</span>
-                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, weekdayShiftsPerWeek: p.weekdayShiftsPerWeek + 1}))}>+</button>
-                  <span className="field-hint">גם מתעדכן/ניתן לעריכה מאפליקציית העובד</span>
-                </div>
-              </div>
-              <div style={{display:'flex',gap:20}}>
-                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-                  <input type="checkbox" checked={editEmp.wantsFriday} onChange={(e) => setEditEmp(p => ({...p, wantsFriday: e.target.checked}))} />
-                  מוכן למשמרות שישי
-                </label>
-                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-                  <input type="checkbox" checked={editEmp.wantsSaturday} onChange={(e) => setEditEmp(p => ({...p, wantsSaturday: e.target.checked}))} />
-                  מוכן למשמרות שבת
-                </label>
-              </div>
-              <div style={{display:'flex',gap:20}}>
-                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-                  <input type="checkbox" checked={editEmp.noWeekdayNights} onChange={(e) => setEditEmp(p => ({...p, noWeekdayNights: e.target.checked}))} />
-                  ללא לילות באמצע השבוע (א׳–ה׳)
-                </label>
-              </div>
-              <div className="field">
-                <label className="field-label">צבע</label>
-                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                  {COLORS.map(c => (
-                    <button key={c} onClick={() => setEditEmp(p => ({...p, color: c}))}
-                      style={{width:32,height:32,borderRadius:7,background:c,border:`2.5px solid ${editEmp.color === c ? 'var(--ink)' : 'transparent'}`,cursor:'pointer',transition:'border-color 0.1s'}} />
-                  ))}
-                </div>
-              </div>
-              <div className="field">
-                <label className="field-label">🔁 שיבוץ שבת (ארוכה) — כל כמה ימים בקירוב</label>
-                <div className="stepper">
-                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, shabbatFrequencyDays: Math.max(7, (p.shabbatFrequencyDays || 45) - 1)}))}>−</button>
-                  <span className="stepper-val">{editEmp.shabbatFrequencyDays || 45}</span>
-                  <button className="stepper-btn" onClick={() => setEditEmp(p => ({...p, shabbatFrequencyDays: (p.shabbatFrequencyDays || 45) + 1}))}>+</button>
-                  <span className="field-hint">ימים בין משמרות (ברירת מחדל 45)</span>
-                </div>
-              </div>
-              <div className="field">
-                <label className="field-label">📋 קריטריוני הגשת בקשות אישיים <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות — ריק = לפי ההגדרה הכללית)</span></label>
-                <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:4}}>
-                  {[
-                    ['minNightsPerWeek', 'מינימום לילות/שבוע'],
-                    ['minDaysPerWeek', 'מינימום ימים/שבוע'],
-                    ['minFridaysCanPerMonth', 'שישי פנוי אחד/חודש'],
-                    ['minSaturdaysCanPerMonth', 'שבת פנויה אחת/חודש'],
-                  ].map(([key, label]) => (
-                    <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
-                      <span style={{fontSize:'12.5px',color:'var(--ink-2)'}}>{label}</span>
-                      <input type="number" min="0" max="7"
-                        value={editEmp.reqCriteria?.[key] ?? ''}
-                        placeholder={String(requestCriteria?.[key] ?? '')}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          setEditEmp(p => {
-                            const rc = { ...(p.reqCriteria || {}) };
-                            if (raw === '') delete rc[key]; else rc[key] = Math.max(0, parseInt(raw) || 0);
-                            return { ...p, reqCriteria: rc };
-                          });
-                        }}
-                        style={{width:52,border:'1px solid var(--line)',borderRadius:7,padding:'5px 7px',fontSize:'13px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'center',flexShrink:0}} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="modal-foot">
-              <span></span>
-              <div className="modal-actions">
-                <button className="btn" onClick={() => setShowForm(false)}>ביטול</button>
-                <button className="btn btn-primary" onClick={saveEmp}>שמירה</button>
-              </div>
-            </div>
+              {acctMsg && <div style={{marginTop:6,fontSize:'12px',color:acctMsg.err ? 'var(--danger)' : 'var(--ok)'}}>{acctMsg.text}</div>}
+            </>
+          )}
+        </div>
+        <div className="field">
+          <label className="field-label">מכסה חודשית <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
+          <div className="stepper">
+            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, max: Math.max(1, p.max - 1)}))}>−</button>
+            <span className="stepper-val">{draft.max}</span>
+            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, max: p.max + 1}))}>+</button>
+            <span className="field-hint">משמרות לחודש</span>
           </div>
         </div>
-      )}
-
+        <div style={{display:'flex',gap:20}}>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+            <input type="checkbox" checked={draft.anchor} onChange={(e) => setDraft(p => ({...p, anchor: e.target.checked}))} />
+            עוגן (ותיק)
+          </label>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+            <input type="checkbox" checked={draft.nights} onChange={(e) => setDraft(p => ({...p, nights: e.target.checked}))} />
+            משמרות לילה
+          </label>
+        </div>
+        <div className="field">
+          <label className="field-label">
+            יעד משמרות/שבוע בימי חול (א׳–ה׳)
+            {draft.weekdayShiftsPerWeek < 2 && <span style={{color:'var(--danger)',fontWeight:600}}> ⚠ מתחת ל-2</span>}
+          </label>
+          <div className="stepper">
+            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, weekdayShiftsPerWeek: Math.max(0, p.weekdayShiftsPerWeek - 1)}))}>−</button>
+            <span className="stepper-val">{draft.weekdayShiftsPerWeek}</span>
+            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, weekdayShiftsPerWeek: p.weekdayShiftsPerWeek + 1}))}>+</button>
+            <span className="field-hint">גם מתעדכן/ניתן לעריכה מאפליקציית העובד</span>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:20}}>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+            <input type="checkbox" checked={draft.wantsFriday} onChange={(e) => setDraft(p => ({...p, wantsFriday: e.target.checked}))} />
+            מוכן למשמרות שישי
+          </label>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+            <input type="checkbox" checked={draft.wantsSaturday} onChange={(e) => setDraft(p => ({...p, wantsSaturday: e.target.checked}))} />
+            מוכן למשמרות שבת
+          </label>
+        </div>
+        <div style={{display:'flex',gap:20}}>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+            <input type="checkbox" checked={draft.noWeekdayNights} onChange={(e) => setDraft(p => ({...p, noWeekdayNights: e.target.checked}))} />
+            ללא לילות באמצע השבוע (א׳–ה׳)
+          </label>
+        </div>
+        <div className="field">
+          <label className="field-label">צבע</label>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            {COLORS.map(c => (
+              <button key={c} onClick={() => setDraft(p => ({...p, color: c}))}
+                style={{width:32,height:32,borderRadius:7,background:c,border:`2.5px solid ${draft.color === c ? 'var(--ink)' : 'transparent'}`,cursor:'pointer',transition:'border-color 0.1s'}} />
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <label className="field-label">🔁 שיבוץ שבת (ארוכה) — כל כמה ימים בקירוב</label>
+          <div className="stepper">
+            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, shabbatFrequencyDays: Math.max(7, (p.shabbatFrequencyDays || 45) - 1)}))}>−</button>
+            <span className="stepper-val">{draft.shabbatFrequencyDays || 45}</span>
+            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, shabbatFrequencyDays: (p.shabbatFrequencyDays || 45) + 1}))}>+</button>
+            <span className="field-hint">ימים בין משמרות (ברירת מחדל 45)</span>
+          </div>
+        </div>
+        <div className="field">
+          <label className="field-label">📋 קריטריוני הגשת בקשות אישיים <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות — ריק = לפי ההגדרה הכללית)</span></label>
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:4}}>
+            {[
+              ['minNightsPerWeek', 'מינימום לילות/שבוע'],
+              ['minDaysPerWeek', 'מינימום ימים/שבוע'],
+              ['minFridaysCanPerMonth', 'שישי פנוי אחד/חודש'],
+              ['minSaturdaysCanPerMonth', 'שבת פנויה אחת/חודש'],
+            ].map(([key, label]) => (
+              <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                <span style={{fontSize:'12.5px',color:'var(--ink-2)'}}>{label}</span>
+                <input type="number" min="0" max="7"
+                  value={draft.reqCriteria?.[key] ?? ''}
+                  placeholder={String(requestCriteria?.[key] ?? '')}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setDraft(p => {
+                      const rc = { ...(p.reqCriteria || {}) };
+                      if (raw === '') delete rc[key]; else rc[key] = Math.max(0, parseInt(raw) || 0);
+                      return { ...p, reqCriteria: rc };
+                    });
+                  }}
+                  style={{width:52,border:'1px solid var(--line)',borderRadius:7,padding:'5px 7px',fontSize:'13px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'center',flexShrink:0}} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:10,paddingTop:10,borderTop:'1px solid var(--line)'}}>
+          {!isNew && (
+            <button className="btn" style={{color:'var(--danger)',borderColor:'color-mix(in oklab, var(--danger) 40%, transparent)'}}
+              onClick={() => onDelete(emp.id)}>מחיקה</button>
+          )}
+          <span style={{marginInlineStart:'auto'}} />
+          {isNew && <button className="btn" onClick={onCancel}>ביטול</button>}
+          <button className="btn btn-primary" onClick={save}>{isNew ? '+ הוספה' : '💾 שמירה'}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -4463,8 +4401,12 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
   );
 }
 
-// ---- RequestsScreen ----
-function RequestsScreen({ employees, requests, onRequestsChange, onEmployeesChange, initialMonth, apiKey, onRefresh, openRangeByMonth }) {
+// ---- PeopleScreen ----
+// מסך מאוחד: רשימת עובדים משותפת + פאנל פרטים לעובד הנבחר, עם שני טאבים —
+// "בקשות" (RequestDetailPanel, כפי שהיה במסך "בקשות" הנפרד) ו"פרטי עובד"
+// (EmployeeProfileForm, כפי שהיה במסך "עובדים" הנפרד) — כדי לא לקפוץ בין שני מסכים
+// עם שתי רשימות עובדים נפרדות כדי לעשות שתי פעולות שקשורות לאותו עובד.
+function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, initialMonth, apiKey, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria }) {
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
   const [refreshing, setRefreshing] = React.useState(false);
   const refresh = async () => {
@@ -4474,6 +4416,8 @@ function RequestsScreen({ employees, requests, onRequestsChange, onEmployeesChan
     setRefreshing(false);
   };
   const [month, setMonth] = React.useState(initialMonth || SD.MONTH);
+  const [tab, setTab] = React.useState('requests'); // 'requests' | 'profile'
+  const [addingNew, setAddingNew] = React.useState(false);
   const openRange = React.useMemo(() => openRangeByMonth?.[month] || null, [openRangeByMonth, month]);
   const [selectedEmpId, setSelectedEmpId] = React.useState(null);
   const [analyzing, setAnalyzing] = React.useState({});
@@ -4685,6 +4629,21 @@ ${shiftsDesc}
     }
   };
 
+  const selectEmp = (id) => { setSelectedEmpId(id); setAddingNew(false); };
+  const openAddEmployee = () => { setAddingNew(true); setSelectedEmpId(null); setTab('profile'); };
+  const saveEmployee = (empRecord, prefsPatch) => {
+    onEmployeesChange(prev => prev.find(e => e.id === empRecord.id)
+      ? prev.map(e => e.id === empRecord.id ? empRecord : e)
+      : [...prev, empRecord]);
+    onSavePref?.(empRecord.id, prefsPatch);
+    if (addingNew) { setAddingNew(false); setSelectedEmpId(empRecord.id); }
+  };
+  const deleteEmployee = (id) => {
+    if (!window.confirm('למחוק עובד זה?')) return;
+    onEmployeesChange(prev => prev.filter(e => e.id !== id));
+    if (selectedEmpId === id) { setSelectedEmpId(null); setTab('requests'); }
+  };
+
   const withReqCount = employees.filter(e => entryOf(e.id)).length;
   const selectedEmp = employees.find(e => e.id === selectedEmpId) || null;
 
@@ -4692,7 +4651,7 @@ ${shiftsDesc}
     <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,overflow:'hidden',background:'var(--bg)'}}>
       {/* Toolbar */}
       <div className="mgmt-toolbar" style={{padding:'10px 20px',borderBottom:'1px solid var(--line)',flexShrink:0,background:'var(--surface)'}}>
-        <h2 className="mgmt-title">📋 בקשות</h2>
+        <h2 className="mgmt-title">👥 עובדים ובקשות</h2>
         <div className="month-nav" style={{marginInlineStart:12}}>
           <button className="month-nav-btn" onClick={() => navMonth(-1)} title="חודש קודם">‹</button>
           <span style={{fontSize:'14px',fontWeight:600,minWidth:110,textAlign:'center'}}>{SD.monthLabel(month)}</span>
@@ -4702,15 +4661,16 @@ ${shiftsDesc}
           {refreshing ? <><span className="spin">↻</span> מרענן…</> : '↻ רענון'}
         </button>
         <span style={{fontSize:'12.5px',color:'var(--ink-3)',marginInlineStart:'auto'}}>{withReqCount}/{employees.length} עם בקשות</span>
+        <button className="btn btn-primary" style={{marginInlineStart:10,fontSize:'12px'}} onClick={openAddEmployee}>+ הוספת עובד</button>
       </div>
 
       {/* Split layout */}
       <div style={{display:'flex',flex:1,minHeight:0,overflow:'hidden'}}>
 
         {/* Employee list — FIRST in DOM → right side in RTL */}
-        <div style={{width:220,flexShrink:0,overflow:'auto',borderInlineEnd:'1px solid var(--line)',background:'var(--surface)',padding:'6px 5px'}}>
+        <div style={{width:230,flexShrink:0,overflow:'auto',borderInlineEnd:'1px solid var(--line)',background:'var(--surface)',padding:'6px 5px'}}>
           {employees.length === 0 && (
-            <div style={{textAlign:'center',padding:'20px',color:'var(--ink-3)',fontSize:12}}>אין עובדים</div>
+            <div style={{textAlign:'center',padding:'20px',color:'var(--ink-3)',fontSize:12}}>אין עובדים עדיין — לחצו "+ הוספת עובד" למעלה</div>
           )}
           {employees.map(emp => {
             const entry = entryOf(emp.id);
@@ -4718,9 +4678,10 @@ ${shiftsDesc}
             const fromEmployee = entry?.fromEmployee;
             const analyzed = entry?.analyzedAt;
             const hasText = entry?.text?.trim();
-            const isSelected = emp.id === selectedEmpId;
+            const isSelected = !addingNew && emp.id === selectedEmpId;
+            const lowWeekly = (prefs?.[emp.id]?.weekday_shifts_per_week ?? 2) < 2;
             return (
-              <div key={emp.id} onClick={() => setSelectedEmpId(emp.id)} style={{
+              <div key={emp.id} onClick={() => selectEmp(emp.id)} style={{
                 display:'flex',alignItems:'center',gap:7,padding:'7px 9px',borderRadius:8,cursor:'pointer',
                 background:isSelected ? 'color-mix(in oklab, var(--accent) 12%, transparent)' : 'transparent',
                 border:isSelected ? '1.5px solid color-mix(in oklab, var(--accent) 35%, transparent)' : '1.5px solid transparent',
@@ -4730,7 +4691,9 @@ ${shiftsDesc}
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4}}>
                     <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.name}</span>
+                    {emp.anchor && <span title="עוגן — עובד ותיק" style={{flexShrink:0,fontSize:10}}>⚓</span>}
                     {entry?.managerNote && <span title={'הערה למשבץ: ' + entry.managerNote} style={{flexShrink:0}}>📌</span>}
+                    {lowWeekly && <span title="מבקש פחות מ-2 משמרות/שבוע בימי חול" style={{flexShrink:0,fontSize:10,color:'var(--danger)'}}>⚠</span>}
                   </div>
                   {emp.role && <div style={{fontSize:10.5,color:'var(--ink-3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.role}</div>}
                 </div>
@@ -4748,34 +4711,61 @@ ${shiftsDesc}
 
         {/* Detail panel — SECOND in DOM → left side in RTL */}
         <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column',minWidth:0}}>
-          {!employees.length ? (
-            <div style={{textAlign:'center',padding:'60px 20px',color:'var(--ink-3)'}}>אין עובדים במערכת — הוסיפו עובדים במסך העובדים</div>
-          ) : selectedEmp ? (
-            <RequestDetailPanel
-              emp={selectedEmp}
-              entry={entryOf(selectedEmp.id)}
-              month={month}
-              openRange={openRangeByMonth?.[month] || null}
-              onUpdate={updateEntry}
-              onAnalyze={analyze}
-              onChatRefine={chatRefine}
-              onClearEntry={clearEntry}
-              onSend={sendToSupabase}
-              apiKey={apiKey}
-              shiftSettings={shiftSettings}
-              analyzing={!!analyzing[selectedEmp.id]}
-              chatHistory={chatHistories[selectedEmp.id] || []}
-              chatBusy={!!chatBusy[selectedEmp.id]}
-              sendBusy={!!sendBusy[selectedEmp.id]}
-              sendOk={!!sendOk[selectedEmp.id]}
-              error={errors[selectedEmp.id] || null}
-            />
+          {!addingNew && !selectedEmp ? (
+            employees.length === 0 ? (
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',gap:10,color:'var(--ink-3)'}}>
+                <div style={{fontSize:36}}>👥</div>
+                <div style={{fontSize:14,fontWeight:600}}>אין עדיין עובדים במערכת</div>
+                <button className="btn btn-primary" onClick={openAddEmployee}>+ הוספת עובד ראשון</button>
+              </div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',gap:10,color:'var(--ink-3)'}}>
+                <div style={{fontSize:36}}>👈</div>
+                <div style={{fontSize:14,fontWeight:600}}>בחרו עובד מהרשימה</div>
+                <div style={{fontSize:12}}>לצפייה ועריכת בקשות, או לעריכת פרטיו</div>
+              </div>
+            )
           ) : (
-            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',gap:10,color:'var(--ink-3)'}}>
-              <div style={{fontSize:36}}>👈</div>
-              <div style={{fontSize:14,fontWeight:600}}>בחרו עובד מהרשימה</div>
-              <div style={{fontSize:12}}>לצפייה ועריכת בקשות השיבוץ שלו</div>
-            </div>
+            <>
+              <div style={{display:'flex',gap:6,padding:'10px 14px 0',flexShrink:0}}>
+                <button className={'btn' + (tab === 'requests' ? ' btn-primary' : '')} style={{fontSize:12.5,padding:'6px 14px'}}
+                  disabled={addingNew} onClick={() => setTab('requests')}>📋 בקשות</button>
+                <button className={'btn' + (tab === 'profile' ? ' btn-primary' : '')} style={{fontSize:12.5,padding:'6px 14px'}}
+                  onClick={() => setTab('profile')}>⚙ פרטי עובד</button>
+              </div>
+              {tab === 'requests' && !addingNew && selectedEmp ? (
+                <RequestDetailPanel
+                  emp={selectedEmp}
+                  entry={entryOf(selectedEmp.id)}
+                  month={month}
+                  openRange={openRangeByMonth?.[month] || null}
+                  onUpdate={updateEntry}
+                  onAnalyze={analyze}
+                  onChatRefine={chatRefine}
+                  onClearEntry={clearEntry}
+                  onSend={sendToSupabase}
+                  apiKey={apiKey}
+                  shiftSettings={shiftSettings}
+                  analyzing={!!analyzing[selectedEmp.id]}
+                  chatHistory={chatHistories[selectedEmp.id] || []}
+                  chatBusy={!!chatBusy[selectedEmp.id]}
+                  sendBusy={!!sendBusy[selectedEmp.id]}
+                  sendOk={!!sendOk[selectedEmp.id]}
+                  error={errors[selectedEmp.id] || null}
+                />
+              ) : (
+                <EmployeeProfileForm
+                  emp={addingNew ? null : selectedEmp}
+                  prefs={prefs}
+                  requestCriteria={requestCriteria}
+                  adminKey={adminKey}
+                  isNew={addingNew}
+                  onSave={saveEmployee}
+                  onCancel={() => setAddingNew(false)}
+                  onDelete={deleteEmployee}
+                />
+              )}
+            </>
           )}
         </div>
 
@@ -4806,11 +4796,8 @@ function HamburgerMenu({ screen, onNavigate }) {
           <button className={'ham-item' + (screen === 'calendar' ? ' active' : '')} onClick={() => nav('calendar')}>
             📅 סידור
           </button>
-          <button className={'ham-item' + (screen === 'employees' ? ' active' : '')} onClick={() => nav('employees')}>
-            👥 עובדים
-          </button>
           <button className={'ham-item' + (screen === 'requests' ? ' active' : '')} onClick={() => nav('requests')}>
-            📋 בקשות
+            👥 עובדים ובקשות
           </button>
           <button className={'ham-item' + (screen === 'rules' ? ' active' : '')} onClick={() => nav('rules')}>
             📐 תנאי שיבוץ
@@ -5059,7 +5046,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
   );
 }
 
-Object.assign(window, { ShiftsDrawer, SettingsDrawer, EmployeesScreen, RequestsScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal, CriteriaGateModal, SchedulingRulesScreen });
+Object.assign(window, { ShiftsDrawer, SettingsDrawer, PeopleScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal, CriteriaGateModal, SchedulingRulesScreen });
 </script>
 
 <!-- ============ GenerateDraftModal + לוג AI ============ -->
@@ -6532,7 +6519,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         <div className="final-banner">הסידור פורסם לעובדים והוא נעול לעריכה. לחצו ״חזרה לעריכה״ כדי לבצע שינויים.</div>
       )}
 
-      {screen === 'employees' && (
+      {screen === 'requests' && (
         <div style={{padding:'12px 28px 0',flexShrink:0}}>
           <div style={{background:'#fffbe6',border:'2px solid #f0b429',borderRadius:10,overflow:'hidden',marginBottom:4}}>
             <div style={{padding:'10px 14px',fontWeight:700,fontSize:'13px',borderBottom:'1px solid #e8d5a0',display:'flex',alignItems:'center',gap:8,background:'#fffbe6'}}>
@@ -6566,14 +6553,14 @@ ${JSON.stringify(emptySlots, null, 2)}
       )}
 
       <ShiftSettingsCtx.Provider value={shiftSettings}>
-        {screen === 'employees' && <EmployeesScreen employees={employees} onEmployeesChange={setEmployees} adminKey={adminKey} pendingEmps={pendingEmps} onPendingChange={setPendingEmps} requestCriteria={requestCriteria}
+        {screen === 'requests' && <PeopleScreen employees={employees} onEmployeesChange={setEmployees}
+          requests={requests} onRequestsChange={setRequests}
+          initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth}
+          adminKey={adminKey} requestCriteria={requestCriteria}
           prefs={prefs} onSavePref={(empId, patch) => {
             setPrefs(p => ({ ...p, [empId]: { ...(p[empId] || {}), ...patch, updated_at: new Date().toISOString() } }));
             window.__db.saveEmployeePref?.(empId, patch);
           }} />}
-        {screen === 'requests'  && <RequestsScreen  employees={employees} requests={requests} onRequestsChange={setRequests}
-          onEmployeesChange={setEmployees}
-          initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth} />}
         {screen === 'rules'     && <SchedulingRulesScreen ruleToggles={ruleToggles}
           onToggle={(key, val) => setRuleToggles(t => ({ ...t, [key]: val }))} />}
         {screen === 'calendar'  && (

@@ -4996,7 +4996,7 @@ Object.assign(window, { ShiftsDrawer, SettingsDrawer, EmployeesScreen, RequestsS
 const MD = window.ShiftData;
 const ME = window.ShiftEngine;
 
-function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialExcluded, month }) {
+function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialExcluded, month, mode }) {
   const activeMonth = month || MD.MONTH;
   const base = ME.defaultRange(activeMonth);
   const [daysBefore, setDaysBefore] = React.useState(0);
@@ -5035,9 +5035,14 @@ function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialEx
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2 className="modal-title">יצירת טיוטה חדשה</h2>
+          <h2 className="modal-title">{mode === 'edit' ? 'עריכת טווח הטיוטה' : 'יצירת טיוטה חדשה'}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="סגירה">×</button>
         </div>
+        {mode === 'edit' && (
+          <div style={{margin:'0 20px',padding:'8px 12px',borderRadius:8,background:'var(--accent-bg, color-mix(in oklab, var(--accent) 10%, transparent))',fontSize:'12px',color:'var(--ink-2)',lineHeight:1.5}}>
+            אם הטיוטה כבר פתוחה לבקשות, שינוי הטווח יעודכן מיד גם באפליקציית העובדים.
+          </div>
+        )}
 
         <div className="modal-body">
           <div className="field">
@@ -5079,7 +5084,7 @@ function GenerateDraftModal({ open, onClose, onGenerate, initialRange, initialEx
           <div className="modal-actions">
             <button className="btn" onClick={onClose}>ביטול</button>
             <button className="btn btn-primary" onClick={() => onGenerate({ startDate: range.start, endDate: range.end, excluded })}>
-              ✦ צור טיוטה
+              {mode === 'edit' ? '💾 שמור שינויים' : '✦ צור טיוטה'}
             </button>
           </div>
         </div>
@@ -5445,6 +5450,7 @@ function App() {
   const [draggingEmp, setDraggingEmp] = React.useState(null);
   const [focusedEmpId, setFocusedEmpId] = React.useState(null);
   const [modalOpen, setModalOpen] = React.useState(false);
+  const [modalMode, setModalMode] = React.useState('create'); // 'create' | 'edit' (עריכת טווח לטיוטה הפעילה)
   const [logOpen, setLogOpen] = React.useState(false);
   const [screen, setScreen] = React.useState('calendar');
   const [shiftsDrawerOpen, setShiftsDrawerOpen] = React.useState(false);
@@ -6201,6 +6207,25 @@ ${JSON.stringify(emptySlots, null, 2)}
     }
   };
 
+  // עריכת טווח/ימים מוחרגים בטיוטה הפעילה (הוספת/הסרת ימים בתחילת/סוף החודש).
+  // אם הטיוטה כבר פתוחה לבקשות — מפרסמים מחדש מיד עם הטווח העדכני, כדי שאפליקציית
+  // העובדים תציג את השינוי בלי שהמשבץ יצטרך ללחוץ שוב על "פתח לבקשות"
+  const editDraftRange = (opts) => {
+    if (!activeDraftId || !currentDraft) return;
+    const range = { start: opts.startDate, end: opts.endDate };
+    const excluded = opts.excluded || [];
+    updateDraft(activeDraftId, () => ({ range, excluded }));
+    if (currentDraft.status === 'open' && dbAvailable.current && window.__db.publishSchedule) {
+      window.__db.publishSchedule({
+        month: currentDraft.month,
+        schedule: {},
+        shift_settings: { ...(shiftSettings || {}), _status: 'open', _range: range },
+        employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
+        published_at: new Date().toISOString(),
+      });
+    }
+  };
+
   const assign = (dStr, shiftId, empId) => {
     if (!activeDraftId) return;
     if (AD.availabilityOn(empId, dStr, shiftId) === 'unavailable') return;
@@ -6332,6 +6357,10 @@ ${JSON.stringify(emptySlots, null, 2)}
                 <button className="btn btn-ai" onClick={runAI} disabled={isGenerating} title="AI בלבד">✦ שבץ AI</button>
                 <button className="btn" onClick={runAlgo} disabled={isGenerating} title="שיבוץ מהיר ללא AI">⚙ מחשב</button>
               </>)}
+              {(status === 'draft' || status === 'open') && (
+                <button className="btn" onClick={() => { setModalMode('edit'); setModalOpen(true); }} disabled={isGenerating}
+                  title="הוספה/הסרה של ימים בתחילת או בסוף הטווח">✎ ערוך טווח</button>
+              )}
               {status === 'draft' && (
                 <button className="btn" style={{borderColor:'oklch(0.38 0.14 200)',color:'oklch(0.38 0.14 200)'}} onClick={() => openForRequests(activeDraftId)}>📤 פתח לבקשות</button>
               )}
@@ -6345,7 +6374,7 @@ ${JSON.stringify(emptySlots, null, 2)}
               {(status === 'final' || status === 'open') && (
                 <button className="btn" onClick={() => unpublishDraft(activeDraftId)}>חזרה לעריכה</button>
               )}
-              <button className="btn btn-primary" onClick={() => setModalOpen(true)} disabled={isGenerating}>
+              <button className="btn btn-primary" onClick={() => { setModalMode('create'); setModalOpen(true); }} disabled={isGenerating}>
                 ✦ צור טיוטה
               </button>
             </>
@@ -6424,7 +6453,7 @@ ${JSON.stringify(emptySlots, null, 2)}
                     <div className="empty-mark" aria-hidden="true">⧉</div>
                     <h2 className="empty-title">אין עדיין סידור ל{AD.monthLabel(currentMonth)}</h2>
                     <p className="empty-sub">צרו טיוטה חדשה וה־AI ישבץ את העובדים לפי בקשות, מכסות וזמני מנוחה. לאחר מכן תוכלו לדייק את התוצאה בגרירה.</p>
-                    <button className="btn btn-primary btn-lg" onClick={() => setModalOpen(true)}>✦ צור טיוטה חדשה</button>
+                    <button className="btn btn-primary btn-lg" onClick={() => { setModalMode('create'); setModalOpen(true); }}>✦ צור טיוטה חדשה</button>
                   </div>
                 </div>
               ) : (
@@ -6483,10 +6512,12 @@ ${JSON.stringify(emptySlots, null, 2)}
         swapSettings={swapSettings} onSwapSettingsChange={setSwapSettings}
         requestCriteria={requestCriteria} onRequestCriteriaChange={setRequestCriteria} />
 
-      <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)} onGenerate={createDraft}
+      <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)}
+        onGenerate={(opts) => { (modalMode === 'edit' ? editDraftRange : createDraft)(opts); setModalOpen(false); }}
+        mode={modalMode}
         month={currentMonth}
         initialRange={currentDraft?.range || AE.defaultRange(currentMonth)}
-        initialExcluded={[]} />
+        initialExcluded={modalMode === 'edit' ? (currentDraft?.excluded || []) : []} />
       <LogDrawer open={logOpen} log={currentDraft?.log || []} onClose={() => setLogOpen(false)} />
       <SwapApprovalsDrawer open={swapDrawerOpen} onClose={() => setSwapDrawerOpen(false)}
         requests={swapQueue} employees={employees} shiftSettings={shiftSettings} busy={swapBusy}

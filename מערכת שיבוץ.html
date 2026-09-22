@@ -84,6 +84,12 @@
     -webkit-backdrop-filter: var(--glass-blur);
     border-bottom: 1px solid var(--glass-border);
     flex-shrink: 0;
+    /* backdrop-filter פותח הקשר-ערימה (stacking context) חדש, ואם ל-.side-panel יש
+       אותו דבר, סדר ה-DOM בלבד מכריע ביניהם ומטביע את הדרופדאון (z-index:200,
+       אבל כלוא בתוך ההקשר של .topbar) מתחת לסיידבר. position+z-index כאן פותרים
+       את זה — הקשר-הערימה של הסרגל העליון כולו קופץ מעל השאר, לא רק תוכנו הפנימי. */
+    position: relative;
+    z-index: 20;
   }
   .brand { display: flex; align-items: center; gap: 8px; }
   .brand-mark { color: var(--accent); font-size: 20px; line-height: 1; }

@@ -746,6 +746,81 @@ function LoginScreen({ onError }) {
   );
 }
 
+/* ============ תפיסת משבצת עובד שהוגדרה מראש (בלי אימייל) ============ */
+function ClaimSeatScreen({ candidates, onPick, onNotInList, onLogout }) {
+  const [query, setQuery] = React.useState('');
+  const [picked, setPicked] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+
+  const filtered = candidates.filter(e => !query.trim() || (e.name || '').includes(query.trim()));
+
+  const confirm = async () => {
+    if (busy) return;
+    setBusy(true); setErr(null);
+    try {
+      await onPick(picked.id);
+    } catch (e) {
+      setErr(e?.message || 'שגיאה — נסו שוב');
+      setBusy(false);
+      setPicked(null);
+    }
+  };
+
+  if (picked) {
+    return (
+      <div style={{ flex: 1, padding: '76px 30px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, textAlign: 'center', animation: 'fadeIn 0.2s' }}>
+        <div style={{ width: 58, height: 58, borderRadius: '50%', background: TEAL_SOFT, color: TEAL_DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 24 }}>
+          {(picked.name || '?')[0]}
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 900 }}>את/ה {picked.name}?</div>
+        <div style={{ fontSize: 13.5, color: '#6B6760', lineHeight: 1.6, maxWidth: 280 }}>
+          החשבון שלך יחובר לעובד הזה — כל ההגדרות שכבר נקבעו לו (מכסה, העדפות) יישמרו.
+        </div>
+        {err && <div style={{ fontSize: 13, fontWeight: 600, color: 'oklch(0.5 0.18 25)' }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 300 }}>
+          <div onClick={() => { setPicked(null); setErr(null); }} style={{ flex: 1, background: '#FFF', border: `1.5px solid ${INK}`, borderRadius: 10, padding: '13px 0', fontSize: 14, fontWeight: 800, cursor: 'pointer', color: INK }}>
+            לא, זה לא אני
+          </div>
+          <div onClick={confirm} style={{ flex: 1, background: TEAL, color: '#FFF', borderRadius: 10, padding: '13px 0', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>
+            {busy ? 'רגע…' : 'כן, זה אני'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, padding: '76px 30px 44px', display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', animation: 'fadeIn 0.25s' }}>
+      <div style={{ fontSize: 26, fontWeight: 900, lineHeight: 1.3 }}>מי <span style={{ color: TEAL }}>את/ה?</span></div>
+      <div style={{ fontSize: 13.5, color: '#6B6760', lineHeight: 1.6 }}>
+        המנהל כבר הגדיר אותך במערכת. בחר/י את השם שלך מהרשימה כדי להתחבר ישירות לפרטים שכבר נקבעו לך.
+      </div>
+      <input type="text" placeholder="חיפוש שם" value={query} onChange={e => setQuery(e.target.value)}
+        style={{ border: `1.5px solid ${INK}`, borderRadius: 8, padding: '12px 14px', fontSize: 15, background: '#FFF', color: INK, width: '100%', fontFamily: 'inherit' }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+        {filtered.map(e => (
+          <div key={e.id} onClick={() => setPicked(e)}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', border: '1.5px solid #E7E4DF', borderRadius: 10, cursor: 'pointer', background: '#FFF' }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: TEAL_SOFT, color: TEAL_DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+              {(e.name || '?')[0]}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{e.name}</div>
+              {e.role && <div style={{ fontSize: 11.5, color: '#8A867F' }}>{e.role}</div>}
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && <div style={{ fontSize: 13, color: '#A09C94', textAlign: 'center', padding: '12px 0' }}>לא נמצא שם תואם</div>}
+      </div>
+      <div onClick={onNotInList} style={{ textAlign: 'center', fontSize: 13.5, fontWeight: 700, color: TEAL_DARK, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3, marginTop: 4 }}>
+        השם שלי לא ברשימה
+      </div>
+      <div onClick={onLogout} style={{ textAlign: 'center', fontSize: 12.5, color: '#A09C94', cursor: 'pointer', marginTop: 8 }}>התנתקות</div>
+    </div>
+  );
+}
+
 /* ============ קביעת סיסמה חדשה (לאחר קישור איפוס) ============ */
 function NewPasswordScreen({ onDone }) {
   const [pw, setPw] = React.useState('');
@@ -774,7 +849,12 @@ function App() {
   const [session, setSession] = React.useState(undefined);   // undefined=בטעינה, null=לא מחובר
   const [recovery, setRecovery] = React.useState(false);
   const [me, setMe] = React.useState(null);                  // רשומת העובד מ-app_employees
-  const [meStatus, setMeStatus] = React.useState('loading'); // loading | ok | notfound | error
+  const [meStatus, setMeStatus] = React.useState('loading'); // loading | ok | notfound | error | pending | claim
+  // "claim": יש עובדים שהוגדרו מראש ללא אימייל (מסך "עובדים ובקשות" אצל המשבץ) —
+  // מציעים למשתמש שהתחבר לתפוס אחד מהם לפני שממשיכים לבדיקת pending/הרשמה רגילה
+  const [claimCandidates, setClaimCandidates] = React.useState([]);
+  const [claimEmail, setClaimEmail] = React.useState('');
+  const [claimSessionUser, setClaimSessionUser] = React.useState(null);
   const [published, setPublished] = React.useState({});      // { 'YYYY-MM': row }
   const [globalSettings, setGlobalSettings] = React.useState(null); // הגדרות משמרות עדכניות מהמשבץ
   const [anthropicKey, setAnthropicKey] = React.useState('');      // מפתח Anthropic — נטען מ-Supabase
@@ -821,6 +901,27 @@ function App() {
     sb.from('employee_prefs').upsert({ emp_id: me.id, ...patch, updated_at: new Date().toISOString() }).then(() => {}).catch(() => {});
   }, [me?.id]);
 
+  // ממשיך את הטיפול הרגיל ב"לא נמצא" — בדיקת pending_employees, ורישום אוטומטי
+  // כממתין למשתמשי Google. נקרא גם מ-loadAll ישירות (אין משבצות פנויות לתפוס)
+  // וגם מ-ClaimSeatScreen כשהמשתמש לוחץ "השם שלי לא ברשימה".
+  const resolveNotFound = React.useCallback(async (lookupEmail, sessionUser) => {
+    // בדיקה ב-pending_employees
+    const { data: pending } = await sb.from('pending_employees').select('id,status').eq('email', lookupEmail).maybeSingle();
+    if (pending) {
+      setMeStatus(pending.status === 'pending' ? 'pending' : 'notfound');
+      return;
+    }
+    // משתמש Google שאינו ברשימה — רישום אוטומטי כממתין
+    const provider = sessionUser?.app_metadata?.provider;
+    if (provider === 'google' || sessionUser?.identities?.some(i => i.provider === 'google')) {
+      const googleName = sessionUser?.user_metadata?.full_name || sessionUser?.user_metadata?.name || '';
+      await sb.from('pending_employees').upsert({ email: lookupEmail, name: googleName }, { onConflict: 'email' });
+      setMeStatus('pending');
+      return;
+    }
+    setMeStatus('notfound');
+  }, []);
+
   /* --- טעינת נתונים --- */
   // byId=true → identifier הוא emp.id; byId=false (ברירת מחדל) → identifier הוא email
   const loadAll = React.useCallback(async (identifier, byId = false, sessionUser = null) => {
@@ -833,20 +934,18 @@ function App() {
       if (!mine) {
         if (!byId) {
           const lookupEmail = identifier.trim().toLowerCase();
-          // בדיקה ב-pending_employees
-          const { data: pending } = await sb.from('pending_employees').select('id,status').eq('email', lookupEmail).maybeSingle();
-          if (pending) {
-            setMeStatus(pending.status === 'pending' ? 'pending' : 'notfound');
+          // משבצות עובדים שהוגדרו מראש בלי אימייל — מציעים לתפוס אחת לפני
+          // שממשיכים לבדיקת pending/הרשמה אוטומטית
+          const unclaimed = (emps || []).filter(e => !e.email);
+          if (unclaimed.length > 0) {
+            setClaimCandidates(unclaimed);
+            setClaimEmail(lookupEmail);
+            setClaimSessionUser(sessionUser);
+            setMeStatus('claim');
             return;
           }
-          // משתמש Google שאינו ברשימה — רישום אוטומטי כממתין
-          const provider = sessionUser?.app_metadata?.provider;
-          if (provider === 'google' || sessionUser?.identities?.some(i => i.provider === 'google')) {
-            const googleName = sessionUser?.user_metadata?.full_name || sessionUser?.user_metadata?.name || '';
-            await sb.from('pending_employees').upsert({ email: lookupEmail, name: googleName }, { onConflict: 'email' });
-            setMeStatus('pending');
-            return;
-          }
+          await resolveNotFound(lookupEmail, sessionUser);
+          return;
         }
         setMeStatus('notfound');
         return;
@@ -945,6 +1044,22 @@ function App() {
 
   const logout = async () => { await sb.auth.signOut(); setMe(null); setMeStatus('loading'); setTab('home'); };
 
+  // תפיסת משבצת עובד שהוגדרה מראש: מחברים את האימייל שהתחברת איתו לרשומה הקיימת
+  // (רק אם עדיין לא נתפסה בינתיים ע"י מישהו אחר), ואז טוענים הכל מחדש כרגיל
+  const claimSeat = async (empId) => {
+    const { data, error } = await sb.from('app_employees')
+      .update({ email: claimEmail })
+      .eq('id', empId)
+      .is('email', null)
+      .select();
+    if (error) throw error;
+    if (!data || !data.length) throw new Error('התפוס — מישהו כבר בחר את השם הזה');
+    // ניקוי שאריות אם בינתיים גם נוצרה רשומת "ממתין לאישור" עבור האימייל הזה
+    await sb.from('pending_employees').delete().eq('email', claimEmail).catch(() => {});
+    await loadAll(claimEmail, false, claimSessionUser);
+  };
+  const claimNotInList = () => resolveNotFound(claimEmail, claimSessionUser);
+
   // Sync notif prefs to IDB on first load so SW can read them during periodic sync
   React.useEffect(() => {
     const PREFS_KEY = 'mishmarot-notif-prefs';
@@ -1006,6 +1121,12 @@ function App() {
           }
         </div>
       </div>
+    );
+  }
+
+  if (meStatus === 'claim') {
+    return frame(
+      <ClaimSeatScreen candidates={claimCandidates} onPick={claimSeat} onNotInList={claimNotInList} onLogout={logout} />
     );
   }
 

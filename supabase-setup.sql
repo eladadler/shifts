@@ -199,18 +199,22 @@ drop policy if exists "open access" on employee_recurring_requests;
 create policy "open access" on employee_recurring_requests
   for all to anon, authenticated using (true) with check (true);
 
--- 11. העדפות עובד — כמה משמרות בשבוע בימי חול, והאם מוכן למשמרות שישי/שבת.
+-- 11. העדפות עובד — כמה משמרות בשבוע בימי חול, ואילו משמרות סוף שבוע העובד עושה
+--     (כל אחת מהארבע ניתנת לסימון בנפרד — אין יותר מתג-על אחד ל"שישי"/"שבת").
 --     שתי האפליקציות קוראות וכותבות כאן ישירות (במקום ב-mishmarot_state הכללי),
 --     כדי שעריכה מכל צד לא תדרוס את הצד השני. נכנס גם לאלגוריתם השיבוץ האוטומטי.
+--     wants_friday/wants_saturday (למטה) שימשו למתג-העל הישן ואינן נקראות יותר
+--     ע"י שתי האפליקציות — נשארות בטבלה לצורך תאימות אחורה בלבד, ניתן להתעלם מהן.
 create table if not exists employee_prefs (
   emp_id                  text primary key,
   weekday_shifts_per_week int     not null default 2,  -- יעד משמרות/שבוע בימי א'-ה'
-  wants_friday            boolean not null default true,
-  wants_saturday          boolean not null default true, -- כולל משמרת "שבת ארוכה" (shabbat)
+  wants_friday            boolean not null default true, -- לא בשימוש יותר — ראו הערה למעלה
+  wants_saturday          boolean not null default true, -- לא בשימוש יותר — ראו הערה למעלה
   no_weekday_nights       boolean not null default false, -- ללא משמרות לילה באמצע השבוע (א'-ה')
-  wants_friday_short      boolean not null default true, -- עושה "שישי קצר" (09:00–15:00), רק כשגם wants_friday
-  wants_friday_long       boolean not null default true, -- עושה "שישי ארוך" (09:00–21:00), רק כשגם wants_friday
-  wants_saturday_short    boolean not null default true, -- עושה "בוקר שבת" (09:00–21:00), רק כשגם wants_saturday
+  wants_friday_short      boolean not null default true, -- עושה "שישי קצר" (09:00–15:00)
+  wants_friday_long       boolean not null default true, -- עושה "שישי ארוך" (09:00–21:00)
+  wants_shabbat_long      boolean not null default true, -- עושה "שבת ארוכה" (שישי 15:00–שבת 21:00, shift id "shabbat")
+  wants_saturday_short    boolean not null default true, -- עושה "בוקר שבת" (09:00–21:00)
   updated_at              timestamptz not null default now()
 );
 
@@ -221,6 +225,8 @@ alter table employee_prefs
   add column if not exists wants_friday_short boolean not null default true;
 alter table employee_prefs
   add column if not exists wants_friday_long boolean not null default true;
+alter table employee_prefs
+  add column if not exists wants_shabbat_long boolean not null default true;
 alter table employee_prefs
   add column if not exists wants_saturday_short boolean not null default true;
 

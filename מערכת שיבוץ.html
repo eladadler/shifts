@@ -1367,8 +1367,6 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       const t = D.shiftTimes(dStr, shift);
 
       const wdShift0 = D.weekdayOf(dStr);
-      const isFridayNonShabbat0 = wdShift0 === 5 && shift.id !== 'shabbat';
-      const isSaturdayish0 = shift.id === 'shabbat' || wdShift0 === 6;
       const wk0 = weekKeyOf(dStr);
       // חסימות קשיחות "רגילות" — לא כולל "כבר בתפוסה"/מכסת שיבוץ ברזל, כדי שאפשר יהיה
       // להשתמש באותה בדיקה גם עבור שיבוץ ברזל וגם עבור התחרות הרגילה בין מועמדים
@@ -1377,12 +1375,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         if (on('unavailable') && av === 'unavailable') return true;
         if (on('maxQuota') && counts[e.id] >= e.max) return true;
         if (on('nightCapability') && shift.id === 'night' && !e.nights) return true;
-        // העדפות "מוכן לשישי/שבת"/"ללא לילות באמצע השבוע" — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
-        if (on('wantsFriday') && isFridayNonShabbat0 && e.wantsFriday === false) return true;
-        if (on('wantsSaturday') && isSaturdayish0 && e.wantsSaturday === false) return true;
-        // תת-העדפות עדינות יותר בתוך "מוכן לשישי"/"מוכן לשבת" — לפי משמרת ספציפית
+        // העדפות עצמאיות לכל משמרת סוף שבוע בנפרד — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
         if (on('wantsFridayShort') && wdShift0 === 5 && shift.id === 'short' && e.wantsFridayShort === false) return true;
         if (on('wantsFridayLong') && wdShift0 === 5 && shift.id === 'morning' && e.wantsFridayLong === false) return true;
+        if (on('wantsShabbatLong') && shift.id === 'shabbat' && e.wantsShabbatLong === false) return true;
         if (on('wantsSaturdayShort') && wdShift0 === 6 && shift.id === 'morning' && e.wantsSaturdayShort === false) return true;
         if (on('noWeekdayNights') && shift.id === 'night' && wdShift0 >= 0 && wdShift0 <= 4 && e.noWeekdayNights) return true;
         // מי שיש לו "שבת ארוכה" באותו שבוע מוגבל למשמרת חול אחת פחות מהיעד הרגיל שלו
@@ -1436,8 +1432,6 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       for (let slot = 0; slot < (required - (schedule[dStr][shift.id] || []).length); slot++) {
         const alreadyIn = schedule[dStr][shift.id] || [];
         const wdShift = wdShift0;
-        const isFridayNonShabbat = isFridayNonShabbat0;
-        const isSaturdayish = isSaturdayish0;
         const wk = wk0;
         const cands = D.EMPLOYEES.filter((e) => !alreadyIn.includes(e.id) && !hardBlocked(e));
         const clean = on('biasMidMonthRest')
@@ -2914,10 +2908,10 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
       const wd = PD.weekdayOf(dStr);
       for (const shiftId of Object.keys(dayShifts)) {
         if (!(dayShifts[shiftId] || []).includes(emp.id)) continue;
-        const isFridayNonShabbat = wd === 5 && shiftId !== 'shabbat';
-        const isSaturdayish = shiftId === 'shabbat' || wd === 6;
-        if (isFridayNonShabbat && p.wants_friday === false) return false;
-        if (isSaturdayish && p.wants_saturday === false) return false;
+        if (wd === 5 && shiftId === 'short' && p.wants_friday_short === false) return false;
+        if (wd === 5 && shiftId === 'morning' && p.wants_friday_long === false) return false;
+        if (shiftId === 'shabbat' && p.wants_shabbat_long === false) return false;
+        if (wd === 6 && shiftId === 'morning' && p.wants_saturday_short === false) return false;
         if (shiftId === 'night' && wd >= 0 && wd <= 4 && p.no_weekday_nights) return false;
       }
     }
@@ -3801,11 +3795,10 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
       color: e?.color || COLORS[0], max: e?.max ?? 14, anchor: !!e?.anchor, nights: !!e?.nights,
       shabbatFrequencyDays: e?.shabbatFrequencyDays || 45, reqCriteria: e?.reqCriteria || {},
       weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
-      wantsFriday: p?.wants_friday ?? true,
-      wantsSaturday: p?.wants_saturday ?? true,
       noWeekdayNights: p?.no_weekday_nights ?? false,
       wantsFridayShort: p?.wants_friday_short ?? true,
       wantsFridayLong: p?.wants_friday_long ?? true,
+      wantsShabbatLong: p?.wants_shabbat_long ?? true,
       wantsSaturdayShort: p?.wants_saturday_short ?? true,
     };
   };
@@ -3836,17 +3829,16 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
 
   const save = () => {
     if (!draft.name.trim()) return;
-    // weekdayShiftsPerWeek/wantsFriday/wantsSaturday/noWeekdayNights חיים ב-employee_prefs
+    // weekdayShiftsPerWeek/noWeekdayNights/wants* חיים ב-employee_prefs
     // (טבלה נפרדת, דו-כיוונית עם אפליקציית העובד) — לא נשמרים כפולים ברשומת העובד עצמה
-    const { weekdayShiftsPerWeek, wantsFriday, wantsSaturday, noWeekdayNights,
-            wantsFridayShort, wantsFridayLong, wantsSaturdayShort, ...empRecord } = draft;
+    const { weekdayShiftsPerWeek, noWeekdayNights,
+            wantsFridayShort, wantsFridayLong, wantsShabbatLong, wantsSaturdayShort, ...empRecord } = draft;
     onSave(empRecord, {
       weekday_shifts_per_week: weekdayShiftsPerWeek,
-      wants_friday: wantsFriday,
-      wants_saturday: wantsSaturday,
       no_weekday_nights: noWeekdayNights,
       wants_friday_short: wantsFridayShort,
       wants_friday_long: wantsFridayLong,
+      wants_shabbat_long: wantsShabbatLong,
       wants_saturday_short: wantsSaturdayShort,
     });
   };
@@ -3921,31 +3913,30 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
             <span className="field-hint">גם מתעדכן/ניתן לעריכה מאפליקציית העובד</span>
           </div>
         </div>
-        <div style={{display:'flex',gap:20}}>
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-            <input type="checkbox" checked={draft.wantsFriday} onChange={(e) => setDraft(p => ({...p, wantsFriday: e.target.checked}))} />
-            מוכן למשמרות שישי
-          </label>
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-            <input type="checkbox" checked={draft.wantsSaturday} onChange={(e) => setDraft(p => ({...p, wantsSaturday: e.target.checked}))} />
-            מוכן למשמרות שבת
-          </label>
-        </div>
-        <div style={{display:'flex',gap:20,paddingInlineStart:22,opacity:draft.wantsFriday?1:0.45}}>
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'12.5px',cursor:draft.wantsFriday?'pointer':'default'}}>
-            <input type="checkbox" disabled={!draft.wantsFriday} checked={draft.wantsFridayShort} onChange={(e) => setDraft(p => ({...p, wantsFridayShort: e.target.checked}))} />
-            עושה שישי קצר
-          </label>
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'12.5px',cursor:draft.wantsFriday?'pointer':'default'}}>
-            <input type="checkbox" disabled={!draft.wantsFriday} checked={draft.wantsFridayLong} onChange={(e) => setDraft(p => ({...p, wantsFridayLong: e.target.checked}))} />
-            עושה שישי ארוך
-          </label>
-        </div>
-        <div style={{display:'flex',gap:20,paddingInlineStart:22,opacity:draft.wantsSaturday?1:0.45}}>
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'12.5px',cursor:draft.wantsSaturday?'pointer':'default'}}>
-            <input type="checkbox" disabled={!draft.wantsSaturday} checked={draft.wantsSaturdayShort} onChange={(e) => setDraft(p => ({...p, wantsSaturdayShort: e.target.checked}))} />
-            עושה שבת קצר (בוקר שבת)
-          </label>
+        <div className="field">
+          <label className="field-label">משמרות סוף שבוע <span style={{color:'var(--ink-3)',fontWeight:400}}>(כל משמרת ניתנת להגדרה בנפרד)</span></label>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            <div style={{display:'flex',gap:20}}>
+              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+                <input type="checkbox" checked={draft.wantsFridayShort} onChange={(e) => setDraft(p => ({...p, wantsFridayShort: e.target.checked}))} />
+                עושה שישי קצר
+              </label>
+              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+                <input type="checkbox" checked={draft.wantsFridayLong} onChange={(e) => setDraft(p => ({...p, wantsFridayLong: e.target.checked}))} />
+                עושה שישי ארוך
+              </label>
+            </div>
+            <div style={{display:'flex',gap:20}}>
+              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+                <input type="checkbox" checked={draft.wantsShabbatLong} onChange={(e) => setDraft(p => ({...p, wantsShabbatLong: e.target.checked}))} />
+                עושה שבת ארוכה
+              </label>
+              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+                <input type="checkbox" checked={draft.wantsSaturdayShort} onChange={(e) => setDraft(p => ({...p, wantsSaturdayShort: e.target.checked}))} />
+                עושה שבת קצר (בוקר שבת)
+              </label>
+            </div>
+          </div>
         </div>
         <div style={{display:'flex',gap:20}}>
           <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
@@ -5056,11 +5047,10 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'unavailable', t: 'עובד סימן "לא יכול"', d: 'משמרת/יום שסומנו unavailable — לעולם לא ישובצו שם אוטומטית.' },
     { key: 'maxQuota', t: 'מכסה חודשית', d: 'לא משבצים עובד שכבר הגיע למכסת המשמרות החודשית שלו (שדה "מכסה" בכרטיס העובד).' },
     { key: 'nightCapability', t: 'משמרת לילה', d: 'רק עובד שסומן "משמרות לילה" בכרטיסו יכול להישבץ למשמרת מסוג night.' },
-    { key: 'wantsFriday', t: 'מוכן למשמרות שישי', d: 'עובד שסימן שאינו מוכן לשישי לא ישובץ למשמרות יום שישי (למעט שבת ארוכה — ראו הבא).' },
-    { key: 'wantsSaturday', t: 'מוכן למשמרות שבת', d: 'עובד שסימן שאינו מוכן לשבת לא ישובץ ל"שבת ארוכה" (shabbat), וגם לא לאף משמרת שחלה בתאריך שבת בפועל.' },
-    { key: 'wantsFridayShort', t: 'עושה שישי קצר', d: 'עובד שסימן שאינו עושה "שישי קצר" (09:00–15:00) לא ישובץ אליה, גם אם הוא מסומן כמוכן לשישי בכלל.' },
-    { key: 'wantsFridayLong', t: 'עושה שישי ארוך', d: 'עובד שסימן שאינו עושה "שישי ארוך" (09:00–21:00) לא ישובץ אליה, גם אם הוא מסומן כמוכן לשישי בכלל.' },
-    { key: 'wantsSaturdayShort', t: 'עושה שבת קצר (בוקר שבת)', d: 'עובד שסימן שאינו עושה "בוקר שבת" (09:00–21:00) לא ישובץ אליה, גם אם הוא מסומן כמוכן לשבת בכלל.' },
+    { key: 'wantsFridayShort', t: 'עושה שישי קצר', d: 'עובד שסימן שאינו עושה "שישי קצר" (09:00–15:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
+    { key: 'wantsFridayLong', t: 'עושה שישי ארוך', d: 'עובד שסימן שאינו עושה "שישי ארוך" (09:00–21:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
+    { key: 'wantsShabbatLong', t: 'עושה שבת ארוכה', d: 'עובד שסימן שאינו עושה "שבת ארוכה" (shabbat, שישי 15:00–שבת 21:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
+    { key: 'wantsSaturdayShort', t: 'עושה שבת קצר (בוקר שבת)', d: 'עובד שסימן שאינו עושה "בוקר שבת" (09:00–21:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
     { key: 'noWeekdayNights', t: 'ללא לילות באמצע השבוע', d: 'עובד שסימן זאת לא ישובץ למשמרת לילה בימי א׳-ה׳ (בשישי/שבת עדיין אפשרי, בכפוף לתנאים למעלה).' },
     { key: 'shabbatWeeklyCap', t: 'שבת ארוכה מפחיתה משמרת חול באותו שבוע', d: 'עובד ששובץ ל"שבת ארוכה" בשבוע מסוים מוגבל, באותו שבוע, למשמרת חול אחת פחות מיעד המשמרות/שבוע הרגיל שלו. לדוגמה: יעד 2 + שבת ארוכה באותו שבוע ⇐ לכל היותר משמרת חול אחת נוספת באותו שבוע.' },
     { key: 'crossMonthRest', t: 'מנוחה מול המשמרת האחרונה בחודש הקודם', d: 'פחות מ-8 שעות מנוחה מהמשמרת האחרונה שהעובד עשה בסוף החודש הקודם — חוסם לגמרי, בלי חריגה אוטומטית.' },
@@ -5552,7 +5542,7 @@ function App() {
   });
   // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
   const [requests, setRequests] = React.useState(() => saved?.requests || {});
-  // העדפות עובד (employee_prefs) — יעד משמרות/שבוע בימי חול, מוכן לשישי/שבת.
+  // העדפות עובד (employee_prefs) — יעד משמרות/שבוע בימי חול, ואילו משמרות סוף שבוע העובד עושה.
   // חי בטבלה ייעודית, לא ב-state הכללי, כדי שעריכה מהעובד לא תיחסם ע"י שמירה חוזרת מהמשבץ
   const [prefs, setPrefs] = React.useState({});
   const [allRecurring, setAllRecurring] = React.useState([]); // כל employee_recurring_requests — למשמרות ברזל
@@ -5565,8 +5555,8 @@ function App() {
   // מפתח/ברירת מחדל לכל תנאי שיבוץ (ראו מסך "תנאי שיבוץ") — כולם דלוקים כברירת מחדל.
   // כיבוי מפתח כלשהו כאן מנטרל אותו בפועל במנוע (ShiftEngine.generate מקבל ruleToggles).
   const DEFAULT_RULE_TOGGLES = {
-    unavailable: true, maxQuota: true, nightCapability: true, wantsFriday: true, wantsSaturday: true,
-    wantsFridayShort: true, wantsFridayLong: true, wantsSaturdayShort: true,
+    unavailable: true, maxQuota: true, nightCapability: true,
+    wantsFridayShort: true, wantsFridayLong: true, wantsShabbatLong: true, wantsSaturdayShort: true,
     noWeekdayNights: true, shabbatWeeklyCap: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
     biasHighCan: true, biasAnchor: true, biasNightOwl: true, biasLoadBalance: true,
     biasWeeklyTarget: true, biasShabbatFrequency: true, biasMidMonthRest: true,
@@ -5613,18 +5603,17 @@ function App() {
 
   // סנכרון employees → window.ShiftData.EMPLOYEES
   // ממזג העדפות (employee_prefs) לתוך רשימת העובדים החיה, כך שהאלגוריתם רואה
-  // weekdayShiftsPerWeek/wantsFriday/wantsSaturday/noWeekdayNights בלי לשכפל אותן ברשומת העובד עצמה
+  // weekdayShiftsPerWeek/noWeekdayNights/wants* (שישי קצר/ארוך, שבת ארוכה, בוקר שבת) בלי לשכפל אותן ברשומת העובד עצמה
   React.useEffect(() => {
     window.ShiftData.EMPLOYEES = employees.map(e => {
       const p = prefs[e.id];
       return {
         ...e,
         weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
-        wantsFriday: p?.wants_friday ?? true,
-        wantsSaturday: p?.wants_saturday ?? true,
         noWeekdayNights: p?.no_weekday_nights ?? false,
         wantsFridayShort: p?.wants_friday_short ?? true,
         wantsFridayLong: p?.wants_friday_long ?? true,
+        wantsShabbatLong: p?.wants_shabbat_long ?? true,
         wantsSaturdayShort: p?.wants_saturday_short ?? true,
       };
     });
@@ -5723,7 +5712,7 @@ function App() {
     });
   }, []);
 
-  // קליטת העדפות עובד (employee_prefs) — יעד משמרות/שבוע, מוכן לשישי/שבת.
+  // קליטת העדפות עובד (employee_prefs) — יעד משמרות/שבוע, ואילו משמרות סוף שבוע העובד עושה.
   // דו-כיווני: גם המשבץ עורך את זה, ולכן ריענון תקופתי קולט עדכונים מהעובד בלי לדרוס עריכה מקומית טרייה
   const refreshEmployeePrefs = React.useCallback(async () => {
     if (!dbAvailable.current || !window.__db.fetchEmployeePrefs) return;
@@ -5736,11 +5725,10 @@ function App() {
         if (cur && cur.updated_at === r.updated_at) return;
         next[r.emp_id] = {
           weekday_shifts_per_week: r.weekday_shifts_per_week,
-          wants_friday: r.wants_friday,
-          wants_saturday: r.wants_saturday,
           no_weekday_nights: r.no_weekday_nights,
           wants_friday_short: r.wants_friday_short,
           wants_friday_long: r.wants_friday_long,
+          wants_shabbat_long: r.wants_shabbat_long,
           wants_saturday_short: r.wants_saturday_short,
           updated_at: r.updated_at,
         };

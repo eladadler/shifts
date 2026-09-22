@@ -965,7 +965,7 @@ function App() {
       if (e3) throw e3;
       setSwaps(swapRows || []);
       setRecurring(recurRows || []);
-      setMyPrefs(prefRow || { weekday_shifts_per_week: 2, wants_friday: true, wants_saturday: true, no_weekday_nights: false, wants_friday_short: true, wants_friday_long: true, wants_saturday_short: true });
+      setMyPrefs(prefRow || { weekday_shifts_per_week: 2, no_weekday_nights: false, wants_friday_short: true, wants_friday_long: true, wants_shabbat_long: true, wants_saturday_short: true });
       // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
@@ -1465,41 +1465,32 @@ function SettingsTab({ me, email, onLogout, myPrefs, onSavePref }) {
           </div>
           <div style={divider}>
             <PrefRow
-              label="מוכן למשמרות שישי"
-              value={myPrefs?.wants_friday ?? true}
-              onChange={v => onSavePref({ wants_friday: v })}
-            />
-          </div>
-          <div style={{ ...divider, paddingInlineStart: 14 }}>
-            <PrefRow
               label="עושה שישי קצר"
               sub="09:00–15:00"
-              disabled={!(myPrefs?.wants_friday ?? true)}
               value={myPrefs?.wants_friday_short ?? true}
               onChange={v => onSavePref({ wants_friday_short: v })}
             />
           </div>
-          <div style={{ ...divider, paddingInlineStart: 14 }}>
+          <div style={divider}>
             <PrefRow
               label="עושה שישי ארוך"
               sub="09:00–21:00"
-              disabled={!(myPrefs?.wants_friday ?? true)}
               value={myPrefs?.wants_friday_long ?? true}
               onChange={v => onSavePref({ wants_friday_long: v })}
             />
           </div>
           <div style={divider}>
             <PrefRow
-              label="מוכן למשמרות שבת (כולל שבת ארוכה)"
-              value={myPrefs?.wants_saturday ?? true}
-              onChange={v => onSavePref({ wants_saturday: v })}
+              label="עושה שבת ארוכה"
+              sub="שישי 15:00 – שבת 21:00"
+              value={myPrefs?.wants_shabbat_long ?? true}
+              onChange={v => onSavePref({ wants_shabbat_long: v })}
             />
           </div>
-          <div style={{ ...divider, paddingInlineStart: 14 }}>
+          <div style={divider}>
             <PrefRow
               label="עושה שבת קצר"
               sub="בוקר שבת, 09:00–21:00"
-              disabled={!(myPrefs?.wants_saturday ?? true)}
               value={myPrefs?.wants_saturday_short ?? true}
               onChange={v => onSavePref({ wants_saturday_short: v })}
             />

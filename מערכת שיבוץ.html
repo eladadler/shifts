@@ -35,6 +35,8 @@
     --glass-surface: color-mix(in oklab, var(--surface) 58%, transparent);
     --glass-border: color-mix(in oklab, white 55%, transparent);
     --glass-blur: blur(16px) saturate(180%);
+    /* לתפריטים/פופאובר קטנים — צריך אטימות גבוהה כדי שטקסט יישאר קריא ולחיץ בבירור */
+    --glass-popover: color-mix(in oklab, var(--surface) 95%, transparent);
   }
   [data-theme="dark"] {
     --bg: oklch(0.21 0.012 255);
@@ -491,7 +493,7 @@
   .ham-btn:hover { background: var(--surface-2); color: var(--ink); }
   .ham-dropdown {
     position: absolute; top: calc(100% + 6px); right: 0;
-    background: var(--glass-surface);
+    background: var(--glass-popover);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid var(--glass-border);
@@ -515,7 +517,7 @@
     z-index: 100; display: flex; justify-content: flex-end;
   }
   .right-drawer {
-    background: color-mix(in oklab, var(--surface) 82%, transparent);
+    background: var(--glass-popover);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     height: 100%; width: min(480px, 92vw);

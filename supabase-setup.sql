@@ -208,12 +208,21 @@ create table if not exists employee_prefs (
   wants_friday            boolean not null default true,
   wants_saturday          boolean not null default true, -- כולל משמרת "שבת ארוכה" (shabbat)
   no_weekday_nights       boolean not null default false, -- ללא משמרות לילה באמצע השבוע (א'-ה')
+  wants_friday_short      boolean not null default true, -- עושה "שישי קצר" (09:00–15:00), רק כשגם wants_friday
+  wants_friday_long       boolean not null default true, -- עושה "שישי ארוך" (09:00–21:00), רק כשגם wants_friday
+  wants_saturday_short    boolean not null default true, -- עושה "בוקר שבת" (09:00–21:00), רק כשגם wants_saturday
   updated_at              timestamptz not null default now()
 );
 
--- עמודה לטבלה קיימת (הריצו אם כבר יצרתם את הטבלה לפני הוספת ההעדפה הזו)
+-- עמודות לטבלה קיימת (הריצו אם כבר יצרתם את הטבלה לפני הוספת ההעדפות האלה)
 alter table employee_prefs
   add column if not exists no_weekday_nights boolean not null default false;
+alter table employee_prefs
+  add column if not exists wants_friday_short boolean not null default true;
+alter table employee_prefs
+  add column if not exists wants_friday_long boolean not null default true;
+alter table employee_prefs
+  add column if not exists wants_saturday_short boolean not null default true;
 
 alter table employee_prefs enable row level security;
 drop policy if exists "open access" on employee_prefs;

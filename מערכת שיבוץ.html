@@ -3428,7 +3428,7 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 }
 
 // ---- SettingsDrawer ----
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange, hiddenButtons, onHiddenButtonsChange, toolbarButtonDefs }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showKey, setShowKey] = React.useState(false);
@@ -3611,6 +3611,24 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
                     <input type="number" min="0" max="7" value={requestCriteria[key]}
                       onChange={(e) => onRequestCriteriaChange(c => ({ ...c, [key]: Math.max(0, parseInt(e.target.value) || 0) }))}
                       style={{width:52,border:'1px solid var(--line)',borderRadius:7,padding:'5px 7px',fontSize:'13px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'center',flexShrink:0}} />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="settings-sec-title">🔘 כפתורי סרגל כלים</div>
+              <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:10,lineHeight:1.5}}>
+                כיבוי מסתיר כפתור מהסרגל העליון בלוח השנה — לא משנה שום פונקציונליות, רק מה שמוצג. אפשר להחזיר כל כפתור בכל רגע.
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:9}}>
+                {toolbarButtonDefs.map(({ id, label }) => (
+                  <div key={id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'0 2px'}}>
+                    <span style={{fontSize:'12.5px',lineHeight:1.4}}>{label}</span>
+                    <label className="toggle-switch">
+                      <input type="checkbox" checked={!hiddenButtons.includes(id)}
+                        onChange={(e) => onHiddenButtonsChange(prev => e.target.checked ? prev.filter(x => x !== id) : [...prev, id])} />
+                      <span className="toggle-slider"></span>
+                    </label>
                   </div>
                 ))}
               </div>
@@ -5517,6 +5535,14 @@ function App() {
     biasWeeklyTarget: true, biasShabbatFrequency: true, biasMidMonthRest: true,
   };
   const [ruleToggles, setRuleToggles] = React.useState(() => ({ ...DEFAULT_RULE_TOGGLES, ...(saved?.ruleToggles || {}) }));
+  // כפתורי סרגל כלים מוסתרים — ברירת מחדל: מחשב/שבץ AI/ערוך טווח מוסתרים, ניתן להחזיר בהגדרות (⚙)
+  const TOOLBAR_BUTTON_DEFS = [
+    { id: 'runAlgo', label: '⚙ מחשב' },
+    { id: 'runAI', label: '✦ שבץ AI' },
+    { id: 'editRange', label: '✎ ערוך טווח' },
+  ];
+  const DEFAULT_HIDDEN_BUTTONS = ['runAlgo', 'runAI', 'editRange'];
+  const [hiddenButtons, setHiddenButtons] = React.useState(() => saved?.hiddenButtons ?? DEFAULT_HIDDEN_BUTTONS);
   const [vapidPublicKey, setVapidPublicKey] = React.useState(() => saved?.vapidPublicKey || '');
   const [sendRemindersOpen, setSendRemindersOpen] = React.useState(false);
   // חריגות קריטריוני הגשה שהתגלו לפני הרצת שיבוץ אוטומטי — { violations, proceed } | null
@@ -5608,6 +5634,7 @@ function App() {
         if (remote.swapSettings) setSwapSettings(s => ({ ...s, ...remote.swapSettings }));
         if (remote.requestCriteria) setRequestCriteria(c => ({ ...c, ...remote.requestCriteria }));
         if (remote.ruleToggles) setRuleToggles(t => ({ ...t, ...remote.ruleToggles }));
+        if (remote.hiddenButtons) setHiddenButtons(remote.hiddenButtons);
       }
       setSyncStatus('saved');
       isFirstLoad.current = false;
@@ -5704,7 +5731,7 @@ function App() {
     if (generatingId) return;
     if (isFirstLoad.current) return;
     if (employees.length === 0) return; // אל תכתוב רשימת עובדים ריקה — שמור על נתוני Supabase
-    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, swapSettings, requestCriteria, ruleToggles, empMaxV: EMP_MAX_V };
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, swapSettings, requestCriteria, ruleToggles, hiddenButtons, empMaxV: EMP_MAX_V };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -5713,7 +5740,7 @@ function App() {
       const ok = await window.__db.save(state);
       setSyncStatus(ok ? 'saved' : 'error');
     }, 1200);
-  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, swapSettings, requestCriteria, ruleToggles, generatingId]);
+  }, [currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, swapSettings, requestCriteria, ruleToggles, hiddenButtons, generatingId]);
 
   // ערכת נושא
   React.useEffect(() => {
@@ -6490,10 +6517,14 @@ ${JSON.stringify(emptySlots, null, 2)}
               </button>
               {(status === 'draft' || status === 'open') && (<>
                 <button className="btn btn-smart" onClick={runSmart} disabled={isGenerating} title="מחשב עם היסטוריה + AI לחורים">✦⚙ השיבוץ החכם</button>
-                <button className="btn btn-ai" onClick={runAI} disabled={isGenerating} title="AI בלבד">✦ שבץ AI</button>
-                <button className="btn" onClick={runAlgo} disabled={isGenerating} title="שיבוץ מהיר ללא AI">⚙ מחשב</button>
+                {!hiddenButtons.includes('runAI') && (
+                  <button className="btn btn-ai" onClick={runAI} disabled={isGenerating} title="AI בלבד">✦ שבץ AI</button>
+                )}
+                {!hiddenButtons.includes('runAlgo') && (
+                  <button className="btn" onClick={runAlgo} disabled={isGenerating} title="שיבוץ מהיר ללא AI">⚙ מחשב</button>
+                )}
               </>)}
-              {(status === 'draft' || status === 'open') && (
+              {(status === 'draft' || status === 'open') && !hiddenButtons.includes('editRange') && (
                 <button className="btn" onClick={() => { setModalMode('edit'); setModalOpen(true); }} disabled={isGenerating}
                   title="הוספה/הסרה של ימים בתחילת או בסוף הטווח">✎ ערוך טווח</button>
               )}
@@ -6646,7 +6677,8 @@ ${JSON.stringify(emptySlots, null, 2)}
         vapidPublicKey={vapidPublicKey}
         onVapidKeysGenerated={setVapidPublicKey}
         swapSettings={swapSettings} onSwapSettingsChange={setSwapSettings}
-        requestCriteria={requestCriteria} onRequestCriteriaChange={setRequestCriteria} />
+        requestCriteria={requestCriteria} onRequestCriteriaChange={setRequestCriteria}
+        hiddenButtons={hiddenButtons} onHiddenButtonsChange={setHiddenButtons} toolbarButtonDefs={TOOLBAR_BUTTON_DEFS} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)}
         onGenerate={(opts) => { (modalMode === 'edit' ? editDraftRange : createDraft)(opts); setModalOpen(false); }}

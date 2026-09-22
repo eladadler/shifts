@@ -31,12 +31,10 @@
     --slot-pad: 6px 8px;
     --chip-font: 12.5px;
     --day-min-h: 150px;
-    /* ---------- זכוכית (glassmorphism) — שכבות שקופות-מטושטשות לצ'רום עליון ---------- */
+    /* ---------- זכוכית (glassmorphism) — לסרגל העליון ולסיידברים בלבד, לא לתפריטים/מגירות ---------- */
     --glass-surface: color-mix(in oklab, var(--surface) 58%, transparent);
     --glass-border: color-mix(in oklab, white 55%, transparent);
     --glass-blur: blur(16px) saturate(180%);
-    /* לתפריטים/פופאובר קטנים — צריך אטימות גבוהה כדי שטקסט יישאר קריא ולחיץ בבירור */
-    --glass-popover: color-mix(in oklab, var(--surface) 95%, transparent);
   }
   [data-theme="dark"] {
     --bg: oklch(0.21 0.012 255);
@@ -493,10 +491,8 @@
   .ham-btn:hover { background: var(--surface-2); color: var(--ink); }
   .ham-dropdown {
     position: absolute; top: calc(100% + 6px); right: 0;
-    background: var(--glass-popover);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border);
+    background: var(--surface);
+    border: 1px solid var(--line);
     border-radius: 10px; box-shadow: var(--shadow);
     min-width: 180px; z-index: 200;
     padding: 6px; display: flex; flex-direction: column; gap: 2px;
@@ -517,11 +513,9 @@
     z-index: 100; display: flex; justify-content: flex-end;
   }
   .right-drawer {
-    background: var(--glass-popover);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    background: var(--surface);
     height: 100%; width: min(480px, 92vw);
-    border-inline-start: 1px solid var(--glass-border);
+    border-inline-start: 1px solid var(--line);
     display: flex; flex-direction: column;
     box-shadow: -4px 0 24px oklch(0.15 0.01 255 / 0.12);
     overflow: hidden;

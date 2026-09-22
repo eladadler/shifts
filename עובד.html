@@ -1055,7 +1055,7 @@ function App() {
     if (error) throw error;
     if (!data || !data.length) throw new Error('התפוס — מישהו כבר בחר את השם הזה');
     // ניקוי שאריות אם בינתיים גם נוצרה רשומת "ממתין לאישור" עבור האימייל הזה
-    await sb.from('pending_employees').delete().eq('email', claimEmail).catch(() => {});
+    try { await sb.from('pending_employees').delete().eq('email', claimEmail); } catch (_) {}
     await loadAll(claimEmail, false, claimSessionUser);
   };
   const claimNotInList = () => resolveNotFound(claimEmail, claimSessionUser);
@@ -1337,7 +1337,7 @@ function SettingsTab({ me, email, onLogout, myPrefs, onSavePref }) {
     idbSet('notifPrefs', next).catch(() => {});
     // Sync to Supabase so the server-side shift-reminders function knows the alert settings
     if (me?.id) {
-      sb.from('push_subscriptions').update({ prefs: next }).eq('emp_id', me.id).catch(() => {});
+      sb.from('push_subscriptions').update({ prefs: next }).eq('emp_id', me.id).then(() => {}, () => {});
     }
   };
 

@@ -483,8 +483,9 @@ function checkRequestCriteria(rangeDates, row, settings, criteria) {
       if (shifts.some(s => s.id === 'night') && openShift({ id: 'night' })) nights++;
       if (shifts.some(s => s.id !== 'night' && openShift(s))) days++;
       const wd = weekdayOf(ds);
-      if (wd === 5 && shifts.some(openShift)) anyFriday = true;
-      if (wd === 6 && shifts.some(openShift)) anySaturday = true;
+      // "שישי פנוי" = שישי קצר/ארוך בלבד (לא שבת ארוכה). "שבת פנויה" = בוקר שבת בלבד (לא שבת ארוכה/מוצאי שבת)
+      if (wd === 5 && shifts.some(s => (s.id === 'short' || s.id === 'morning') && openShift(s))) anyFriday = true;
+      if (wd === 6 && shifts.some(s => s.id === 'morning' && openShift(s))) anySaturday = true;
     });
     const label = `${dates[0].slice(8)}–${dates[dates.length - 1].slice(8)}`;
     if (dates.length >= criteria.minNightsPerWeek && nights < criteria.minNightsPerWeek)
@@ -492,8 +493,8 @@ function checkRequestCriteria(rangeDates, row, settings, criteria) {
     if (dates.length >= criteria.minDaysPerWeek && days < criteria.minDaysPerWeek)
       violations.push(`שבוע ${label}: ${days}/${criteria.minDaysPerWeek} ימים פנויים בלבד`);
   });
-  if (criteria.minFridaysCanPerMonth > 0 && !anyFriday) violations.push('לא סומן אף שישי שאפשר לעבוד בו');
-  if (criteria.minSaturdaysCanPerMonth > 0 && !anySaturday) violations.push('לא סומנה אף שבת שאפשר לעבוד בה');
+  if (criteria.minFridaysCanPerMonth > 0 && !anyFriday) violations.push('לא סומן אף שישי קצר/ארוך שאפשר לעבוד בו');
+  if (criteria.minSaturdaysCanPerMonth > 0 && !anySaturday) violations.push('לא סומן אף בוקר שבת שאפשר לעבוד בו');
   return violations;
 }
 
@@ -516,8 +517,8 @@ function meetsRequestCriteria(rangeDates, row, settings, criteria) {
       if (shifts.some(s => s.id === 'night') && openShift({ id: 'night' })) nights++;
       if (shifts.some(s => s.id !== 'night' && openShift(s))) days++;
       const wd = weekdayOf(ds);
-      if (wd === 5 && shifts.some(openShift)) anyFriday = true;
-      if (wd === 6 && shifts.some(openShift)) anySaturday = true;
+      if (wd === 5 && shifts.some(s => (s.id === 'short' || s.id === 'morning') && openShift(s))) anyFriday = true;
+      if (wd === 6 && shifts.some(s => s.id === 'morning' && openShift(s))) anySaturday = true;
     });
     if (dates.length >= criteria.minNightsPerWeek && nights < criteria.minNightsPerWeek) nightsOk = false;
     if (dates.length >= criteria.minDaysPerWeek && days < criteria.minDaysPerWeek) daysOk = false;
@@ -2622,8 +2623,8 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     const lines = [];
     if (myCriteria.minNightsPerWeek > 0) lines.push({ key: 'minNightsPerWeek', text: `לפחות ${myCriteria.minNightsPerWeek} לילות זמינים בכל שבוע` });
     if (myCriteria.minDaysPerWeek > 0) lines.push({ key: 'minDaysPerWeek', text: `לפחות ${myCriteria.minDaysPerWeek} ימים זמינים בכל שבוע` });
-    if (myCriteria.minFridaysCanPerMonth > 0) lines.push({ key: 'minFridaysCanPerMonth', text: 'לפחות שישי אחד פנוי במהלך החודש' });
-    if (myCriteria.minSaturdaysCanPerMonth > 0) lines.push({ key: 'minSaturdaysCanPerMonth', text: 'לפחות שבת אחת פנויה במהלך החודש' });
+    if (myCriteria.minFridaysCanPerMonth > 0) lines.push({ key: 'minFridaysCanPerMonth', text: 'לפחות שישי קצר/ארוך אחד פנוי במהלך החודש (לא כולל שבת ארוכה)' });
+    if (myCriteria.minSaturdaysCanPerMonth > 0) lines.push({ key: 'minSaturdaysCanPerMonth', text: 'לפחות בוקר שבת אחד פנוי במהלך החודש (לא כולל שבת ארוכה/מוצאי שבת)' });
     return lines;
   }, [myCriteria]);
   const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);

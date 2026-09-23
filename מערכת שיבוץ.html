@@ -1631,8 +1631,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         if (shifts.some(s => s.id === 'night') && openShift({ id: 'night' })) nights++;
         if (shifts.some(s => s.id !== 'night' && openShift(s))) days++;
         const wd = D.weekdayOf(ds);
-        if (wd === 5 && shifts.some(openShift)) anyFriday = true;
-        if (wd === 6 && shifts.some(openShift)) anySaturday = true;
+        // "שישי פנוי" = שישי קצר/ארוך בלבד (לא שבת ארוכה). "שבת פנויה" = בוקר שבת בלבד (לא שבת ארוכה/מוצאי שבת)
+        if (wd === 5 && shifts.some(s => (s.id === 'short' || s.id === 'morning') && openShift(s))) anyFriday = true;
+        if (wd === 6 && shifts.some(s => s.id === 'morning' && openShift(s))) anySaturday = true;
       });
       const label = `${dates[0].slice(8)}–${dates[dates.length - 1].slice(8)}`;
       if (dates.length >= criteria.minNightsPerWeek && nights < criteria.minNightsPerWeek)
@@ -1640,8 +1641,8 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       if (dates.length >= criteria.minDaysPerWeek && days < criteria.minDaysPerWeek)
         violations.push(`שבוע ${label}: ${days}/${criteria.minDaysPerWeek} ימים פנויים בלבד`);
     });
-    if (criteria.minFridaysCanPerMonth > 0 && !anyFriday) violations.push('לא סומן אף שישי שאפשר לעבוד בו');
-    if (criteria.minSaturdaysCanPerMonth > 0 && !anySaturday) violations.push('לא סומנה אף שבת שאפשר לעבוד בה');
+    if (criteria.minFridaysCanPerMonth > 0 && !anyFriday) violations.push('לא סומן אף שישי קצר/ארוך שאפשר לעבוד בו');
+    if (criteria.minSaturdaysCanPerMonth > 0 && !anySaturday) violations.push('לא סומן אף בוקר שבת שאפשר לעבוד בו');
     return violations;
   }
 
@@ -3617,8 +3618,8 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
                 {[
                   ['minNightsPerWeek', 'מינימום לילות פנויים בשבוע'],
                   ['minDaysPerWeek', 'מינימום ימים פנויים בשבוע'],
-                  ['minFridaysCanPerMonth', 'לפחות שישי אחד פנוי בחודש'],
-                  ['minSaturdaysCanPerMonth', 'לפחות שבת אחת פנויה בחודש'],
+                  ['minFridaysCanPerMonth', 'לפחות שישי קצר/ארוך אחד פנוי בחודש (לא כולל שבת ארוכה)'],
+                  ['minSaturdaysCanPerMonth', 'לפחות בוקר שבת אחד פנוי בחודש (לא כולל שבת ארוכה/מוצאי שבת)'],
                 ].map(([key, label]) => (
                   <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'0 2px'}}>
                     <span style={{fontSize:'12.5px',lineHeight:1.4}}>{label}</span>
@@ -3986,8 +3987,8 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
             {[
               ['minNightsPerWeek', 'מינימום לילות/שבוע'],
               ['minDaysPerWeek', 'מינימום ימים/שבוע'],
-              ['minFridaysCanPerMonth', 'שישי פנוי אחד/חודש'],
-              ['minSaturdaysCanPerMonth', 'שבת פנויה אחת/חודש'],
+              ['minFridaysCanPerMonth', 'שישי קצר/ארוך פנוי אחד/חודש'],
+              ['minSaturdaysCanPerMonth', 'בוקר שבת פנוי אחד/חודש'],
             ].map(([key, label]) => (
               <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
                 <span style={{fontSize:'12.5px',color:'var(--ink-2)'}}>{label}</span>

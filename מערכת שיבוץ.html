@@ -292,7 +292,6 @@
   .emp-info { flex: 1; min-width: 0; }
   .emp-name-row { display: flex; align-items: center; gap: 5px; }
   .emp-name { font-weight: 600; font-size: 13px; }
-  .anchor-tag { font-size: 11px; }
   .emp-meta { display: flex; align-items: center; gap: 6px; margin-top: 1px; }
   .emp-role { font-size: 11.5px; color: var(--ink-3); }
   .av-tag { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; }
@@ -1381,13 +1380,13 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         const av = D.availabilityOn(e.id, dStr, shift.id);
         if (on('unavailable') && av === 'unavailable') return true;
         if (on('maxQuota') && counts[e.id] >= e.max) return true;
-        if (on('nightCapability') && shift.id === 'night' && !e.nights) return true;
         // העדפות עצמאיות לכל משמרת סוף שבוע בנפרד — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
         if (on('wantsFridayShort') && wdShift0 === 5 && shift.id === 'short' && e.wantsFridayShort === false) return true;
         if (on('wantsFridayLong') && wdShift0 === 5 && shift.id === 'morning' && e.wantsFridayLong === false) return true;
         if (on('wantsShabbatLong') && shift.id === 'shabbat' && e.wantsShabbatLong === false) return true;
         if (on('wantsSaturdayShort') && wdShift0 === 6 && shift.id === 'morning' && e.wantsSaturdayShort === false) return true;
-        if (on('noWeekdayNights') && shift.id === 'night' && wdShift0 >= 0 && wdShift0 <= 4 && e.noWeekdayNights) return true;
+        // "ללא משמרות לילה" — חוסם כל משמרת night, כולל מוצאי שבת (לא רק ימי א׳-ה׳)
+        if (on('noWeekdayNights') && shift.id === 'night' && e.noWeekdayNights) return true;
         // מי שיש לו "שבת ארוכה" באותו שבוע מוגבל למשמרת חול אחת פחות מהיעד הרגיל שלו
         if (on('shabbatWeeklyCap') && wdShift0 >= 0 && wdShift0 <= 4 && shabbatWeeks[wk0]?.has(e.id)) {
           const cap = Math.max(0, (e.weekdayShiftsPerWeek ?? 2) - 1);
@@ -1460,7 +1459,6 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             if (av === 'high') s += 6;
             if (av === 'can') s += 2;
           }
-          if (on('biasAnchor') && e.anchor) s += 3;
           if (on('biasNightOwl') && e.nightOwl && shift.id === 'night') s += 5;
           if (on('biasLoadBalance')) s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
           if (on('biasWeeklyTarget') && wdShift >= 0 && wdShift <= 4) {
@@ -2505,7 +2503,6 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
       <div className="emp-info">
         <div className="emp-name-row">
           <span className="emp-name">{emp.name}</span>
-          {emp.anchor && <span className="anchor-tag" title="עוגן — עובד ותיק">⚓</span>}
         </div>
         <div className="emp-meta">
           <span className="emp-role">{emp.role}</span>
@@ -2658,8 +2655,6 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
           name:   { type: 'string',  description: 'שם העובד (שם פרטי מספיק)' },
           role:   { type: 'string',  description: 'תפקיד (רשות)' },
           max:    { type: 'number',  description: 'מכסת משמרות מקסימלית לחודש (רשות, ברירת מחדל 14)' },
-          nights: { type: 'boolean', description: 'יכול לעבוד לילות (רשות, ברירת מחדל לא)' },
-          anchor: { type: 'boolean', description: 'עובד עוגן (רשות)' },
         },
         required: ['name'],
       },
@@ -2674,8 +2669,6 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
           name:   { type: 'string' },
           role:   { type: 'string' },
           max:    { type: 'number' },
-          nights: { type: 'boolean' },
-          anchor: { type: 'boolean' },
         },
         required: ['id'],
       },
@@ -2724,7 +2717,7 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
         if (!input.name || !String(input.name).trim()) return 'חסר שם — זהו השדה היחיד שחובה להזין';
         const id = 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
         const newEmp = { id, name: String(input.name).trim(), role: input.role || '', max: input.max ?? 14,
-          nights: !!input.nights, anchor: !!input.anchor, nightOwl: false,
+          nightOwl: false,
           color: EMP_COLORS[Math.floor(Math.random() * EMP_COLORS.length)] };
         onEmployeesChange(prev => [...prev, newEmp]);
         return `העובד "${input.name}" נוסף (id: ${id})`;
@@ -2789,9 +2782,9 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
 
     setLoading(true);
     try {
-      const empList = (employees || PD.EMPLOYEES).map(e => ({
+      const empList = PD.EMPLOYEES.map(e => ({
         id: e.id, name: e.name, role: e.role, maxShifts: e.max,
-        canDoNights: !!e.nights, anchor: !!e.anchor, requests: PD.reqOf(e.id) || null,
+        canDoNights: !e.noWeekdayNights, requests: PD.reqOf(e.id) || null,
       }));
       const conflicts = schedule ? Object.keys(PE.detectConflicts(schedule)).length : 0;
       schedRef.current = JSON.parse(JSON.stringify(schedule || {}));
@@ -2910,7 +2903,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
 
   const isEligible = (emp, shift) => {
     if (PD.availabilityOn(emp.id, selectedDate) === 'unavailable') return false;
-    if (isNightHour(shift.start) && !emp.nights) return false;
+    if (isNightHour(shift.start) && prefs?.[emp.id]?.no_weekday_nights) return false;
     if (PE.countShifts(schedule, emp.id) >= emp.max) return false;
     return true;
   };
@@ -2929,7 +2922,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
         if (wd === 5 && shiftId === 'morning' && p.wants_friday_long === false) return false;
         if (shiftId === 'shabbat' && p.wants_shabbat_long === false) return false;
         if (wd === 6 && shiftId === 'morning' && p.wants_saturday_short === false) return false;
-        if (shiftId === 'night' && wd >= 0 && wd <= 4 && p.no_weekday_nights) return false;
+        if (shiftId === 'night' && p.no_weekday_nights) return false;
       }
     }
     return true;
@@ -3739,7 +3732,7 @@ function ApprovePendingModal({ pending, COLORS, onClose, onApproved }) {
     const newId = 'emp-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
     const ok = await window.__db.approvePendingEmployee(pending.id, { id: newId, name: appName.trim(), email: pending.email, color: appColor });
     if (ok) {
-      onApproved({ id: newId, name: appName.trim(), email: pending.email, color: appColor, role: appRole, max: appMax, anchor: false, nights: false });
+      onApproved({ id: newId, name: appName.trim(), email: pending.email, color: appColor, role: appRole, max: appMax });
     }
     setAppBusy(false);
   };
@@ -3809,7 +3802,7 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
     return {
       id: e?.id || ('emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)),
       name: e?.name || '', role: e?.role || '', email: e?.email || '',
-      color: e?.color || COLORS[0], max: e?.max ?? 14, anchor: !!e?.anchor, nights: !!e?.nights,
+      color: e?.color || COLORS[0], max: e?.max ?? 14,
       shabbatFrequencyDays: e?.shabbatFrequencyDays || 45,
       weekendShortFrequencyDays: e?.weekendShortFrequencyDays ?? null,
       reqCriteria: e?.reqCriteria || {},
@@ -3910,16 +3903,6 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
             <span className="field-hint">משמרות לחודש</span>
           </div>
         </div>
-        <div style={{display:'flex',gap:20}}>
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-            <input type="checkbox" checked={draft.anchor} onChange={(e) => setDraft(p => ({...p, anchor: e.target.checked}))} />
-            עוגן (ותיק)
-          </label>
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-            <input type="checkbox" checked={draft.nights} onChange={(e) => setDraft(p => ({...p, nights: e.target.checked}))} />
-            משמרות לילה
-          </label>
-        </div>
         <div className="field">
           <label className="field-label">
             יעד משמרות/שבוע בימי חול (א׳–ה׳)
@@ -3960,7 +3943,7 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
         <div style={{display:'flex',gap:20}}>
           <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
             <input type="checkbox" checked={draft.noWeekdayNights} onChange={(e) => setDraft(p => ({...p, noWeekdayNights: e.target.checked}))} />
-            ללא לילות באמצע השבוע (א׳–ה׳)
+            ללא משמרות לילה (כולל מוצאי שבת)
           </label>
         </div>
         <div className="field">
@@ -4785,7 +4768,6 @@ ${shiftsDesc}
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4}}>
                     <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.name}</span>
-                    {emp.anchor && <span title="עוגן — עובד ותיק" style={{flexShrink:0,fontSize:10}}>⚓</span>}
                     {entry?.managerNote && <span title={'הערה למשבץ: ' + entry.managerNote} style={{flexShrink:0}}>📌</span>}
                     {lowWeekly && <span title="מבקש פחות מ-2 משמרות/שבוע בימי חול" style={{flexShrink:0,fontSize:10,color:'var(--danger)'}}>⚠</span>}
                   </div>
@@ -5081,12 +5063,11 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
   const HARD = [
     { key: 'unavailable', t: 'עובד סימן "לא יכול"', d: 'משמרת/יום שסומנו unavailable — לעולם לא ישובצו שם אוטומטית.' },
     { key: 'maxQuota', t: 'מכסה חודשית', d: 'לא משבצים עובד שכבר הגיע למכסת המשמרות החודשית שלו (שדה "מכסה" בכרטיס העובד).' },
-    { key: 'nightCapability', t: 'משמרת לילה', d: 'רק עובד שסומן "משמרות לילה" בכרטיסו יכול להישבץ למשמרת מסוג night.' },
     { key: 'wantsFridayShort', t: 'עושה שישי קצר', d: 'עובד שסימן שאינו עושה "שישי קצר" (09:00–15:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
     { key: 'wantsFridayLong', t: 'עושה שישי ארוך', d: 'עובד שסימן שאינו עושה "שישי ארוך" (09:00–21:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
     { key: 'wantsShabbatLong', t: 'עושה שבת ארוכה', d: 'עובד שסימן שאינו עושה "שבת ארוכה" (shabbat, שישי 15:00–שבת 21:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
     { key: 'wantsSaturdayShort', t: 'עושה שבת קצר (בוקר שבת)', d: 'עובד שסימן שאינו עושה "בוקר שבת" (09:00–21:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
-    { key: 'noWeekdayNights', t: 'ללא לילות באמצע השבוע', d: 'עובד שסימן זאת לא ישובץ למשמרת לילה בימי א׳-ה׳ (בשישי/שבת עדיין אפשרי, בכפוף לתנאים למעלה).' },
+    { key: 'noWeekdayNights', t: 'ללא משמרות לילה', d: 'עובד שסימן זאת לא ישובץ לאף משמרת לילה — כולל גם מוצאי שבת, לא רק ימי א׳-ה׳.' },
     { key: 'shabbatWeeklyCap', t: 'שבת ארוכה מפחיתה משמרת חול באותו שבוע', d: 'עובד ששובץ ל"שבת ארוכה" בשבוע מסוים מוגבל, באותו שבוע, למשמרת חול אחת פחות מיעד המשמרות/שבוע הרגיל שלו. לדוגמה: יעד 2 + שבת ארוכה באותו שבוע ⇐ לכל היותר משמרת חול אחת נוספת באותו שבוע.' },
     { key: 'crossMonthRest', t: 'מנוחה מול המשמרת האחרונה בחודש הקודם', d: 'פחות מ-8 שעות מנוחה מהמשמרת האחרונה שהעובד עשה בסוף החודש הקודם — חוסם לגמרי, בלי חריגה אוטומטית.' },
     { key: 'canWhitelist', t: 'רשימת "יכול" חודשית', d: 'עובד שהגיש רשימת "יכול" (can) מצומצמת לחודש הנוכחי לא ישובץ מחוץ לרשימה שהגיש, גם אם יש לו זמינות אחרת.' },
@@ -5094,7 +5075,6 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
   ];
   const SOFT = [
     { key: 'biasHighCan', t: 'עדיפות גבוהה / יכול', d: 'עובד שסימן "מעדיף" למשמרת מסוימת מקבל ניקוד גבוה יותר ממי שסימן "יכול" בלבד.' },
-    { key: 'biasAnchor', t: 'עוגן (ותיק)', d: 'מקבל בונוס קל בניקוד.' },
     { key: 'biasNightOwl', t: 'Night owl', d: 'עובד שמסומן ככזה מקבל עדיפות למשמרות לילה.' },
     { key: 'biasLoadBalance', t: 'איזון עומס', d: 'ככל שעובד שובץ ליותר משמרות (החודש ובחודשיים האחרונים) הניקוד שלו יורד, כדי לפזר עומס שווה יותר.' },
     { key: 'biasWeeklyTarget', t: 'יעד משמרות/שבוע בימי חול', d: 'הטיה רכה בלבד (לא חוסמת) — עובד רחוק מהיעד שלו מקבל ניקוד גבוה יותר למשמרות חול, ועובד שכבר עבר את היעד מקבל ניקוד נמוך יותר.' },
@@ -5591,10 +5571,10 @@ function App() {
   // מפתח/ברירת מחדל לכל תנאי שיבוץ (ראו מסך "תנאי שיבוץ") — כולם דלוקים כברירת מחדל.
   // כיבוי מפתח כלשהו כאן מנטרל אותו בפועל במנוע (ShiftEngine.generate מקבל ruleToggles).
   const DEFAULT_RULE_TOGGLES = {
-    unavailable: true, maxQuota: true, nightCapability: true,
+    unavailable: true, maxQuota: true,
     wantsFridayShort: true, wantsFridayLong: true, wantsShabbatLong: true, wantsSaturdayShort: true,
     noWeekdayNights: true, shabbatWeeklyCap: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
-    biasHighCan: true, biasAnchor: true, biasNightOwl: true, biasLoadBalance: true,
+    biasHighCan: true, biasNightOwl: true, biasLoadBalance: true,
     biasWeeklyTarget: true, biasShabbatFrequency: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
   };
   const [ruleToggles, setRuleToggles] = React.useState(() => ({ ...DEFAULT_RULE_TOGGLES, ...(saved?.ruleToggles || {}) }));
@@ -6141,9 +6121,9 @@ function App() {
       smartLog.push({ timestamp: ts(), type: 'info', message: `שלב ב׳: AI ממטב ${holes.length} חורים שנותרו` });
       setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: algoResult.schedule, log: smartLog } : d));
 
-      const empList = employees.map(e => ({
+      const empList = AD.EMPLOYEES.map(e => ({
         id: e.id, name: e.name, role: e.role, maxShifts: e.max,
-        canDoNights: !!e.nights, nightOwl: !!e.nightOwl, anchor: !!e.anchor,
+        canDoNights: !e.noWeekdayNights, nightOwl: !!e.nightOwl,
         requests: AD.reqOf(e.id) || null,
       }));
 
@@ -6278,9 +6258,9 @@ ${JSON.stringify(emptySlots, null, 2)}
     const snap = JSON.parse(JSON.stringify(currentDraft));
     setGeneratingId(id);
     try {
-      const empList = employees.map(e => ({
+      const empList = AD.EMPLOYEES.map(e => ({
         id: e.id, name: e.name, role: e.role, maxShifts: e.max,
-        canDoNights: !!e.nights, nightOwl: !!e.nightOwl, anchor: !!e.anchor,
+        canDoNights: !e.noWeekdayNights, nightOwl: !!e.nightOwl,
         requests: AD.reqOf(e.id) || null,
       }));
       const dates = [];

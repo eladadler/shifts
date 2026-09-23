@@ -862,7 +862,7 @@ function App() {
   const [localReqs, setLocalReqs] = React.useState({});      // { 'YYYY-MM': { marks, note, dirty } }
   const [allReqs, setAllReqs] = React.useState({});          // { 'YYYY-MM': { emp_id: row } } — כל העובדים
   const [swaps, setSwaps] = React.useState([]);               // כל בקשות החילוף (shift_swap_requests)
-  const [mgrEmps, setMgrEmps] = React.useState([]);          // כרטיסי העובדים מהמשבץ (nights, max)
+  const [mgrEmps, setMgrEmps] = React.useState([]);          // כרטיסי העובדים מהמשבץ (max, no_weekday_nights ממוזג מ-employee_prefs)
   const [swapSettings, setSwapSettings] = React.useState(DEFAULT_SWAP_SETTINGS);
   const [recurring, setRecurring] = React.useState([]);       // בקשות קבועות (employee_recurring_requests)
   const [criteria, setCriteria] = React.useState(DEFAULT_REQUEST_CRITERIA);
@@ -953,13 +953,14 @@ function App() {
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
 
-      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }, { data: recurRows }, { data: prefRow }] = await Promise.all([
+      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }, { data: recurRows }, { data: prefRow }, { data: allPrefRows }] = await Promise.all([
         sb.from('published_schedules').select('*'),
         sb.from('employee_requests').select('*'),
         sb.from('mishmarot_state').select('data').eq('id', 'main').maybeSingle(),
         sb.from('shift_swap_requests').select('*').order('created_at', { ascending: false }),
         sb.from('employee_recurring_requests').select('*').eq('emp_id', mine.id).order('weekday', { ascending: true }),
         sb.from('employee_prefs').select('*').eq('emp_id', mine.id).maybeSingle(),
+        sb.from('employee_prefs').select('emp_id,no_weekday_nights'),
       ]);
       if (e2) throw e2;
       if (e3) throw e3;
@@ -969,7 +970,11 @@ function App() {
       // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
-      setMgrEmps(stateData.employees || []);
+      // ממזג "ללא משמרות לילה" מ-employee_prefs (של כל עובד, לא רק שלי) לתוך רשימת
+      // העובדים מהמשבץ — נדרש כדי לסנן מועמדים למשמרת לילה במסך חילופי משמרות
+      const noNightsById = {};
+      (allPrefRows || []).forEach(r => { noNightsById[r.emp_id] = !!r.no_weekday_nights; });
+      setMgrEmps((stateData.employees || []).map(e => ({ ...e, no_weekday_nights: noNightsById[e.id] || false })));
       setSwapSettings(s => ({ ...s, ...(stateData.swapSettings || {}) }));
       setCriteria(c => ({ ...c, ...(stateData.requestCriteria || {}) }));
       setAnthropicKey(prev => prev || stateData.anthropicKey || '');
@@ -1497,7 +1502,8 @@ function SettingsTab({ me, email, onLogout, myPrefs, onSavePref }) {
           </div>
           <div style={divider}>
             <PrefRow
-              label="ללא לילות באמצע השבוע (א׳–ה׳)"
+              label="ללא משמרות לילה"
+              sub="כולל מוצאי שבת"
               value={myPrefs?.no_weekday_nights ?? false}
               onChange={v => onSavePref({ no_weekday_nights: v })}
             />
@@ -1681,7 +1687,7 @@ function ShiftDetail({ me, empNames, published, allReqs, mgrEmps, ctx, onClose, 
   Object.values(daySchedule).forEach(arr => (arr || []).forEach(id => busyToday.add(id)));
 
   const nightsOf = {};
-  (mgrEmps || []).forEach(e => { nightsOf[e.id] = !!e.nights; });
+  (mgrEmps || []).forEach(e => { nightsOf[e.id] = !e.no_weekday_nights; });
   const haveCaps = (mgrEmps || []).length > 0;
 
   // מחליפים אפשריים — אותו כלל שהמשבץ מפעיל: לא חסם, ואם הגיש רשימת "יכול" אז רק בתוכה

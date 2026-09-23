@@ -2191,8 +2191,8 @@ function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, 
   const hero = upcoming[0] || null;
   const firstName = (me.name || '').split(' ')[0];
 
-  // הגשת בקשות פתוחה לחודש שטרם פורסם סופית (כולל "פתוח לבקשות")
-  const isReqOpen = (m) => !published[m] || published[m]?.shift_settings?._status === 'open';
+  // הגשת בקשות פתוחה בפועל — רק אם המשבץ פרסם טיוטה במצב "פתוח לבקשות"
+  const isReqOpen = (m) => published[m]?.shift_settings?._status === 'open';
   const openReqMonth = [addMonths(TM, 1), addMonths(TM, 2)].find(isReqOpen) || (isReqOpen(TM) ? TM : null);
 
   const openMarket = (swaps || []).filter(r => r.status === 'open' && (r.kind === 'full' || r.kind === 'partial'))
@@ -2594,8 +2594,8 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   }, [myCriteria]);
   const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);
   const [mi, setMi] = React.useState(() => {
-    // ברירת מחדל: החודש הקרוב שעדיין פתוח לבקשות (כולל "פתוח לבקשות")
-    const i = months.findIndex(m => m >= TM && (!published[m] || published[m]?.shift_settings?._status === 'open'));
+    // ברירת מחדל: החודש הקרוב (מהיום והלאה) שבאמת פתוח לבקשות אצל המשבץ
+    const i = months.findIndex(m => m >= TM && published[m]?.shift_settings?._status === 'open');
     return i === -1 ? months.length - 1 : i;
   });
   const [brush, setBrush] = React.useState('un');
@@ -2610,7 +2610,8 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const ym = months[mi];
   const pubRow = published[ym] || null;
   const openStatus = pubRow?.shift_settings?._status === 'open';
-  const editable = !pubRow || openStatus;
+  // אין אפשרות להגיש בקשות עד שהמשבץ פותח טיוטה לבקשות בפועל — "לא פורסם עדיין" אינו "פתוח"
+  const editable = openStatus;
   const openRange = openStatus ? (pubRow?.shift_settings?._range || null) : null;
   const local = localReqs[ym] || { marks: {}, note: '', mgrNote: '', dirty: false };
   // ברירת מחדל: "avail" (מסמנ.ת זמינות) — כך שימים/משמרות שלא נגעו בהם נחשבים "לא זמין"
@@ -2632,6 +2633,10 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     }
     return out;
   }, [rangeStart, rangeEnd]);
+  // ימים שהמשבץ החריג מהטווח בטיוטה (עריכת טווח) — מוצגים בלוח אבל לא ניתנים לסימון
+  // ולא נכנסים לשום חישוב בפועל (הגשה, בדיקת קריטריונים, פרומפט ה-AI)
+  const excludedSet = React.useMemo(() => new Set(openRange?.excluded || []), [openRange]);
+  const activeDates = React.useMemo(() => rangeDates.filter(d => !excludedSet.has(d)), [rangeDates, excludedSet]);
   const gridOffset = weekdayOf(rangeStart);
   // gridOffset = weekday of first cell in calendar = weekday of rangeStart
   const [selDay, setSelDay] = React.useState(rangeStart);
@@ -2698,7 +2703,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   // local.marks[ds] === null = "בוטל לחודש הזה בלבד" (הדריסה עצמה נשארת פעילה לחודשים הבאים).
   const effectiveMarks = React.useMemo(() => {
     const out = {};
-    rangeDates.forEach(ds => {
+    activeDates.forEach(ds => {
       if (Object.prototype.hasOwnProperty.call(local.marks, ds)) {
         if (local.marks[ds] !== null) out[ds] = local.marks[ds];
       } else {
@@ -2707,7 +2712,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       }
     });
     return out;
-  }, [rangeDates, recurringPattern, local.marks]);
+  }, [activeDates, recurringPattern, local.marks]);
 
   const resetMonth = () => {
     setLocal({ marks: {}, dirty: true });
@@ -2771,9 +2776,10 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       });
       return out.sort();
     };
-    // הרחבת סימונים משתמעים: ימים לא-מסומנים מקבלים את הסטטוס ברירת-מחדל של המצב הנוכחי
+    // הרחבת סימונים משתמעים: ימים לא-מסומנים (בטווח בפועל, לא כולל ימים מוחרגים) מקבלים
+    // את הסטטוס ברירת-מחדל של המצב הנוכחי
     const markedDs = new Set(Object.keys(effectiveMarks));
-    const unmarkedDates = rangeDates.filter(ds => !markedDs.has(ds));
+    const unmarkedDates = activeDates.filter(ds => !markedDs.has(ds));
     let unavailable = toDates('un');
     let canArr = toDates('can');
     if (reqMode === 'block') {
@@ -2820,7 +2826,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       const scheduleLabel = openRange
         ? `הסידור (${rangeStart.slice(8)}.${rangeStart.slice(5,7)}–${rangeEnd.slice(8)}.${rangeEnd.slice(5,7)})`
         : `חודש ${monthLabel(ym)} (${ym})`;
-      const datesList = rangeDates.map(ds => `${ds} — יום ${HEB_DAYS[weekdayOf(ds)]}`).join('\n');
+      const datesList = activeDates.map(ds => `${ds} — יום ${HEB_DAYS[weekdayOf(ds)]}`).join('\n');
       const shiftLine = (label, list) => label + ': ' + (list || []).map(s => `${s.id} = ${s.name} ${s.start}–${s.end}`).join(' · ');
       const shiftsDesc = [
         shiftLine('ימי חול (א׳–ה׳)', settings?.weekday),
@@ -3009,15 +3015,15 @@ ${shiftsDesc}
   // אזהרה בלבד — לא חוסמת שליחה. נבדקת מול effectiveMarks + ברירת המחדל של המצב, בדיוק כמו submit()
   const criteriaWarnings = React.useMemo(() => {
     if (!editable) return [];
-    const unmarkedDates = rangeDates.filter(ds => !Object.prototype.hasOwnProperty.call(effectiveMarks, ds));
+    const unmarkedDates = activeDates.filter(ds => !Object.prototype.hasOwnProperty.call(effectiveMarks, ds));
     const row = { unavailable: [], high: [], can: [] };
     Object.entries(effectiveMarks).forEach(([ds, v]) => {
       if (typeof v === 'string') row[v === 'un' ? 'unavailable' : v === 'high' ? 'high' : 'can'].push(ds);
       else Object.entries(v || {}).forEach(([sid, m]) => row[m === 'un' ? 'unavailable' : m === 'high' ? 'high' : 'can'].push(`${ds}@${sid}`));
     });
     (reqMode === 'block' ? row.can : row.unavailable).push(...unmarkedDates);
-    return checkRequestCriteria(rangeDates, row, settings, myCriteria);
-  }, [effectiveMarks, rangeDates, reqMode, settings, myCriteria, editable]);
+    return checkRequestCriteria(activeDates, row, settings, myCriteria);
+  }, [effectiveMarks, activeDates, reqMode, settings, myCriteria, editable]);
 
   const BRUSHES = reqMode === 'block'
     ? [{ id: 'un', label: 'לא זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }, { id: 'erase', label: 'מחיקה' }]
@@ -3032,6 +3038,7 @@ ${shiftsDesc}
       {editable && openRange && (
         <div style={{ background: 'color-mix(in oklab, oklch(0.65 0.15 200) 8%, #FFF)', borderRadius: 10, padding: '9px 14px', fontSize: 12.5, fontWeight: 600, color: 'oklch(0.38 0.14 200)', border: '1px solid color-mix(in oklab, oklch(0.65 0.15 200) 25%, transparent)' }}>
           📅 טווח הסידור: {rangeStart.slice(8)}.{rangeStart.slice(5,7)} – {rangeEnd.slice(8)}.{rangeEnd.slice(5,7)}
+          {excludedSet.size > 0 && ` · ${excludedSet.size} ימים מוחרגים`}
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -3099,13 +3106,14 @@ ${shiftsDesc}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
           {Array.from({ length: gridOffset }).map((_, i) => <div key={'pad' + i} />)}
           {rangeDates.map(dStr => {
+            const isExcluded = excludedSet.has(dStr);
             const v = effectiveMarks[dStr];
             const isRecurring = v !== undefined && !Object.prototype.hasOwnProperty.call(local.marks, dStr);
             const ironVal = ironPattern[weekdayOf(dStr)];
             const isIron = isRecurring && (ironVal === true || (ironVal && typeof ironVal === 'object' && Object.keys(ironVal).length > 0));
             const whole = typeof v === 'string';
             const inCurMonth = dStr.startsWith(ym);
-            const impliedMark = !v && editable ? (reqMode === 'block' ? 'can' : 'un') : null;
+            const impliedMark = !v && editable && !isExcluded ? (reqMode === 'block' ? 'can' : 'un') : null;
             const s = v
               ? MARK_STATUS[whole ? v : 'none']
               : (impliedMark ? MARK_STATUS_FADED[impliedMark] : MARK_STATUS['none']);
@@ -3113,14 +3121,17 @@ ${shiftsDesc}
             const isSel = dStr === selDs;
             const dayNum = Number(dStr.slice(8));
             return (
-              <div key={dStr} onClick={() => tapDay(dStr)} style={{ position: 'relative', aspectRatio: '1', borderRadius: 10,
-                background: s.bg,
-                border: isSel ? `2px solid ${INK}` : (isRecurring ? `1.5px dashed ${s.fg}` : s.bd),
-                color: s.fg,
+              <div key={dStr} onClick={() => !isExcluded && tapDay(dStr)}
+                title={isExcluded ? 'מחוץ לטווח הסידור' : undefined}
+                style={{ position: 'relative', aspectRatio: '1', borderRadius: 10,
+                background: isExcluded ? 'repeating-linear-gradient(135deg, #EFEDE9, #EFEDE9 5px, #F7F6F3 5px, #F7F6F3 10px)' : s.bg,
+                border: isExcluded ? '1px solid #E4E1DB' : (isSel ? `2px solid ${INK}` : (isRecurring ? `1.5px dashed ${s.fg}` : s.bd)),
+                color: isExcluded ? '#B7B3AB' : s.fg,
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
                 fontSize: 13, fontWeight: inCurMonth ? 700 : 500,
-                cursor: 'pointer', transition: 'background 0.15s, border 0.15s', opacity: inCurMonth ? 1 : 0.75 }}>
-                {isRecurring && <span style={{ position: 'absolute', top: 3, insetInlineEnd: 4, fontSize: 8 }}>{isIron ? '🔒' : '🔁'}</span>}
+                cursor: isExcluded ? 'default' : 'pointer', transition: 'background 0.15s, border 0.15s',
+                opacity: isExcluded ? 0.7 : (inCurMonth ? 1 : 0.75) }}>
+                {isRecurring && !isExcluded && <span style={{ position: 'absolute', top: 3, insetInlineEnd: 4, fontSize: 8 }}>{isIron ? '🔒' : '🔁'}</span>}
                 <span>{dayNum}</span>
                 {dots.length > 0 && (
                   <span style={{ display: 'flex', gap: 2 }}>
@@ -3136,7 +3147,7 @@ ${shiftsDesc}
           {stats.shifts > 0 && <> — {stats.days} ימים מלאים · {stats.shifts} משמרות</>}
           {editable && (() => {
             const markedCount = Object.keys(effectiveMarks).length;
-            const impliedCount = rangeDates.length - markedCount;
+            const impliedCount = activeDates.length - markedCount;
             return impliedCount > 0 ? (
               <span style={{ color: reqMode === 'block' ? MARK_STATUS_FADED.can.fg : MARK_STATUS_FADED.un.fg }}>
                 {' · '}{impliedCount} {reqMode === 'block' ? 'יכול (ברירת מחדל)' : 'לא זמין (ברירת מחדל)'}

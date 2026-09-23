@@ -4502,7 +4502,8 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
     const nDays = new Date(y, m, 0).getDate();
     const rangeStart = openRange?.start || `${month}-01`;
     const rangeEnd   = openRange?.end   || `${month}-${SD.pad(nDays)}`;
-    const dates = window.ShiftEngine.listDates(rangeStart, rangeEnd);
+    const excluded = openRange?.excluded || [];
+    const dates = window.ShiftEngine.listDates(rangeStart, rangeEnd).filter(d => !excluded.includes(d));
     const out = {};
     employees.forEach(emp => {
       const criteria = { ...requestCriteria, ...(emp.reqCriteria || {}) };
@@ -4570,7 +4571,8 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
       const nDays = new Date(y, m, 0).getDate();
       const rangeStart = openRange?.start || `${month}-01`;
       const rangeEnd   = openRange?.end   || `${month}-${SD.pad(nDays)}`;
-      const scheduleDates = window.ShiftEngine.listDates(rangeStart, rangeEnd);
+      const excludedDates = openRange?.excluded || [];
+      const scheduleDates = window.ShiftEngine.listDates(rangeStart, rangeEnd).filter(d => !excludedDates.includes(d));
       const datesList = scheduleDates.map(dStr => `${dStr} — יום ${SD.dayLabel(dStr)}`).join('\n');
       const scheduleLabel = openRange
         ? `הסידור (${SD.shortDate(rangeStart)}–${SD.shortDate(rangeEnd)})`
@@ -4640,7 +4642,7 @@ ${shiftsDesc}
       const inRange = (arr) => (Array.isArray(arr) ? arr.filter(d => {
         if (typeof d !== 'string') return false;
         const ds = d.includes('@') ? d.split('@')[0] : d;
-        return ds >= rangeStart && ds <= rangeEnd;
+        return ds >= rangeStart && ds <= rangeEnd && !excludedDates.includes(ds);
       }) : []);
       updateEntry(emp.id, {
         unavailable: inRange(result.unavailable),
@@ -5856,7 +5858,7 @@ function App() {
   const editable = status === 'draft' || status === 'open';
   const openRangeByMonth = React.useMemo(() => {
     const map = {};
-    drafts.filter(d => d.status === 'open').forEach(d => { if (d.range) map[d.month] = d.range; });
+    drafts.filter(d => d.status === 'open').forEach(d => { if (d.range) map[d.month] = { ...d.range, excluded: d.excluded || [] }; });
     return map;
   }, [drafts]);
 
@@ -6490,7 +6492,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       window.__db.publishSchedule({
         month: d.month,
         schedule: {},
-        shift_settings: { ...(shiftSettings || {}), _status: 'open', _range: d.range },
+        shift_settings: { ...(shiftSettings || {}), _status: 'open', _range: { ...d.range, excluded: d.excluded || [] } },
         employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
         published_at: new Date().toISOString(),
       });
@@ -6509,7 +6511,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       window.__db.publishSchedule({
         month: currentDraft.month,
         schedule: {},
-        shift_settings: { ...(shiftSettings || {}), _status: 'open', _range: range },
+        shift_settings: { ...(shiftSettings || {}), _status: 'open', _range: { ...range, excluded } },
         employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
         published_at: new Date().toISOString(),
       });

@@ -4196,9 +4196,9 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
           {emp.role && <div style={{fontSize:11,color:'var(--ink-3)'}}>{emp.role}</div>}
         </div>
         {entry?.fromEmployee && (
-          <span style={{fontSize:10.5,fontWeight:600,color:'var(--accent)',background:'color-mix(in oklab, var(--accent) 12%, transparent)',borderRadius:999,padding:'2px 8px',flexShrink:0}}
-            title={entry.employeeUpdatedAt ? 'הוגש: ' + new Date(entry.employeeUpdatedAt).toLocaleString('he-IL') : ''}>
-            📥 הוגש
+          <span style={{fontSize:10.5,fontWeight:600,color: entry.isDraft ? 'var(--warn)' : 'var(--accent)',background: entry.isDraft ? 'color-mix(in oklab, var(--warn) 12%, transparent)' : 'color-mix(in oklab, var(--accent) 12%, transparent)',borderRadius:999,padding:'2px 8px',flexShrink:0}}
+            title={(entry.isDraft ? 'שמר טיוטה בלבד — טרם שלח בפועל' : 'הוגש') + (entry.employeeUpdatedAt ? ': ' + new Date(entry.employeeUpdatedAt).toLocaleString('he-IL') : '')}>
+            {entry.isDraft ? '📥 טיוטה בלבד' : '📥 הוגש'}
           </span>
         )}
         {analyzed && !stale && <span style={{fontSize:11,color:'var(--ok)',flexShrink:0}}>✓ נותח</span>}
@@ -4825,11 +4825,21 @@ ${shiftsDesc}
                   {emp.role && <div style={{fontSize:10.5,color:'var(--ink-3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.role}</div>}
                 </div>
                 <div style={{flexShrink:0,textAlign:'end',minWidth:36}}>
-                  {fromEmployee && <div style={{fontSize:9.5,fontWeight:700,color:'var(--accent)'}}>📥</div>}
-                  {!fromEmployee && hasDates && <div style={{fontSize:9.5,fontWeight:700,color:'var(--ok)'}}>✓</div>}
-                  {!fromEmployee && !hasDates && hasText && !analyzed && <div style={{fontSize:9.5,color:'var(--warn)'}}>✎</div>}
-                  {!fromEmployee && !hasDates && hasText && analyzed && <div style={{fontSize:9.5,color:'var(--ok)'}}>✓</div>}
-                  {!entry && <div style={{fontSize:11,color:'var(--line)'}}>—</div>}
+                  {fromEmployee && (
+                    <div title={entry?.isDraft ? 'העובד שמר טיוטה בלבד — טרם שלח את הבקשה בפועל' : 'הבקשה הוגשה ונשמרה בדאטהבייס'}
+                      style={{fontSize:9.5,fontWeight:700,color: entry?.isDraft ? 'var(--warn)' : 'var(--accent)'}}>📥</div>
+                  )}
+                  {!fromEmployee && hasDates && (
+                    <div title="נותחו תאריכים מכרטיס העובד כאן במשבץ — טרם נשלח לדאטהבייס (כפתור השליחה בכרטיס העובד)"
+                      style={{fontSize:9.5,fontWeight:700,color:'var(--ok)'}}>✓</div>
+                  )}
+                  {!fromEmployee && !hasDates && hasText && !analyzed && (
+                    <div title="יש טקסט חופשי שהוזן כאן במשבץ וטרם נותח ל-AI" style={{fontSize:9.5,color:'var(--warn)'}}>✎</div>
+                  )}
+                  {!fromEmployee && !hasDates && hasText && analyzed && (
+                    <div title="הטקסט נותח אך לא הופקו ממנו תאריכים — בדקו ידנית" style={{fontSize:9.5,color:'var(--ok)'}}>✓</div>
+                  )}
+                  {!entry && <div title="אין שום בקשה או טיוטה לחודש זה" style={{fontSize:11,color:'var(--line)'}}>—</div>}
                 </div>
               </div>
             );
@@ -5770,6 +5780,7 @@ function App() {
             note: r.note || '',
             managerNote: r.manager_note || '',
             fromEmployee: true,
+            isDraft: !!r.is_draft,
             employeeUpdatedAt: r.updated_at,
           },
         };

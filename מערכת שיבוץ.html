@@ -4503,6 +4503,21 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
   const [chatBusy, setChatBusy] = React.useState({});
   const [sendBusy, setSendBusy] = React.useState({});
   const [sendOk, setSendOk] = React.useState({});
+  // גרירת עובד בסרגל הצד לסידור מחדש
+  const [dragEmpId, setDragEmpId] = React.useState(null);
+  const [overEmpId, setOverEmpId] = React.useState(null);
+  const reorderEmpTo = (targetId) => {
+    if (!dragEmpId || dragEmpId === targetId) return;
+    onEmployeesChange(prev => {
+      const ids = prev.map(e => e.id);
+      const from = ids.indexOf(dragEmpId), to = ids.indexOf(targetId);
+      if (from < 0 || to < 0) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  };
 
   const navMonth = (dir) => {
     const [y, m] = month.split('-').map(Number);
@@ -4757,13 +4772,25 @@ ${shiftsDesc}
             const hasText = entry?.text?.trim();
             const isSelected = !addingNew && emp.id === selectedEmpId;
             const lowWeekly = (prefs?.[emp.id]?.weekday_shifts_per_week ?? 2) < 2;
+            const isDragging = dragEmpId === emp.id;
+            const isDragOver = overEmpId === emp.id && dragEmpId && dragEmpId !== emp.id;
             return (
-              <div key={emp.id} onClick={() => selectEmp(emp.id)} style={{
-                display:'flex',alignItems:'center',gap:7,padding:'7px 9px',borderRadius:8,cursor:'pointer',
+              <div key={emp.id} onClick={() => selectEmp(emp.id)}
+                draggable
+                onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragEmpId(emp.id); }}
+                onDragEnd={() => { setDragEmpId(null); setOverEmpId(null); }}
+                onDragOver={(e) => { if (dragEmpId) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOverEmpId(emp.id); } }}
+                onDragLeave={() => setOverEmpId(o => (o === emp.id ? null : o))}
+                onDrop={(e) => { e.preventDefault(); reorderEmpTo(emp.id); setDragEmpId(null); setOverEmpId(null); }}
+                style={{
+                display:'flex',alignItems:'center',gap:7,padding:'7px 9px',borderRadius:8,cursor:'grab',
                 background:isSelected ? 'color-mix(in oklab, var(--accent) 12%, transparent)' : 'transparent',
                 border:isSelected ? '1.5px solid color-mix(in oklab, var(--accent) 35%, transparent)' : '1.5px solid transparent',
+                borderTop:isDragOver ? '2px solid var(--accent)' : (isSelected ? '1.5px solid color-mix(in oklab, var(--accent) 35%, transparent)' : '1.5px solid transparent'),
+                opacity:isDragging ? 0.4 : 1,
                 marginBottom:2,transition:'background 0.12s',
               }}>
+                <span title="גררו לסידור מחדש" style={{flexShrink:0,fontSize:11,color:'var(--ink-3)',cursor:'grab',lineHeight:1}}>⠿</span>
                 <window.Avatar emp={emp} size={26} />
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4}}>

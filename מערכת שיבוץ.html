@@ -4729,6 +4729,7 @@ ${shiftsDesc}
         note: entry.note || '',
         updated_at: new Date().toISOString(),
         updated_by: 'manager',
+        is_draft: false, // המשבץ שולח בשם העובד — תמיד סופי, גם אם הייתה קודם טיוטה שמורה של העובד
       };
       const { error } = await window.__db._client().from('employee_requests').upsert(row);
       if (error) throw error;
@@ -6101,11 +6102,15 @@ function App() {
       if (weeklyTarget < 2) violations.push(`מבקש רק ${weeklyTarget} משמרות/שבוע בימי חול (מתחת למינימום המומלץ 2)`);
       // עובד שלא הגיש שום בקשה החודש — כברירת מחדל נחשב חסום לגמרי (לא ישובץ לשום מקום),
       // ולכן יוצג כחריגה גם אם checkRequestCriteria לא מוצא כלום (אין לו בכלל זמינות לבדוק).
+      // רשומה עם is_draft — "שמירה ללא שליחה" — לא נחשבת הגשה סופית, מאותה סיבה בדיוק.
       // לא מתריעים אם יש לו משמרת קבועה פעילה — כנראה שאינו צריך להגיש בקשה חודשית.
-      const hasSubmitted = !!(requests[emp.id] || {})[currentDraft.month];
+      const reqRow = (requests[emp.id] || {})[currentDraft.month];
+      const hasSubmitted = !!reqRow && !reqRow.is_draft;
       const hasRecurring = allRecurring.some(r => r.emp_id === emp.id && r.active);
       if (!hasSubmitted && !hasRecurring) {
-        violations.push('לא הגיש בקשה כלל החודש — כברירת מחדל ייחשב חסום לגמרי ולא ישובץ לשום מקום');
+        violations.push(reqRow?.is_draft
+          ? 'שמר טיוטה בלבד ולא שלח בפועל — כברירת מחדל ייחשב חסום לגמרי ולא ישובץ לשום מקום'
+          : 'לא הגיש בקשה כלל החודש — כברירת מחדל ייחשב חסום לגמרי ולא ישובץ לשום מקום');
       }
       if (violations.length) out.push({ empId: emp.id, name: emp.name, violations });
     });

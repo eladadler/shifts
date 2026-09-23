@@ -238,3 +238,8 @@ create policy "open access" on employee_prefs
 -- 12. הערה מיוחדת למשבץ, מלווה את הבקשה החודשית (נפרדת מהטקסט החופשי ל-AI)
 alter table employee_requests
   add column if not exists manager_note text not null default '';
+
+-- 13. "שמירה ללא שליחה" — true כל עוד השורה היא רק טיוטה שנשמרה, לא הצהרה סופית
+--     שהעובד לחץ עליה "שליחה". נכתב מ-false בהגשה רגילה, ומ-true בשמירת טיוטה.
+alter table employee_requests
+  add column if not exists is_draft boolean not null default false;

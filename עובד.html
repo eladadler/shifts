@@ -2911,6 +2911,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       unavailable, high: toDates('high'), can: canArr,
       note: local.note || '', manager_note: local.mgrNote || '',
       updated_at: new Date().toISOString(), updated_by: email,
+      is_draft: !!opts.quiet,
     };
     const { data, error } = await sb.from('employee_requests').upsert(row).select().single();
     setSaving(false);
@@ -3119,7 +3120,8 @@ ${shiftsDesc}
   };
 
   const hasMarks = Object.keys(effectiveMarks).length > 0;
-  const needSend = !server || local.dirty;
+  // "שמירה ללא שליחה" משאירה is_draft:true — עדיין נחשב כ"טרם נשלח בפועל", לא רק dirty מקומי
+  const needSend = !server || server.is_draft || local.dirty;
   const stats = React.useMemo(() => {
     const s = { un: 0, high: 0, can: 0, days: 0, shifts: 0 };
     Object.values(effectiveMarks).forEach(v => {
@@ -3423,7 +3425,8 @@ ${shiftsDesc}
         )}
         {sentAt && (
           <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
-            עודכן לאחרונה: {sentAt}{local.dirty ? ' · יש שינויים שטרם נשלחו' : ''}
+            {server?.is_draft ? 'נשמרה טיוטה' : 'עודכן לאחרונה'}: {sentAt}
+            {(local.dirty || server?.is_draft) ? ' · טרם נשלח סופית למשבץ' : ''}
           </div>
         )}
       </>)}

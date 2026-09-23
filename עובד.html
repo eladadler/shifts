@@ -1178,7 +1178,7 @@ function App() {
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey}
-        recurring={recurring} criteria={criteria} goRecurring={() => setRecurringOpen(true)} />}
+        recurring={recurring} criteria={criteria} mgrEmps={mgrEmps} goRecurring={() => setRecurringOpen(true)} />}
       {tab === 'swaps' && <SwapsTab me={me} empNames={empNames} published={published} swaps={swaps} onRefresh={refreshSwaps} showToast={showToast} swapSettings={swapSettings} />}
       {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} myPrefs={myPrefs} onSavePref={saveMyPref} />}
     </Shell>
@@ -2576,7 +2576,22 @@ function RecurringRequestsScreen({ me, TM, globalSettings, recurring, onClose, o
   );
 }
 
-function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, anthropicKey, recurring, criteria, goRecurring }) {
+function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, anthropicKey, recurring, criteria, mgrEmps, goRecurring }) {
+  // הקריטריונים הכלליים, נדרסים ע"י קריטריונים אישיים שהמשבץ הגדיר לעובד הזה (emp.reqCriteria) אם יש
+  const myCriteria = React.useMemo(() => {
+    const base = criteria || DEFAULT_REQUEST_CRITERIA;
+    const mine = (mgrEmps || []).find(e => e.id === me.id);
+    return { ...base, ...(mine?.reqCriteria || {}) };
+  }, [criteria, mgrEmps, me.id]);
+  // תיאור קריא של myCriteria — לתצוגה בלבד (הדרופדאון "מה מצופה ממני"), רק תנאים פעילים
+  const myCriteriaLines = React.useMemo(() => {
+    const lines = [];
+    if (myCriteria.minNightsPerWeek > 0) lines.push(`לפחות ${myCriteria.minNightsPerWeek} לילות זמינים בכל שבוע`);
+    if (myCriteria.minDaysPerWeek > 0) lines.push(`לפחות ${myCriteria.minDaysPerWeek} ימים זמינים בכל שבוע`);
+    if (myCriteria.minFridaysCanPerMonth > 0) lines.push('לפחות שישי אחד פנוי במהלך החודש');
+    if (myCriteria.minSaturdaysCanPerMonth > 0) lines.push('לפחות שבת אחת פנויה במהלך החודש');
+    return lines;
+  }, [myCriteria]);
   const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);
   const [mi, setMi] = React.useState(() => {
     // ברירת מחדל: החודש הקרוב שעדיין פתוח לבקשות (כולל "פתוח לבקשות")
@@ -2999,8 +3014,8 @@ ${shiftsDesc}
       else Object.entries(v || {}).forEach(([sid, m]) => row[m === 'un' ? 'unavailable' : m === 'high' ? 'high' : 'can'].push(`${ds}@${sid}`));
     });
     (reqMode === 'block' ? row.can : row.unavailable).push(...unmarkedDates);
-    return checkRequestCriteria(rangeDates, row, settings, criteria || DEFAULT_REQUEST_CRITERIA);
-  }, [effectiveMarks, rangeDates, reqMode, settings, criteria, editable]);
+    return checkRequestCriteria(rangeDates, row, settings, myCriteria);
+  }, [effectiveMarks, rangeDates, reqMode, settings, myCriteria, editable]);
 
   const BRUSHES = reqMode === 'block'
     ? [{ id: 'un', label: 'לא זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }, { id: 'erase', label: 'מחיקה' }]
@@ -3025,6 +3040,14 @@ ${shiftsDesc}
           <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס החודש</span>
         )}
       </div>
+      {editable && myCriteriaLines.length > 0 && (
+        <details style={{ background: 'color-mix(in oklab, oklch(0.65 0.15 200) 8%, #FFF)', border: '1px solid color-mix(in oklab, oklch(0.65 0.15 200) 25%, transparent)', borderRadius: 10, padding: '9px 14px' }}>
+          <summary style={{ fontSize: 12.5, fontWeight: 700, color: 'oklch(0.38 0.14 200)', cursor: 'pointer' }}>📋 מה מצופה ממני בהגשה החודשית</summary>
+          <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {myCriteriaLines.map((l, i) => <div key={i} style={{ fontSize: 12, color: '#4A5A66' }}>· {l}</div>)}
+          </div>
+        </details>
+      )}
       {editable && criteriaWarnings.length > 0 && (
         <div style={{ background: 'oklch(0.97 0.04 80)', border: '1px solid oklch(0.8 0.1 70)', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: 'oklch(0.5 0.13 70)' }}>⚠ שימו לב — לא הוגש המינימום שהמשבץ ביקש:</div>

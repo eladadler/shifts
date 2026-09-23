@@ -4496,6 +4496,20 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
   const [tab, setTab] = React.useState('requests'); // 'requests' | 'profile'
   const [addingNew, setAddingNew] = React.useState(false);
   const openRange = React.useMemo(() => openRangeByMonth?.[month] || null, [openRangeByMonth, month]);
+  // חריגות מקריטריוני הגשה (כלליים או אישיים) לכל עובד, לחודש הנבחר — ⚠ ברשימת הצד, לא חוסם
+  const criteriaViolationsByEmp = React.useMemo(() => {
+    const [y, m] = month.split('-').map(Number);
+    const nDays = new Date(y, m, 0).getDate();
+    const rangeStart = openRange?.start || `${month}-01`;
+    const rangeEnd   = openRange?.end   || `${month}-${SD.pad(nDays)}`;
+    const dates = window.ShiftEngine.listDates(rangeStart, rangeEnd);
+    const out = {};
+    employees.forEach(emp => {
+      const criteria = { ...requestCriteria, ...(emp.reqCriteria || {}) };
+      out[emp.id] = SD_E.checkRequestCriteria(dates, emp.id, shiftSettings, criteria);
+    });
+    return out;
+  }, [employees, month, openRange, requestCriteria, shiftSettings, requests]);
   const [selectedEmpId, setSelectedEmpId] = React.useState(null);
   const [analyzing, setAnalyzing] = React.useState({});
   const [errors, setErrors] = React.useState({});
@@ -4797,6 +4811,9 @@ ${shiftsDesc}
                     <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.name}</span>
                     {entry?.managerNote && <span title={'הערה למשבץ: ' + entry.managerNote} style={{flexShrink:0}}>📌</span>}
                     {lowWeekly && <span title="מבקש פחות מ-2 משמרות/שבוע בימי חול" style={{flexShrink:0,fontSize:10,color:'var(--danger)'}}>⚠</span>}
+                    {criteriaViolationsByEmp[emp.id]?.length > 0 && (
+                      <span title={'לא עומד בקריטריוני הגשה: ' + criteriaViolationsByEmp[emp.id].join('; ')} style={{flexShrink:0,fontSize:10,color:'var(--warn)'}}>📋⚠</span>
+                    )}
                   </div>
                   {emp.role && <div style={{fontSize:10.5,color:'var(--ink-3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.role}</div>}
                 </div>
@@ -5060,16 +5077,16 @@ function CriteriaGateModal({ gate, onProceed, onCancel }) {
         {gate.violations.length > 0 && (
           <div>
             <div style={{ fontWeight:700, fontSize:13, marginBottom:8 }}>📋 חריגות מקריטריוני הגשה ({gate.violations.length})</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
+            <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:20 }}>
               {gate.violations.map(v => (
-                <div key={v.empId} style={{ background:'var(--surface-2)', borderRadius:10, padding:'10px 12px' }}>
-                  <div style={{ fontWeight:600, fontSize:13, marginBottom:5 }}>{v.name}</div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                <details key={v.empId} style={{ background:'var(--surface-2)', borderRadius:10, padding:'8px 12px' }}>
+                  <summary style={{ fontWeight:600, fontSize:13, cursor:'pointer' }}>{v.name} <span style={{ fontWeight:400, color:'var(--ink-3)', fontSize:11.5 }}>({v.violations.length})</span></summary>
+                  <div style={{ display:'flex', flexDirection:'column', gap:3, marginTop:6 }}>
                     {v.violations.map((msg, i) => (
                       <div key={i} style={{ fontSize:11.5, color:'var(--ink-3)' }}>· {msg}</div>
                     ))}
                   </div>
-                </div>
+                </details>
               ))}
             </div>
           </div>

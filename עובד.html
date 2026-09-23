@@ -3178,21 +3178,27 @@ ${shiftsDesc}
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotOf(sh.id), flexShrink: 0 }} />
                 <span style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{sh.name}</span>
                 <span style={{ fontSize: 11, color: '#8A867F', whiteSpace: 'nowrap' }}>{sh.start}–{sh.end}</span>
-                <span style={{ display: 'flex', gap: 4, marginInlineStart: 'auto' }}>
-                  {CHIPS.map(([m, label]) => {
-                    const st = m ? MARK_STATUS[m] : { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' };
-                    const active = cur === m;
-                    return (
-                      <span key={label} onClick={() => editable && setShiftMark(sh.id, m)} style={{
-                        padding: '5px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 800,
-                        background: active ? st.bg : '#FFF', color: active ? st.fg : '#A09C94',
-                        border: active ? (m ? st.bd : `1.5px solid ${INK}`) : '1px solid #E7E4DF',
-                        cursor: editable ? 'pointer' : 'default', transition: 'background 0.15s, border 0.15s' }}>
-                        {label}
-                      </span>
-                    );
-                  })}
-                </span>
+                {editable ? (
+                  <span style={{ display: 'flex', gap: 4, marginInlineStart: 'auto' }}>
+                    {CHIPS.map(([m, label]) => {
+                      const st = m ? MARK_STATUS[m] : { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' };
+                      const active = cur === m;
+                      return (
+                        <span key={label} onClick={() => setShiftMark(sh.id, m)} style={{
+                          padding: '5px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 800,
+                          background: active ? st.bg : '#FFF', color: active ? st.fg : '#A09C94',
+                          border: active ? (m ? st.bd : `1.5px solid ${INK}`) : '1px solid #E7E4DF',
+                          cursor: 'pointer', transition: 'background 0.15s, border 0.15s' }}>
+                          {label}
+                        </span>
+                      );
+                    })}
+                  </span>
+                ) : (
+                  <span style={{ marginInlineStart: 'auto', fontSize: 11.5, fontWeight: 700, color: '#A09C94' }}>
+                    {{ un: 'לא', high: 'מעדיף', can: 'יכול' }[cur] || 'לא סומן'}
+                  </span>
+                )}
               </div>
             );
           })}

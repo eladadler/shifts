@@ -1636,10 +1636,13 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         if (wd === 6 && shifts.some(s => s.id === 'morning' && openShift(s))) anySaturday = true;
       });
       const label = `${dates[0].slice(8)}–${dates[dates.length - 1].slice(8)}`;
+      // שני החוסרים (לילות/ימים) של אותו שבוע — שורה אחת משותפת, לא שתי שורות עם אותה כותרת שבוע
+      const weekIssues = [];
       if (dates.length >= criteria.minNightsPerWeek && nights < criteria.minNightsPerWeek)
-        violations.push(`שבוע ${label}: ${nights}/${criteria.minNightsPerWeek} לילות פנויים בלבד`);
+        weekIssues.push(`${nights}/${criteria.minNightsPerWeek} לילות פנויים בלבד`);
       if (dates.length >= criteria.minDaysPerWeek && days < criteria.minDaysPerWeek)
-        violations.push(`שבוע ${label}: ${days}/${criteria.minDaysPerWeek} ימים פנויים בלבד`);
+        weekIssues.push(`${days}/${criteria.minDaysPerWeek} ימים פנויים בלבד`);
+      if (weekIssues.length) violations.push(`שבוע ${label}: ${weekIssues.join(' · ')}`);
     });
     if (criteria.minFridaysCanPerMonth > 0 && !anyFriday) violations.push('לא סומן אף שישי קצר/ארוך שאפשר לעבוד בו');
     if (criteria.minSaturdaysCanPerMonth > 0 && !anySaturday) violations.push('לא סומן אף בוקר שבת שאפשר לעבוד בו');

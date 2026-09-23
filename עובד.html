@@ -497,6 +497,39 @@ function checkRequestCriteria(rangeDates, row, settings, criteria) {
   return violations;
 }
 
+// גרסת "כן/לא" של checkRequestCriteria, לכל סוג קריטריון בנפרד — משמשת לתצוגת ✓ חיה
+// בדרופדאון "מה מצופה ממני" (מתעדכנת עם כל שינוי בבקשה, בלי חכות לשמירה בפועל)
+function meetsRequestCriteria(rangeDates, row, settings, criteria) {
+  const weeks = {};
+  rangeDates.forEach(ds => {
+    const d = parseDate(ds);
+    const sun = new Date(d); sun.setDate(d.getDate() - d.getDay());
+    const key = dateStr(sun);
+    (weeks[key] = weeks[key] || []).push(ds);
+  });
+  let nightsOk = true, daysOk = true, anyFriday = false, anySaturday = false;
+  Object.values(weeks).forEach(dates => {
+    let nights = 0, days = 0;
+    dates.forEach(ds => {
+      const shifts = shiftTypesFor(ds, settings).filter(s => !s.continuation);
+      const openShift = (s) => availOf(row, ds, s.id) !== 'unavailable';
+      if (shifts.some(s => s.id === 'night') && openShift({ id: 'night' })) nights++;
+      if (shifts.some(s => s.id !== 'night' && openShift(s))) days++;
+      const wd = weekdayOf(ds);
+      if (wd === 5 && shifts.some(openShift)) anyFriday = true;
+      if (wd === 6 && shifts.some(openShift)) anySaturday = true;
+    });
+    if (dates.length >= criteria.minNightsPerWeek && nights < criteria.minNightsPerWeek) nightsOk = false;
+    if (dates.length >= criteria.minDaysPerWeek && days < criteria.minDaysPerWeek) daysOk = false;
+  });
+  return {
+    minNightsPerWeek: nightsOk,
+    minDaysPerWeek: daysOk,
+    minFridaysCanPerMonth: criteria.minFridaysCanPerMonth <= 0 || anyFriday,
+    minSaturdaysCanPerMonth: criteria.minSaturdaysCanPerMonth <= 0 || anySaturday,
+  };
+}
+
 /* ============ רכיבים משותפים ============ */
 function PersonChip({ id, myId, empNames, time }) {
   const isMe = id === myId;
@@ -2583,13 +2616,14 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     const mine = (mgrEmps || []).find(e => e.id === me.id);
     return { ...base, ...(mine?.reqCriteria || {}) };
   }, [criteria, mgrEmps, me.id]);
-  // תיאור קריא של myCriteria — לתצוגה בלבד (הדרופדאון "מה מצופה ממני"), רק תנאים פעילים
+  // תיאור קריא של myCriteria — לתצוגה בלבד (הדרופדאון "מה מצופה ממני"), רק תנאים פעילים.
+  // key תואם למפתחות ש-meetsRequestCriteria מחזירה, לחיבור ה-✓ החי ליד כל שורה.
   const myCriteriaLines = React.useMemo(() => {
     const lines = [];
-    if (myCriteria.minNightsPerWeek > 0) lines.push(`לפחות ${myCriteria.minNightsPerWeek} לילות זמינים בכל שבוע`);
-    if (myCriteria.minDaysPerWeek > 0) lines.push(`לפחות ${myCriteria.minDaysPerWeek} ימים זמינים בכל שבוע`);
-    if (myCriteria.minFridaysCanPerMonth > 0) lines.push('לפחות שישי אחד פנוי במהלך החודש');
-    if (myCriteria.minSaturdaysCanPerMonth > 0) lines.push('לפחות שבת אחת פנויה במהלך החודש');
+    if (myCriteria.minNightsPerWeek > 0) lines.push({ key: 'minNightsPerWeek', text: `לפחות ${myCriteria.minNightsPerWeek} לילות זמינים בכל שבוע` });
+    if (myCriteria.minDaysPerWeek > 0) lines.push({ key: 'minDaysPerWeek', text: `לפחות ${myCriteria.minDaysPerWeek} ימים זמינים בכל שבוע` });
+    if (myCriteria.minFridaysCanPerMonth > 0) lines.push({ key: 'minFridaysCanPerMonth', text: 'לפחות שישי אחד פנוי במהלך החודש' });
+    if (myCriteria.minSaturdaysCanPerMonth > 0) lines.push({ key: 'minSaturdaysCanPerMonth', text: 'לפחות שבת אחת פנויה במהלך החודש' });
     return lines;
   }, [myCriteria]);
   const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);
@@ -3012,9 +3046,8 @@ ${shiftsDesc}
   }, [effectiveMarks]);
   const sentAt = fmtSentAt(server?.updated_at);
 
-  // אזהרה בלבד — לא חוסמת שליחה. נבדקת מול effectiveMarks + ברירת המחדל של המצב, בדיוק כמו submit()
-  const criteriaWarnings = React.useMemo(() => {
-    if (!editable) return [];
+  // שורת זמינות "אפקטיבית" — marks + ברירת המחדל של המצב, בדיוק מה שיישלח בפועל ב-submit()
+  const effectiveRow = React.useMemo(() => {
     const unmarkedDates = activeDates.filter(ds => !Object.prototype.hasOwnProperty.call(effectiveMarks, ds));
     const row = { unavailable: [], high: [], can: [] };
     Object.entries(effectiveMarks).forEach(([ds, v]) => {
@@ -3022,8 +3055,19 @@ ${shiftsDesc}
       else Object.entries(v || {}).forEach(([sid, m]) => row[m === 'un' ? 'unavailable' : m === 'high' ? 'high' : 'can'].push(`${ds}@${sid}`));
     });
     (reqMode === 'block' ? row.can : row.unavailable).push(...unmarkedDates);
-    return checkRequestCriteria(activeDates, row, settings, myCriteria);
-  }, [effectiveMarks, activeDates, reqMode, settings, myCriteria, editable]);
+    return row;
+  }, [effectiveMarks, activeDates, reqMode]);
+
+  // אזהרה בלבד — לא חוסמת שליחה
+  const criteriaWarnings = React.useMemo(() => {
+    if (!editable) return [];
+    return checkRequestCriteria(activeDates, effectiveRow, settings, myCriteria);
+  }, [effectiveRow, activeDates, settings, myCriteria, editable]);
+
+  // מצב "✓ עומד בקריטריון" חי, לכל סוג קריטריון בנפרד — לדרופדאון "מה מצופה ממני"
+  const myCriteriaMet = React.useMemo(() => {
+    return meetsRequestCriteria(activeDates, effectiveRow, settings, myCriteria);
+  }, [effectiveRow, activeDates, settings, myCriteria]);
 
   const BRUSHES = reqMode === 'block'
     ? [{ id: 'un', label: 'לא זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }, { id: 'erase', label: 'מחיקה' }]
@@ -3053,7 +3097,12 @@ ${shiftsDesc}
         <details style={{ background: 'color-mix(in oklab, oklch(0.65 0.15 200) 8%, #FFF)', border: '1px solid color-mix(in oklab, oklch(0.65 0.15 200) 25%, transparent)', borderRadius: 10, padding: '9px 14px' }}>
           <summary style={{ fontSize: 12.5, fontWeight: 700, color: 'oklch(0.38 0.14 200)', cursor: 'pointer' }}>📋 מה מצופה ממני בהגשה החודשית</summary>
           <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {myCriteriaLines.map((l, i) => <div key={i} style={{ fontSize: 12, color: '#4A5A66' }}>· {l}</div>)}
+            {myCriteriaLines.map(l => (
+              <div key={l.key} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#4A5A66' }}>
+                <span>· {l.text}</span>
+                {myCriteriaMet[l.key] && <span title="עומד בקריטריון הזה" style={{ color: '#3FA85C', fontWeight: 800 }}>✓</span>}
+              </div>
+            ))}
           </div>
         </details>
       )}

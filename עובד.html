@@ -2629,8 +2629,8 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   }, [myCriteria]);
   const months = React.useMemo(() => [addMonths(TM, -1), TM, addMonths(TM, 1), addMonths(TM, 2)], [TM]);
   const [mi, setMi] = React.useState(() => {
-    // ברירת מחדל: החודש הקרוב (מהיום והלאה) שבאמת פתוח לבקשות אצל המשבץ
-    const i = months.findIndex(m => m >= TM && published[m]?.shift_settings?._status === 'open');
+    // ברירת מחדל: תמיד החודש הבא (index 2) — בין אם הוא כבר פתוח לבקשות ובין אם לא
+    const i = months.indexOf(addMonths(TM, 1));
     return i === -1 ? months.length - 1 : i;
   });
   const [brush, setBrush] = React.useState('un');

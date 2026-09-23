@@ -896,7 +896,11 @@ function App() {
   const [globalSettings, setGlobalSettings] = React.useState(null); // הגדרות משמרות עדכניות מהמשבץ
   const [anthropicKey, setAnthropicKey] = React.useState('');      // מפתח Anthropic — נטען מ-Supabase
   const [serverReqs, setServerReqs] = React.useState({});    // { 'YYYY-MM': row } — הבקשות שלי מהשרת
-  const [localReqs, setLocalReqs] = React.useState({});      // { 'YYYY-MM': { marks, note, dirty } }
+  // { 'YYYY-MM': { marks, note, dirty } } — נטען מ-localStorage כדי ששינויים שלא נשלחו (עדיין)
+  // לא ייעלמו ברענון/סגירה בטעות; ראו אפקט השמירה החוזרת בהמשך
+  const [localReqs, setLocalReqs] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('mishmarot-draft-requests')) || {}; } catch { return {}; }
+  });
   const [allReqs, setAllReqs] = React.useState({});          // { 'YYYY-MM': { emp_id: row } } — כל העובדים
   const [swaps, setSwaps] = React.useState([]);               // כל בקשות החילוף (shift_swap_requests)
   const [mgrEmps, setMgrEmps] = React.useState([]);          // כרטיסי העובדים מהמשבץ (max, no_weekday_nights ממוזג מ-employee_prefs)
@@ -910,6 +914,12 @@ function App() {
   const [toast, setToast] = React.useState(null);
 
   const TM = thisMonth();
+
+  // שומר את השינויים הלא-שמורים ל-localStorage בכל עדכון, כדי שרענון/סגירה בטעות
+  // (או חוסר קליטה) לא ימחקו סימונים שעוד לא נשלחו למשבץ בפועל
+  React.useEffect(() => {
+    try { localStorage.setItem('mishmarot-draft-requests', JSON.stringify(localReqs)); } catch {}
+  }, [localReqs]);
 
   /* --- session --- */
   React.useEffect(() => {

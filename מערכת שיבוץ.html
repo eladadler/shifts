@@ -1305,7 +1305,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, ruleToggles = {}, ironAssignments = {} }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {} }) {
     // כל תנאי דלוק כברירת מחדל — כבוי רק אם המשבץ כיבה אותו במפורש במסך "תנאי שיבוץ"
     const on = (key) => ruleToggles[key] !== false;
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
@@ -1319,6 +1319,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     // lastShabbat = התאריך האחרון שבו כל עובד שובץ ל"שבת ארוכה", כולל היסטוריה
     // שהתקבלה מבחוץ — משמש להטיית הניקוד לעבר מי שמגיע לו תור (ראו score()).
     const lastShabbat = { ...initialLastShabbat };
+    // lastWeekendShort = התאריך האחרון שבו כל עובד שובץ למשמרת קצרה בסופ״ש (שישי
+    // קצר או בוקר שבת — הראשונה שמגיעה) — לעובד עם יעד אישי (weekendShortFrequencyDays) בלבד.
+    const lastWeekendShort = { ...initialLastWeekendShort };
+    const isWeekendShort = (wd, shiftId) => (wd === 5 && shiftId === 'short') || (wd === 6 && shiftId === 'morning');
     // weekCounts = כמה משמרות בימי א׳-ה׳ (חול) כבר שובצו לכל עובד בכל שבוע (מפתח = יום ראשון
     // של אותו שבוע) — משמש לאיזון רך מול יעד weekdayShiftsPerWeek האישי (ראו score())
     const weekCounts = {};
@@ -1346,6 +1350,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             if (!lastShabbat[empId] || dStr > lastShabbat[empId]) lastShabbat[empId] = dStr;
             const wk = weekKeyOf(dStr);
             (shabbatWeeks[wk] = shabbatWeeks[wk] || new Set()).add(empId);
+          }
+          if (isWeekendShort(wd0, shift.id) && (!lastWeekendShort[empId] || dStr > lastWeekendShort[empId])) {
+            lastWeekendShort[empId] = dStr;
           }
           if (wd0 >= 0 && wd0 <= 4) {
             const wk = weekKeyOf(dStr);
@@ -1422,6 +1429,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             lastShabbat[empId] = dStr;
             (shabbatWeeks[wk0] = shabbatWeeks[wk0] || new Set()).add(empId);
           }
+          if (isWeekendShort(wdShift0, shift.id)) lastWeekendShort[empId] = dStr;
           if (wdShift0 >= 0 && wdShift0 <= 4) {
             (weekCounts[wk0] = weekCounts[wk0] || {})[empId] = (weekCounts[wk0][empId] || 0) + 1;
           }
@@ -1468,6 +1476,14 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             const daysSince = prev ? (D.parseDate(dStr) - D.parseDate(prev)) / 864e5 : target * 2;
             s += Math.min(8, (daysSince / target) * 4);
           }
+          if (on('biasWeekendShortFrequency') && e.weekendShortFrequencyDays && isWeekendShort(wdShift, shift.id)) {
+            // הטיה לעבר מי שמגיע לו תור למשמרת קצרה בסופ״ש — רק למי שהוגדר לו יעד אישי
+            // (שדה רשות בכרטיס העובד; ברירת מחדל = לא מוגדר, אין השפעה)
+            const target = e.weekendShortFrequencyDays;
+            const prev = lastWeekendShort[e.id];
+            const daysSince = prev ? (D.parseDate(dStr) - D.parseDate(prev)) / 864e5 : target * 2;
+            s += Math.min(8, (daysSince / target) * 4);
+          }
           s += hash(e.id + dStr + shift.id + slot) * 0.5;
           return s;
         };
@@ -1481,6 +1497,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           lastShabbat[best.id] = dStr;
           (shabbatWeeks[wk] = shabbatWeeks[wk] || new Set()).add(best.id);
         }
+        if (isWeekendShort(wdShift, shift.id)) lastWeekendShort[best.id] = dStr;
         if (wdShift >= 0 && wdShift <= 4) {
           (weekCounts[wk] = weekCounts[wk] || {})[best.id] = (weekCounts[wk][best.id] || 0) + 1;
         }
@@ -3793,7 +3810,9 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
       id: e?.id || ('emp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)),
       name: e?.name || '', role: e?.role || '', email: e?.email || '',
       color: e?.color || COLORS[0], max: e?.max ?? 14, anchor: !!e?.anchor, nights: !!e?.nights,
-      shabbatFrequencyDays: e?.shabbatFrequencyDays || 45, reqCriteria: e?.reqCriteria || {},
+      shabbatFrequencyDays: e?.shabbatFrequencyDays || 45,
+      weekendShortFrequencyDays: e?.weekendShortFrequencyDays ?? null,
+      reqCriteria: e?.reqCriteria || {},
       weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
       noWeekdayNights: p?.no_weekday_nights ?? false,
       wantsFridayShort: p?.wants_friday_short ?? true,
@@ -3961,6 +3980,22 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
             <button className="stepper-btn" onClick={() => setDraft(p => ({...p, shabbatFrequencyDays: (p.shabbatFrequencyDays || 45) + 1}))}>+</button>
             <span className="field-hint">ימים בין משמרות (ברירת מחדל 45)</span>
           </div>
+        </div>
+        <div className="field">
+          <label className="field-label">🔁 משמרת קצרה בסופ״ש (שישי קצר / בוקר שבת) — יעד אישי <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות — משפיע רק על עובד זה)</span></label>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer',marginBottom: draft.weekendShortFrequencyDays != null ? 8 : 0}}>
+            <input type="checkbox" checked={draft.weekendShortFrequencyDays != null}
+              onChange={(e) => setDraft(p => ({...p, weekendShortFrequencyDays: e.target.checked ? 14 : null}))} />
+            הגדר תדירות אישית (ברירת מחדל: ללא יעד מיוחד)
+          </label>
+          {draft.weekendShortFrequencyDays != null && (
+            <div className="stepper">
+              <button className="stepper-btn" onClick={() => setDraft(p => ({...p, weekendShortFrequencyDays: Math.max(3, (p.weekendShortFrequencyDays || 14) - 1)}))}>−</button>
+              <span className="stepper-val">{draft.weekendShortFrequencyDays}</span>
+              <button className="stepper-btn" onClick={() => setDraft(p => ({...p, weekendShortFrequencyDays: (p.weekendShortFrequencyDays || 14) + 1}))}>+</button>
+              <span className="field-hint">ימים בין משמרות — שישי קצר או בוקר שבת, הראשונה שמגיעה</span>
+            </div>
+          )}
         </div>
         <div className="field">
           <label className="field-label">📋 קריטריוני הגשת בקשות אישיים <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות — ריק = לפי ההגדרה הכללית)</span></label>
@@ -5064,6 +5099,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'biasLoadBalance', t: 'איזון עומס', d: 'ככל שעובד שובץ ליותר משמרות (החודש ובחודשיים האחרונים) הניקוד שלו יורד, כדי לפזר עומס שווה יותר.' },
     { key: 'biasWeeklyTarget', t: 'יעד משמרות/שבוע בימי חול', d: 'הטיה רכה בלבד (לא חוסמת) — עובד רחוק מהיעד שלו מקבל ניקוד גבוה יותר למשמרות חול, ועובד שכבר עבר את היעד מקבל ניקוד נמוך יותר.' },
     { key: 'biasShabbatFrequency', t: 'תדירות שבת ארוכה אישית', d: 'ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה ל"שבת ארוכה" ביחס ליעד האישי שלו (ברירת מחדל 45 יום), כך גובר הניקוד שלו למשמרת הבאה.' },
+    { key: 'biasWeekendShortFrequency', t: 'תדירות משמרת קצרה בסופ״ש אישית', d: 'משפיע רק על עובד שהוגדר לו יעד אישי בכרטיסו (רשות, כבוי כברירת מחדל). ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה למשמרת קצרה בסופ״ש (שישי קצר או בוקר שבת) ביחס ליעד שלו, כך גובר הניקוד שלו למשמרת הבאה מהסוג הזה.' },
     { key: 'biasMidMonthRest', t: 'מנוחה מינימלית באמצע החודש', d: '8 שעות מנוחה בין משמרות מועדפות מאוד. כשדלוק: אם אין שום מועמד עומד בכך המנוע יחרוג כמוצא אחרון, ותתועד "חריגת מנוחה" ביומן השיבוץ. כשכבוי: המנוע לא מתחשב בשעות מנוחה בין משמרות באמצע החודש בכלל.' },
   ];
   const Item = ({ item }) => {
@@ -5559,7 +5595,7 @@ function App() {
     wantsFridayShort: true, wantsFridayLong: true, wantsShabbatLong: true, wantsSaturdayShort: true,
     noWeekdayNights: true, shabbatWeeklyCap: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
     biasHighCan: true, biasAnchor: true, biasNightOwl: true, biasLoadBalance: true,
-    biasWeeklyTarget: true, biasShabbatFrequency: true, biasMidMonthRest: true,
+    biasWeeklyTarget: true, biasShabbatFrequency: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
   };
   const [ruleToggles, setRuleToggles] = React.useState(() => ({ ...DEFAULT_RULE_TOGGLES, ...(saved?.ruleToggles || {}) }));
   // כפתורי סרגל כלים מוסתרים — ברירת מחדל: מחשב/שבץ AI/ערוך טווח מוסתרים, ניתן להחזיר בהגדרות (⚙)
@@ -5943,6 +5979,34 @@ function App() {
     return last;
   };
 
+  // תאריך המשמרת האחרונה שכל עובד שובץ למשמרת קצרה בסופ״ש (שישי קצר או בוקר שבת) —
+  // לפי שלושה החודשים האחרונים. משמש להטיית השיבוץ האוטומטי למי שהוגדר לו יעד אישי
+  // (weekendShortFrequencyDays בכרטיס העובד — ראו biasWeekendShortFrequency).
+  const calcLastWeekendShortDates = () => {
+    const [y, m] = currentMonth.split('-').map(Number);
+    const pastMonths = [];
+    for (let i = 1; i <= 3; i++) {
+      let pm = m - i; let py = y;
+      if (pm <= 0) { pm += 12; py -= 1; }
+      pastMonths.push(`${py}-${String(pm).padStart(2, '0')}`);
+    }
+    const last = {};
+    pastMonths.forEach(pm => {
+      const ds = drafts.filter(d => d.month === pm && d.schedule);
+      const d = ds.find(x => x.status === 'final') || ds[ds.length - 1];
+      if (!d) return;
+      Object.entries(d.schedule).forEach(([dStr, dayShifts]) => {
+        const wd = AD.weekdayOf(dStr);
+        const shiftId = wd === 5 ? 'short' : (wd === 6 ? 'morning' : null);
+        if (!shiftId) return;
+        (dayShifts[shiftId] || []).forEach(empId => {
+          if (!last[empId] || dStr > last[empId]) last[empId] = dStr;
+        });
+      });
+    });
+    return last;
+  };
+
   const datesForDraft = (draft) => {
     if (!draft?.range?.start) return [];
     const out = [];
@@ -6027,7 +6091,7 @@ function App() {
     const result = AE.generate({
       startDate: currentDraft.range.start, endDate: currentDraft.range.end,
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
-      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), ruleToggles,
+      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
     });
     const ts = new Date().toISOString();
@@ -6058,7 +6122,7 @@ function App() {
         startDate: currentDraft.range.start, endDate: currentDraft.range.end,
         excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule,
         shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds,
-        initialLastShabbat: calcLastShabbatDates(), ruleToggles,
+        initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
       });
       algoResult.log.filter(l => l.type !== 'info').forEach(l => smartLog.push({ ...l, timestamp: ts() }));
@@ -6318,7 +6382,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       const topUp = AE.generate({
         startDate: snap.range.start, endDate: snap.range.end,
         excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
-        initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), ruleToggles,
+        initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(snap)),
       });
 

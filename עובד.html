@@ -2728,9 +2728,18 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     if (shiftId === 'night') return myPrefs.no_weekday_nights === true;
     return false;
   };
-  const allShiftsBlocked = (ds) => {
+  // ערך לתצוגה בלוח החודשי בלבד — משלים חסימות גם על ימים שלא נגעו בהם כלל (effectiveMarks
+  // נשאר "נקי" בשבילם), כדי שהחסימה תיראה מיד בלוח ולא רק בפתיחת פאנל הדיוק לפי משמרת
+  const gridValueFor = (ds) => {
+    const v = effectiveMarks[ds];
+    if (v !== undefined) return v;
     const ids = dayShiftIds(ds);
-    return ids.length > 0 && ids.every(id => isShiftBlockedByPrefs(ds, id));
+    const blocked = ids.filter(id => isShiftBlockedByPrefs(ds, id));
+    if (!blocked.length) return undefined;
+    if (blocked.length === ids.length) return 'un';
+    const perShift = {};
+    blocked.forEach(id => { perShift[id] = 'un'; });
+    return perShift;
   };
   // מרחיב תאריכים לגמרי לא-מסומנים לפי ברירת המחדל של המצב — אבל משמרת חסומה תמיד "לא",
   // גם אם המצב הכללי הוא "מסמן חסימות" (שאר הימים = יכול)
@@ -3214,15 +3223,14 @@ ${shiftsDesc}
           {Array.from({ length: gridOffset }).map((_, i) => <div key={'pad' + i} />)}
           {rangeDates.map(dStr => {
             const isExcluded = excludedSet.has(dStr);
-            const v = effectiveMarks[dStr];
-            const isRecurring = v !== undefined && !Object.prototype.hasOwnProperty.call(local.marks, dStr);
+            const realV = effectiveMarks[dStr];
+            const v = gridValueFor(dStr); // כמו realV, אך גם משלים חסימות לתצוגה בימים שלא נגעו בהם
+            const isRecurring = realV !== undefined && !Object.prototype.hasOwnProperty.call(local.marks, dStr);
             const ironVal = ironPattern[weekdayOf(dStr)];
             const isIron = isRecurring && (ironVal === true || (ironVal && typeof ironVal === 'object' && Object.keys(ironVal).length > 0));
             const whole = typeof v === 'string';
             const inCurMonth = dStr.startsWith(ym);
-            const impliedMark = !v && editable && !isExcluded
-              ? (allShiftsBlocked(dStr) ? 'un' : (reqMode === 'block' ? 'can' : 'un'))
-              : null;
+            const impliedMark = !v && editable && !isExcluded ? (reqMode === 'block' ? 'can' : 'un') : null;
             const s = v
               ? MARK_STATUS[whole ? v : 'none']
               : (impliedMark ? MARK_STATUS_FADED[impliedMark] : MARK_STATUS['none']);

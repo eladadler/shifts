@@ -3088,20 +3088,11 @@ ${shiftsDesc}
       <MonthSwitcher label={monthLabel(ym)} canPrev={mi > 0} canNext={mi < months.length - 1}
         onPrev={() => setMi(mi - 1)} onNext={() => setMi(mi + 1)} />
 
-      {editable && openRange && (
-        <div style={{ background: 'color-mix(in oklab, oklch(0.65 0.15 200) 8%, #FFF)', borderRadius: 10, padding: '9px 14px', fontSize: 12.5, fontWeight: 600, color: 'oklch(0.38 0.14 200)', border: '1px solid color-mix(in oklab, oklch(0.65 0.15 200) 25%, transparent)' }}>
-          📅 טווח הסידור: {rangeStart.slice(8)}.{rangeStart.slice(5,7)} – {rangeEnd.slice(8)}.{rangeEnd.slice(5,7)}
-          {excludedSet.size > 0 && ` · ${excludedSet.size} ימים מוחרגים`}
+      {editable && hasMarks && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס החודש</span>
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-        <span onClick={goRecurring} style={{ fontSize: 13, fontWeight: 800, color: TEAL_DARK, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
-          🔁 בקשות קבועות{recurring?.filter(r => r.active).length > 0 ? ` (${recurring.filter(r => r.active).length})` : ''}
-        </span>
-        {editable && hasMarks && (
-          <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס החודש</span>
-        )}
-      </div>
       {editable && myCriteriaLines.length > 0 && (
         <details style={{ background: 'color-mix(in oklab, oklch(0.65 0.15 200) 8%, #FFF)', border: '1px solid color-mix(in oklab, oklch(0.65 0.15 200) 25%, transparent)', borderRadius: 10, padding: '9px 14px' }}>
           <summary style={{ fontSize: 12.5, fontWeight: 700, color: 'oklch(0.38 0.14 200)', cursor: 'pointer' }}>📋 מה מצופה ממני בהגשה החודשית</summary>
@@ -3264,6 +3255,10 @@ ${shiftsDesc}
           {!dayShifts.length && !contShifts.length && <div style={{ fontSize: 12, color: '#A09C94' }}>לא הוגדרו משמרות ליום זה.</div>}
         </div>
       </>)}
+
+      <span onClick={goRecurring} style={{ alignSelf: 'flex-start', fontSize: 13, fontWeight: 800, color: TEAL_DARK, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+        🔁 בקשות קבועות{recurring?.filter(r => r.active).length > 0 ? ` (${recurring.filter(r => r.active).length})` : ''}
+      </span>
 
       {editable && (<>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

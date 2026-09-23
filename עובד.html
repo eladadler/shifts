@@ -1215,7 +1215,7 @@ function App() {
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey}
-        recurring={recurring} criteria={criteria} mgrEmps={mgrEmps} goRecurring={() => setRecurringOpen(true)} />}
+        recurring={recurring} criteria={criteria} mgrEmps={mgrEmps} myPrefs={myPrefs} goRecurring={() => setRecurringOpen(true)} />}
       {tab === 'swaps' && <SwapsTab me={me} empNames={empNames} published={published} swaps={swaps} onRefresh={refreshSwaps} showToast={showToast} swapSettings={swapSettings} />}
       {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} myPrefs={myPrefs} onSavePref={saveMyPref} />}
     </Shell>
@@ -2613,7 +2613,7 @@ function RecurringRequestsScreen({ me, TM, globalSettings, recurring, onClose, o
   );
 }
 
-function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, anthropicKey, recurring, criteria, mgrEmps, goRecurring }) {
+function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, anthropicKey, recurring, criteria, mgrEmps, myPrefs, goRecurring }) {
   // הקריטריונים הכלליים, נדרסים ע"י קריטריונים אישיים שהמשבץ הגדיר לעובד הזה (emp.reqCriteria) אם יש
   const myCriteria = React.useMemo(() => {
     const base = criteria || DEFAULT_REQUEST_CRITERIA;
@@ -2704,6 +2704,44 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const dayShifts = dayShiftsAll.filter(s => !s.continuation);       // ניתנות לסימון ביום זה
   const contShifts = dayShiftsAll.filter(s => s.continuation);       // המשך משמרת רב-יומית — מידע בלבד
 
+  // מזהי המשמרות הניתנות לסימון בתאריך נתון (לא כולל "המשך" רב-יומי)
+  const dayShiftIds = (ds) => shiftTypesFor(ds, settings).filter(s => !s.continuation).map(s => s.id);
+  // האם משמרת מסוימת חסומה לפי ההעדפות שהעובד סימן בהגדרות (עושה שישי קצר/ארוך, שבת ארוכה,
+  // בוקר שבת, ללא משמרות לילה) — לא נעילה מוחלטת, ניתנת לדריסה ידנית בדיוק לפי משמרת
+  const isShiftBlockedByPrefs = (ds, shiftId) => {
+    if (!myPrefs) return false;
+    const wd = weekdayOf(ds);
+    if (wd === 5 && shiftId === 'short') return myPrefs.wants_friday_short === false;
+    if (wd === 5 && shiftId === 'morning') return myPrefs.wants_friday_long === false;
+    if (shiftId === 'shabbat') return myPrefs.wants_shabbat_long === false;
+    if (wd === 6 && shiftId === 'morning') return myPrefs.wants_saturday_short === false;
+    if (shiftId === 'night') return myPrefs.no_weekday_nights === true;
+    return false;
+  };
+  const allShiftsBlocked = (ds) => {
+    const ids = dayShiftIds(ds);
+    return ids.length > 0 && ids.every(id => isShiftBlockedByPrefs(ds, id));
+  };
+  // מרחיב תאריכים לגמרי לא-מסומנים לפי ברירת המחדל של המצב — אבל משמרת חסומה תמיד "לא",
+  // גם אם המצב הכללי הוא "מסמן חסימות" (שאר הימים = יכול)
+  const expandUnmarked = (dates) => {
+    const out = { unavailable: [], can: [] };
+    dates.forEach(ds => {
+      const ids = dayShiftIds(ds);
+      const blocked = ids.filter(id => isShiftBlockedByPrefs(ds, id));
+      if (!blocked.length) {
+        out[reqMode === 'block' ? 'can' : 'unavailable'].push(ds);
+      } else if (blocked.length === ids.length) {
+        out.unavailable.push(ds);
+      } else {
+        ids.forEach(id => {
+          out[blocked.includes(id) ? 'unavailable' : (reqMode === 'block' ? 'can' : 'unavailable')].push(`${ds}@${id}`);
+        });
+      }
+    });
+    return out;
+  };
+
   const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', mgrNote: '', dirty: false }), ...patch } }));
 
   // דפוס הבקשות הקבועות, לפי יום בשבוע. משמרת ספציפית → אובייקט per-shift; "כל היום" → מחרוזת.
@@ -2743,15 +2781,28 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const effectiveMarks = React.useMemo(() => {
     const out = {};
     activeDates.forEach(ds => {
+      let v;
       if (Object.prototype.hasOwnProperty.call(local.marks, ds)) {
-        if (local.marks[ds] !== null) out[ds] = local.marks[ds];
+        if (local.marks[ds] !== null) v = local.marks[ds];
       } else {
         const p = recurringPattern[weekdayOf(ds)];
-        if (p !== undefined) out[ds] = p;
+        if (p !== undefined) v = p;
       }
+      if (v === undefined) return; // יום לגמרי לא מסומן — ברירת המחדל הכללית (כולל חסימות) תיושם בהמשך
+      const ids = dayShiftIds(ds);
+      const blocked = ids.filter(id => isShiftBlockedByPrefs(ds, id));
+      if (!blocked.length) { out[ds] = v; return; }
+      // משמרת חסומה לפי ההעדפות — נכפית ל"לא" גם אם היום כולו סומן אחרת, אלא אם נדרסה במפורש
+      const perShift = (v && typeof v === 'object') ? { ...v } : {};
+      ids.forEach(id => {
+        if (Object.prototype.hasOwnProperty.call(perShift, id)) return;
+        if (blocked.includes(id)) { perShift[id] = 'un'; return; }
+        if (typeof v === 'string') perShift[id] = v;
+      });
+      out[ds] = perShift;
     });
     return out;
-  }, [activeDates, recurringPattern, local.marks]);
+  }, [activeDates, recurringPattern, local.marks, myPrefs]);
 
   const resetMonth = () => {
     setLocal({ marks: {}, dirty: true });
@@ -2816,16 +2867,14 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       return out.sort();
     };
     // הרחבת סימונים משתמעים: ימים לא-מסומנים (בטווח בפועל, לא כולל ימים מוחרגים) מקבלים
-    // את הסטטוס ברירת-מחדל של המצב הנוכחי
+    // את הסטטוס ברירת-מחדל של המצב הנוכחי — למעט משמרות חסומות לפי ההעדפות, שתמיד "לא"
     const markedDs = new Set(Object.keys(effectiveMarks));
     const unmarkedDates = activeDates.filter(ds => !markedDs.has(ds));
     let unavailable = toDates('un');
     let canArr = toDates('can');
-    if (reqMode === 'block') {
-      canArr = [...canArr, ...unmarkedDates].sort();
-    } else {
-      unavailable = [...unavailable, ...unmarkedDates].sort();
-    }
+    const expandedUnmarked = expandUnmarked(unmarkedDates);
+    unavailable = [...unavailable, ...expandedUnmarked.unavailable];
+    canArr = [...canArr, ...expandedUnmarked.can];
     // משמרות לא-מסומנות בימים עם סימון חלקי → ברירת מחדל של המצב
     // (למשל: אם "לילה=יכול" ביום שלישי, שאר המשמרות של אותו יום נחסמות)
     Object.entries(effectiveMarks).forEach(([ds, v]) => {
@@ -3066,9 +3115,11 @@ ${shiftsDesc}
       if (typeof v === 'string') row[v === 'un' ? 'unavailable' : v === 'high' ? 'high' : 'can'].push(ds);
       else Object.entries(v || {}).forEach(([sid, m]) => row[m === 'un' ? 'unavailable' : m === 'high' ? 'high' : 'can'].push(`${ds}@${sid}`));
     });
-    (reqMode === 'block' ? row.can : row.unavailable).push(...unmarkedDates);
+    const expanded = expandUnmarked(unmarkedDates);
+    row.unavailable.push(...expanded.unavailable);
+    row.can.push(...expanded.can);
     return row;
-  }, [effectiveMarks, activeDates, reqMode]);
+  }, [effectiveMarks, activeDates, reqMode, myPrefs]);
 
   // אזהרה בלבד — לא חוסמת שליחה
   const criteriaWarnings = React.useMemo(() => {
@@ -3159,7 +3210,9 @@ ${shiftsDesc}
             const isIron = isRecurring && (ironVal === true || (ironVal && typeof ironVal === 'object' && Object.keys(ironVal).length > 0));
             const whole = typeof v === 'string';
             const inCurMonth = dStr.startsWith(ym);
-            const impliedMark = !v && editable && !isExcluded ? (reqMode === 'block' ? 'can' : 'un') : null;
+            const impliedMark = !v && editable && !isExcluded
+              ? (allShiftsBlocked(dStr) ? 'un' : (reqMode === 'block' ? 'can' : 'un'))
+              : null;
             const s = v
               ? MARK_STATUS[whole ? v : 'none']
               : (impliedMark ? MARK_STATUS_FADED[impliedMark] : MARK_STATUS['none']);
@@ -3217,7 +3270,9 @@ ${shiftsDesc}
           {editable && <div style={{ fontSize: 12, color: '#8A867F' }}>דיוק לפי משמרת — בחרו סימון לכל משמרת בנפרד:</div>}
           {dayShifts.map(sh => {
             const dayMark = effectiveMarks[selDs];
-            const cur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
+            const rawCur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
+            // יום שלא נגעו בו כלל (לא ב-effectiveMarks) — עדיין מציגים "לא" כברירת מחדל למשמרת חסומה
+            const cur = rawCur || (isShiftBlockedByPrefs(selDs, sh.id) ? 'un' : null);
             const CHIPS = [[null, '—'], ['un', 'לא'], ['high', 'מעדיף'], ['can', 'יכול']];
             return (
               <div key={sh.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: '#FBFAF8', border: '1px solid #ECEAE5' }}>

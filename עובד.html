@@ -2613,7 +2613,9 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const editable = !pubRow || openStatus;
   const openRange = openStatus ? (pubRow?.shift_settings?._range || null) : null;
   const local = localReqs[ym] || { marks: {}, note: '', mgrNote: '', dirty: false };
-  const reqMode = local.reqMode || 'block';
+  // ברירת מחדל: "avail" (מסמנ.ת זמינות) — כך שימים/משמרות שלא נגעו בהם נחשבים "לא זמין"
+  // ולא "יכול", ועובד שלא ביצע שום שינוי לא ישובץ בטעות למשמרת שהוא לא יכול לעבוד בה.
+  const reqMode = local.reqMode || 'avail';
   const server = serverReqs[ym] || null;
   const nDays = daysInMonth(ym);
   const rangeStart = openRange?.start || `${ym}-01`;
@@ -2635,7 +2637,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const [selDay, setSelDay] = React.useState(rangeStart);
   React.useEffect(() => {
     setSelDay(rangeStart);
-    const mode = localReqs[ym]?.reqMode || 'block';
+    const mode = localReqs[ym]?.reqMode || 'avail';
     setBrush(mode === 'block' ? 'un' : 'can');
     setLastAiResult(null);
     setAiFeedback(null);

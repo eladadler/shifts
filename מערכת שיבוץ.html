@@ -6093,6 +6093,14 @@ function App() {
       const violations = AE.checkRequestCriteria(dates, emp.id, shiftSettings, criteria);
       const weeklyTarget = prefs[emp.id]?.weekday_shifts_per_week ?? 2;
       if (weeklyTarget < 2) violations.push(`מבקש רק ${weeklyTarget} משמרות/שבוע בימי חול (מתחת למינימום המומלץ 2)`);
+      // עובד שלא הגיש שום בקשה החודש — כברירת מחדל נחשב חסום לגמרי (לא ישובץ לשום מקום),
+      // ולכן יוצג כחריגה גם אם checkRequestCriteria לא מוצא כלום (אין לו בכלל זמינות לבדוק).
+      // לא מתריעים אם יש לו משמרת קבועה פעילה — כנראה שאינו צריך להגיש בקשה חודשית.
+      const hasSubmitted = !!(requests[emp.id] || {})[currentDraft.month];
+      const hasRecurring = allRecurring.some(r => r.emp_id === emp.id && r.active);
+      if (!hasSubmitted && !hasRecurring) {
+        violations.push('לא הגיש בקשה כלל החודש — כברירת מחדל ייחשב חסום לגמרי ולא ישובץ לשום מקום');
+      }
       if (violations.length) out.push({ empId: emp.id, name: emp.name, violations });
     });
     return out;

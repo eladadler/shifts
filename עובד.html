@@ -2872,7 +2872,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   };
 
 
-  const submit = async () => {
+  const submit = async (opts = {}) => {
     if (saving) return;
     setSaving(true);
     // "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת בודדת. משתמשים ב-effectiveMarks
@@ -2917,7 +2917,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     if (error) { console.error(error); showToast('שגיאה בשליחה — נסו שוב'); return; }
     setServerReqs(prev => ({ ...prev, [ym]: data }));
     setLocal({ dirty: false });
-    showToast('הבקשות נשלחו ✓');
+    showToast(opts.quiet ? 'נשמר ✓' : 'הבקשות נשלחו ✓');
   };
 
   // לפני שליחה בפועל: אם יש חריגות מהמינימום שהמשבץ ביקש, מציגים פופ-אפ עם אפשרות
@@ -2926,6 +2926,10 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     if (criteriaWarnings.length > 0) { setCriteriaGateOpen(true); return; }
     submit();
   };
+
+  // "שמירה ללא שליחה" — שומר לדאטה בייס בדיוק כמו שליחה רגילה, אבל בלי שער הקריטריונים:
+  // מיועד לשמירת התקדמות באמצע העבודה, לא כהצהרה סופית שהמינימום מולא
+  const saveWithoutSending = () => submit({ quiet: true });
 
   const analyzeText = async () => {
     const text = (local.note || '').trim();
@@ -3410,6 +3414,13 @@ ${shiftsDesc}
           opacity: saving ? 0.6 : 1, transition: 'background 0.2s, color 0.2s' }}>
           {saving ? 'שולח…' : needSend ? (server ? 'שליחת עדכון' : 'שליחת בקשות') : 'הבקשות נשלחו ✓'}
         </div>
+        {needSend && (
+          <div onClick={saving ? undefined : saveWithoutSending} style={{
+            textAlign: 'center', fontSize: 12.5, fontWeight: 700, color: '#8A867F',
+            cursor: saving ? 'default' : 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+            שמירה ללא שליחה
+          </div>
+        )}
         {sentAt && (
           <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
             עודכן לאחרונה: {sentAt}{local.dirty ? ' · יש שינויים שטרם נשלחו' : ''}

@@ -4033,7 +4033,7 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
   const [selDay, setSelDay] = React.useState(() => openRange?.start || `${month}-01`);
   const [chatInput, setChatInput] = React.useState('');
   const [showStanding, setShowStanding] = React.useState(false);
-  const [newRule, setNewRule] = React.useState({ weekday: 2, shiftId: '', mark: 'high' });
+  const [newRule, setNewRule] = React.useState({ mode: 'weekly', weekday: 2, date: '', shiftId: '', mark: 'high' });
   const [standingReqs, setStandingReqs] = React.useState([]);
   const [standingBusy, setStandingBusy] = React.useState(false);
 
@@ -4050,7 +4050,7 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
     setChatInput('');
     setBrush('view');
     setShowStanding(false);
-    setNewRule({ weekday: 2, shiftId: '', mark: 'high' });
+    setNewRule({ mode: 'weekly', weekday: 2, date: '', shiftId: '', mark: 'high' });
     loadStanding();
   }, [emp.id, month]);
 
@@ -4155,11 +4155,12 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
   }, [shiftSettings]);
 
   const addRule = async () => {
+    if (newRule.mode === 'date' && !newRule.date) return;
     setStandingBusy(true);
-    await window.__db.addRecurringRequest({
-      emp_id: emp.id, weekday: newRule.weekday, shift_id: newRule.shiftId || null, mark: newRule.mark, active: true,
-    });
-    setNewRule({ weekday: 2, shiftId: '', mark: 'high' });
+    await window.__db.addRecurringRequest(newRule.mode === 'date'
+      ? { emp_id: emp.id, weekday: SD.weekdayOf(newRule.date), specific_date: newRule.date, shift_id: newRule.shiftId || null, mark: 'iron', active: true }
+      : { emp_id: emp.id, weekday: newRule.weekday, shift_id: newRule.shiftId || null, mark: newRule.mark, active: true });
+    setNewRule({ mode: 'weekly', weekday: 2, date: '', shiftId: '', mark: 'high' });
     loadStanding();
     setStandingBusy(false);
   };
@@ -4434,8 +4435,11 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
                   return (
                     <div key={rule.id} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 8px',borderRadius:7,background:rule.mark === 'iron' ? MARK_ST.iron.bg : 'var(--bg)',border:rule.mark === 'iron' ? MARK_ST.iron.bd : '1px solid var(--line)',opacity:rule.active?1:0.5}}>
                       <span style={{fontSize:11,fontWeight:700,color:MARK_ST[rule.mark]?.fg}}>{markLabels[rule.mark]}</span>
-                      <span style={{fontSize:11,color:'var(--ink-3)'}}>ביום</span>
-                      <span style={{fontSize:11,fontWeight:700}}>{SD.HEB_DAYS[rule.weekday]}</span>
+                      {rule.specific_date ? (
+                        <><span style={{fontSize:11,color:'var(--ink-3)'}}>בתאריך</span><span style={{fontSize:11,fontWeight:700}}>{rule.specific_date}</span></>
+                      ) : (
+                        <><span style={{fontSize:11,color:'var(--ink-3)'}}>ביום</span><span style={{fontSize:11,fontWeight:700}}>{SD.HEB_DAYS[rule.weekday]}</span></>
+                      )}
                       {shiftName && <><span style={{fontSize:11,color:'var(--ink-3)'}}>—</span><span style={{fontSize:11,fontWeight:700}}>{shiftName}</span></>}
                       {!rule.active && <span style={{fontSize:10,color:'var(--ink-3)'}}>(כבוי — העובד כיבה)</span>}
                       <span onClick={() => !standingBusy && toggleRule(rule)} title={rule.active ? 'כיבוי' : 'הדלקה'}
@@ -4446,30 +4450,55 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
                     </div>
                   );
                 })}
+                {/* מתג בין כלל שבועי חוזר לבין נעילת ברזל לתאריך בודד אחד בלבד */}
+                <div style={{display:'flex',gap:4,paddingTop:2}}>
+                  {[['weekly','🔁 כלל שבועי חוזר'],['date','🔒 ברזל למועד בודד']].map(([m,label]) => (
+                    <div key={m} onClick={() => setNewRule(r => ({...r, mode: m}))}
+                      style={{flex:1,textAlign:'center',fontSize:11,fontWeight:700,padding:'5px 6px',borderRadius:6,cursor:'pointer',
+                        background:newRule.mode===m ? 'var(--accent)' : 'var(--bg)',
+                        color:newRule.mode===m ? '#FFF' : 'var(--ink-2)',
+                        border:'1px solid ' + (newRule.mode===m ? 'var(--accent)' : 'var(--line)')}}>
+                      {label}
+                    </div>
+                  ))}
+                </div>
                 {/* Add rule form */}
                 <div style={{display:'flex',gap:4,alignItems:'center',flexWrap:'wrap',paddingTop:4}}>
-                  <select value={newRule.mark} onChange={e => setNewRule(r => ({...r, mark: e.target.value}))}
-                    style={{fontSize:11.5,padding:'4px 6px',borderRadius:6,border:'1px solid var(--line)',background:'var(--bg)',color:'var(--ink)',font:'inherit'}}>
-                    <option value="high">מבקש לעבוד</option>
-                    <option value="can">יכול</option>
-                    <option value="un">לא זמין</option>
-                    <option value="iron">🔒 ברזל (חובה)</option>
-                  </select>
-                  <span style={{fontSize:11,color:'var(--ink-3)'}}>ביום</span>
-                  <select value={newRule.weekday} onChange={e => setNewRule(r => ({...r, weekday: Number(e.target.value)}))}
-                    style={{fontSize:11.5,padding:'4px 6px',borderRadius:6,border:'1px solid var(--line)',background:'var(--bg)',color:'var(--ink)',font:'inherit'}}>
-                    {SD.HEB_DAYS.map((d,i) => <option key={i} value={i}>{d}</option>)}
-                  </select>
+                  {newRule.mode === 'weekly' ? (
+                    <>
+                      <select value={newRule.mark} onChange={e => setNewRule(r => ({...r, mark: e.target.value}))}
+                        style={{fontSize:11.5,padding:'4px 6px',borderRadius:6,border:'1px solid var(--line)',background:'var(--bg)',color:'var(--ink)',font:'inherit'}}>
+                        <option value="high">מבקש לעבוד</option>
+                        <option value="can">יכול</option>
+                        <option value="un">לא זמין</option>
+                        <option value="iron">🔒 ברזל (חובה)</option>
+                      </select>
+                      <span style={{fontSize:11,color:'var(--ink-3)'}}>ביום</span>
+                      <select value={newRule.weekday} onChange={e => setNewRule(r => ({...r, weekday: Number(e.target.value)}))}
+                        style={{fontSize:11.5,padding:'4px 6px',borderRadius:6,border:'1px solid var(--line)',background:'var(--bg)',color:'var(--ink)',font:'inherit'}}>
+                        {SD.HEB_DAYS.map((d,i) => <option key={i} value={i}>{d}</option>)}
+                      </select>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{fontSize:11,fontWeight:700,color:MARK_ST.iron.fg}}>🔒 ברזל (חובה)</span>
+                      <span style={{fontSize:11,color:'var(--ink-3)'}}>בתאריך</span>
+                      <input type="date" value={newRule.date} onChange={e => setNewRule(r => ({...r, date: e.target.value}))}
+                        style={{fontSize:11.5,padding:'4px 6px',borderRadius:6,border:'1px solid var(--line)',background:'var(--bg)',color:'var(--ink)',font:'inherit'}} />
+                    </>
+                  )}
                   <select value={newRule.shiftId} onChange={e => setNewRule(r => ({...r, shiftId: e.target.value}))}
                     style={{fontSize:11.5,padding:'4px 6px',borderRadius:6,border:'1px solid var(--line)',background:'var(--bg)',color:'var(--ink)',font:'inherit'}}>
                     <option value="">כל המשמרות</option>
                     {allShifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
-                  <button className="btn" style={{fontSize:11.5,padding:'4px 10px',flexShrink:0}} disabled={standingBusy} onClick={addRule}>+ הוסף</button>
+                  <button className="btn" style={{fontSize:11.5,padding:'4px 10px',flexShrink:0}}
+                    disabled={standingBusy || (newRule.mode === 'date' && !newRule.date)} onClick={addRule}>+ הוסף</button>
                 </div>
-                {newRule.mark === 'iron' && (
+                {(newRule.mode === 'date' || newRule.mark === 'iron') && (
                   <div style={{fontSize:10.5,color:'oklch(0.45 0.18 300)',lineHeight:1.5,background:MARK_ST.iron.bg,borderRadius:7,padding:'6px 8px'}}>
-                    🔒 המנוע האוטומטי ישבץ את העובד כמעט תמיד, לפני כל מועמד אחר (בכפוף לתנאים קשיחים אחרים כמו מכסה ומנוחה). העובד עדיין יכול לבטל תאריך ספציפי בעצמו.
+                    🔒 המנוע האוטומטי ישבץ את העובד כמעט תמיד, לפני כל מועמד אחר (בכפוף לתנאים קשיחים אחרים כמו מכסה ומנוחה). העובד עדיין יכול לבטל תאריך ספציפי בעצמו
+                    {newRule.mode === 'date' && ' — כאן זה חד-פעמי, לא חוזר כל שבוע'}.
                   </div>
                 )}
               </div>
@@ -6067,7 +6096,8 @@ function App() {
     const out = {};
     allRecurring.filter(r => r.active && r.mark === 'iron').forEach(rule => {
       dates.forEach(dStr => {
-        if (AD.weekdayOf(dStr) !== rule.weekday) return;
+        // כלל לתאריך ספציפי (חד-פעמי) בודק את התאריך בדיוק, במקום התאמת יום-בשבוע חוזרת
+        if (rule.specific_date ? dStr !== rule.specific_date : AD.weekdayOf(dStr) !== rule.weekday) return;
         const shiftIds = rule.shift_id
           ? [rule.shift_id]
           : AD.shiftTypesFor(dStr, shiftSettings).filter(s => !s.continuation).map(s => s.id);

@@ -194,6 +194,12 @@ create table if not exists employee_recurring_requests (
 
 create index if not exists employee_recurring_requests_emp on employee_recurring_requests (emp_id);
 
+-- 14. כלל "ברזל" חד-פעמי, לתאריך ספציפי בלבד (לא חוזר כל שבוע) — למשל עובד שסימן
+--     "מעדיף" יום מסוים בבקשה החודשית, והמשבץ רוצה להבטיח לו את המשמרת הזו בפועל.
+--     כש-specific_date מוגדר, computeIronAssignments מתעלם מ-weekday ומתאים רק לתאריך הזה.
+alter table employee_recurring_requests
+  add column if not exists specific_date text;
+
 alter table employee_recurring_requests enable row level security;
 drop policy if exists "open access" on employee_recurring_requests;
 create policy "open access" on employee_recurring_requests

@@ -1392,6 +1392,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           const cap = Math.max(0, (e.weekdayShiftsPerWeek ?? 2) - 1);
           if ((weekCounts[wk0]?.[e.id] || 0) >= cap) return true;
         }
+        // העדפה אישית: לא לקבל משמרת יום (בוקר/בוקר קצר) ביום חמישי אם משובץ ל"שבת ארוכה" באותו שבוע
+        if (on('noThursdayIfShabbat') && wdShift0 === 4 && (shift.id === 'morning' || shift.id === 'evening')
+            && e.noThursdayIfShabbat && shabbatWeeks[wk0]?.has(e.id)) return true;
         // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
         if (on('crossMonthRest') && initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return true;
         // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
@@ -3809,6 +3812,7 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
       color: e?.color || COLORS[0], max: e?.max ?? 14,
       shabbatFrequencyDays: e?.shabbatFrequencyDays || 45,
       weekendShortFrequencyDays: e?.weekendShortFrequencyDays ?? null,
+      noThursdayIfShabbat: !!e?.noThursdayIfShabbat,
       reqCriteria: e?.reqCriteria || {},
       weekdayShiftsPerWeek: p?.weekday_shifts_per_week ?? 2,
       noWeekdayNights: p?.no_weekday_nights ?? false,
@@ -3983,6 +3987,14 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
               <span className="field-hint">ימים בין משמרות — שישי קצר או בוקר שבת, הראשונה שמגיעה</span>
             </div>
           )}
+        </div>
+        <div className="field">
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+            <input type="checkbox" checked={draft.noThursdayIfShabbat}
+              onChange={(e) => setDraft(p => ({...p, noThursdayIfShabbat: e.target.checked}))} />
+            ללא משמרת בוקר/בוקר קצר ביום חמישי אם משובץ ל"שבת ארוכה" באותו שבוע
+          </label>
+          <span className="field-hint" style={{display:'block',marginTop:4}}>העדפה אישית — משפיעה רק על עובד זה</span>
         </div>
         <div className="field">
           <label className="field-label">📋 קריטריוני הגשת בקשות אישיים <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות — ריק = לפי ההגדרה הכללית)</span></label>
@@ -5130,6 +5142,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'wantsSaturdayShort', t: 'עושה שבת קצר (בוקר שבת)', d: 'עובד שסימן שאינו עושה "בוקר שבת" (09:00–21:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
     { key: 'noWeekdayNights', t: 'ללא משמרות לילה', d: 'עובד שסימן זאת לא ישובץ לאף משמרת לילה — כולל גם מוצאי שבת, לא רק ימי א׳-ה׳.' },
     { key: 'shabbatWeeklyCap', t: 'שבת ארוכה מפחיתה משמרת חול באותו שבוע', d: 'עובד ששובץ ל"שבת ארוכה" בשבוע מסוים מוגבל, באותו שבוע, למשמרת חול אחת פחות מיעד המשמרות/שבוע הרגיל שלו. לדוגמה: יעד 2 + שבת ארוכה באותו שבוע ⇐ לכל היותר משמרת חול אחת נוספת באותו שבוע.' },
+    { key: 'noThursdayIfShabbat', t: 'ללא בוקר בחמישי אם יש שבת ארוכה', d: 'העדפה אישית (מוגדרת בכרטיס העובד) — עובד שסימן זאת לא ישובץ למשמרת בוקר/בוקר קצר ביום חמישי, באם שובץ ל"שבת ארוכה" באותו שבוע. משפיע רק על עובד שהוגדר לו.' },
     { key: 'crossMonthRest', t: 'מנוחה מול המשמרת האחרונה בחודש הקודם', d: 'פחות מ-8 שעות מנוחה מהמשמרת האחרונה שהעובד עשה בסוף החודש הקודם — חוסם לגמרי, בלי חריגה אוטומטית.' },
     { key: 'canWhitelist', t: 'רשימת "יכול" חודשית', d: 'עובד שהגיש רשימת "יכול" (can) מצומצמת לחודש הנוכחי לא ישובץ מחוץ לרשימה שהגיש, גם אם יש לו זמינות אחרת.' },
     { key: 'ironStanding', t: '🔒 משמרת ברזל (קבועה)', d: 'משמרת קבועה שהמשבץ סימן כ"ברזל" (מכרטיס הבקשות של העובד) משובצת כמעט תמיד באופן אוטומטי, לפני כל שאר המועמדים — עדיין בכפוף לתנאים הקשיחים האחרים (מכסה, מנוחה וכו׳), וניתנת לביטול לתאריך ספציפי ע"י העובד עצמו (בדיוק כמו ביטול בקשה קבועה רגילה). אם יש יותר עובדי ברזל ממקום פנוי במשמרת, זה מוצג כאזהרה למשבץ לפני ההרצה.' },
@@ -5634,7 +5647,7 @@ function App() {
   const DEFAULT_RULE_TOGGLES = {
     unavailable: true, maxQuota: true,
     wantsFridayShort: true, wantsFridayLong: true, wantsShabbatLong: true, wantsSaturdayShort: true,
-    noWeekdayNights: true, shabbatWeeklyCap: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
+    noWeekdayNights: true, shabbatWeeklyCap: true, noThursdayIfShabbat: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
     biasHighCan: true, biasNightOwl: true, biasLoadBalance: true,
     biasWeeklyTarget: true, biasShabbatFrequency: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
   };

@@ -2829,6 +2829,38 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     showToast && showToast('הבקשות אופסו — נשארו רק הבקשות הקבועות שלך');
   };
 
+  // שחזור בקשות מהחודש הקודם: לפי יום בשבוע (הרוב בחודש הקודם לאותו יום), לא לפי תאריך מדויק —
+  // כדי ש"לא עובד.ת בשישי" יחול על כל השישי-שבתות ולא רק על התאריך הספציפי שהיה אשתקד.
+  // ממלא רק ימים שעדיין ריקים החודש (undefined); לא דורס סימון או ביטול (null) שכבר נעשה,
+  // ולא נוגע בבקשות קבועות (הן ממשיכות להתמלא אוטומטית ולהתעדכן בעצמן).
+  const prevYm = addMonths(ym, -1);
+  const prevMarks = localReqs[prevYm]?.marks || null;
+  const restoreFromLastMonth = () => {
+    if (!prevMarks || !Object.keys(prevMarks).length) { showToast && showToast('אין בקשות מהחודש הקודם לשחזור'); return; }
+    const votes = {};
+    Object.entries(prevMarks).forEach(([ds, v]) => {
+      if (v === null) return;
+      const wd = weekdayOf(ds);
+      const token = typeof v === 'string' ? v : JSON.stringify(v);
+      votes[wd] = votes[wd] || {};
+      votes[wd][token] = (votes[wd][token] || 0) + 1;
+    });
+    const patternByWeekday = {};
+    Object.entries(votes).forEach(([wd, counts]) => {
+      const [token] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      patternByWeekday[wd] = token[0] === '{' ? JSON.parse(token) : token;
+    });
+    const marks = { ...local.marks };
+    let filled = 0;
+    activeDates.forEach(ds => {
+      if (marks[ds] !== undefined) return;
+      const wd = weekdayOf(ds);
+      if (patternByWeekday[wd] !== undefined) { marks[ds] = patternByWeekday[wd]; filled++; }
+    });
+    if (filled) { setLocal({ marks, dirty: true }); showToast && showToast(`שוחזרו ${filled} ימים מ${monthName(prevYm)} ✓`); }
+    else showToast && showToast('אין ימים חדשים לשחזור — הכול כבר מסומן החודש');
+  };
+
   const setReqMode = (mode) => {
     if (mode === reqMode) return;
     setLocal({ reqMode: mode });
@@ -3168,9 +3200,12 @@ ${shiftsDesc}
       <MonthSwitcher label={monthLabel(ym)} canPrev={mi > 0} canNext={mi < months.length - 1}
         onPrev={() => setMi(mi - 1)} onNext={() => setMi(mi + 1)} />
 
-      {editable && hasMarks && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס החודש</span>
+      {editable && (hasMarks || (prevMarks && Object.keys(prevMarks).length > 0)) && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14 }}>
+          {prevMarks && Object.keys(prevMarks).length > 0 && (
+            <span onClick={restoreFromLastMonth} style={{ fontSize: 12.5, fontWeight: 700, color: TEAL_DARK, cursor: 'pointer' }}>↻ שחזור מ{monthName(prevYm)}</span>
+          )}
+          {hasMarks && <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס החודש</span>}
         </div>
       )}
       {editable && myCriteriaLines.length > 0 && (

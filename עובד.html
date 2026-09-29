@@ -1035,12 +1035,21 @@ function App() {
       const pubMap = {};
       (pubs || []).forEach(r => { pubMap[r.month] = r; });
       setPublished(pubMap);
+      // מפתח לפי (חודש, אפשרות): אפשרות 1 שומרת על המפתח הישן "YYYY-MM" (תאימות מלאה
+      // לכל מקום שכבר קורא serverReqs[ym]); אפשרות 2/3 מקבלות "YYYY-MM#2"/"YYYY-MM#3"
       const reqMap = {};
-      (reqs || []).filter(r => r.emp_id === mine.id).forEach(r => { reqMap[r.month] = r; });
+      (reqs || []).filter(r => r.emp_id === mine.id).forEach(r => {
+        const rank = r.option_rank || 1;
+        reqMap[rank === 1 ? r.month : `${r.month}#${rank}`] = r;
+      });
       setServerReqs(reqMap);
-      // בקשות כל העובדים — משמשות במסך המשמרת לאיתור מחליף פוטנציאלי
+      // בקשות כל העובדים — משמשות במסך המשמרת לאיתור מחליף פוטנציאלי. רק אפשרות 1
+      // (הבכירה) — חילופי משמרות לא צריכים להביא בחשבון טיוטות משנה של אחרים
       const allMap = {};
-      (reqs || []).forEach(r => { (allMap[r.month] = allMap[r.month] || {})[r.emp_id] = r; });
+      (reqs || []).forEach(r => {
+        if ((r.option_rank || 1) !== 1) return;
+        (allMap[r.month] = allMap[r.month] || {})[r.emp_id] = r;
+      });
       setAllReqs(allMap);
       // אתחול עריכות מקומיות מהשרת — בלי לדרוס שינויים שטרם נשלחו.
       // ערך "YYYY-MM-DD" = יום שלם (marks[day] מחרוזת), "YYYY-MM-DD@shiftId" = משמרת (marks[day] אובייקט)
@@ -2652,7 +2661,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   // ולא צובעת אותו בטעות עד שנבחרה מברשת במפורש
   const [brush, setBrush] = React.useState(null);
   const [saving, setSaving] = React.useState(false);
-  const [criteriaGateOpen, setCriteriaGateOpen] = React.useState(false);
+  const [criteriaGateOpen, setCriteriaGateOpen] = React.useState(false); // false | [{rank, warnings}, ...]
   const [analyzing, setAnalyzing] = React.useState(false);
   const [aiError, setAiError] = React.useState(null);
   const [lastAiResult, setLastAiResult] = React.useState(null);
@@ -2660,17 +2669,36 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const [feedbackNote, setFeedbackNote] = React.useState('');
   const [feedbackSaving, setFeedbackSaving] = React.useState(false);
   const [feedbackSaved, setFeedbackSaved] = React.useState(false);
+  // איזו "טיוטה" (אפשרות שיבוץ) מוצגת כרגע — 1 היא הבכירה, עד 3. כולן לוח מלא ונפרד
+  // לאותו חודש, אבל חופשה משותפת לכולן (ראו vacationDates למטה)
+  const [selectedRank, setSelectedRank] = React.useState(1);
   const ym = months[mi];
   const pubRow = published[ym] || null;
   const openStatus = pubRow?.shift_settings?._status === 'open';
   // אין אפשרות להגיש בקשות עד שהמשבץ פותח טיוטה לבקשות בפועל — "לא פורסם עדיין" אינו "פתוח"
   const editable = openStatus;
   const openRange = openStatus ? (pubRow?.shift_settings?._range || null) : null;
-  const local = localReqs[ym] || { marks: {}, note: '', mgrNote: '', dirty: false };
+
+  const DEFAULT_DRAFT = { marks: {}, note: '', mgrNote: '', dirty: false };
+  // מפתח האחסון של טיוטה נתונה לחודש הנוכחי: אפשרות 1 שומרת על המפתח הישן (תאימות
+  // מלאה למשמרת/מסך העובד ולכל מה שכבר קורא serverReqs[ym]/localReqs[ym]) — 2/3 מקבלות
+  // מפתח עם סיומת. מפתח החופשה המשותפת נפרד מכל הטיוטות.
+  const rankKey = (rank) => (rank === 1 ? ym : `${ym}#${rank}`);
+  const vacKey = `${ym}#vac`;
+  const draftKey = rankKey(selectedRank);
+  const local = localReqs[draftKey] || DEFAULT_DRAFT;
   // ברירת מחדל: "avail" (מסמנ.ת זמינות) — כך שימים/משמרות שלא נגעו בהם נחשבים "לא זמין"
   // ולא "יכול", ועובד שלא ביצע שום שינוי לא ישובץ בטעות למשמרת שהוא לא יכול לעבוד בה.
   const reqMode = local.reqMode || 'avail';
-  const server = serverReqs[ym] || null;
+  const server = serverReqs[draftKey] || null;
+  // אילו טיוטות קיימות בפועל לחודש הזה (מקומית או בשרת) — תמיד כולל את #1
+  const activeRanks = React.useMemo(() => {
+    const set = new Set([1]);
+    [2, 3].forEach(r => { if (localReqs[rankKey(r)] || serverReqs[rankKey(r)]) set.add(r); });
+    return [...set].sort((a, b) => a - b);
+  }, [localReqs, serverReqs, ym]);
+  // ימי חופשה — משותפים לכל הטיוטות של החודש (עובדה אחת, לא העדפה שמשתנה בין טיוטות)
+  const vacationDates = localReqs[vacKey]?.dates || {};
   const nDays = daysInMonth(ym);
   const rangeStart = openRange?.start || `${ym}-01`;
   const rangeEnd   = openRange?.end   || `${ym}-${pad(nDays)}`;
@@ -2695,6 +2723,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const [selDay, setSelDay] = React.useState(rangeStart);
   React.useEffect(() => {
     setSelDay(rangeStart);
+    setSelectedRank(1); // כל מעבר חודש חוזר לטיוטה הבכירה
     setBrush(null); // כל מעבר חודש מתחיל בלי מברשת נבחרת — הקשה על יום היא רק בחירה, לא צביעה
     setLastAiResult(null);
     setAiFeedback(null);
@@ -2731,45 +2760,12 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     if (shiftId === 'night') return myPrefs.no_weekday_nights === true;
     return false;
   };
-  // ערך לתצוגה בלוח החודשי בלבד — משלים חסימות גם על ימים שלא נגעו בהם כלל (effectiveMarks
-  // נשאר "נקי" בשבילם), כדי שהחסימה תיראה מיד בלוח ולא רק בפתיחת פאנל הדיוק לפי משמרת
-  const gridValueFor = (ds) => {
-    const v = effectiveMarks[ds];
-    if (v !== undefined) return v;
-    const ids = dayShiftIds(ds);
-    const blocked = ids.filter(id => isShiftBlockedByPrefs(ds, id));
-    if (!blocked.length) return undefined;
-    if (blocked.length === ids.length) return 'un';
-    const perShift = {};
-    blocked.forEach(id => { perShift[id] = 'un'; });
-    return perShift;
-  };
-  // מרחיב תאריכים לגמרי לא-מסומנים לפי ברירת המחדל של המצב — אבל משמרת חסומה תמיד "לא",
-  // גם אם המצב הכללי הוא "מסמן חסימות" (שאר הימים = יכול)
-  const expandUnmarked = (dates) => {
-    const out = { unavailable: [], can: [] };
-    dates.forEach(ds => {
-      const ids = dayShiftIds(ds);
-      const blocked = ids.filter(id => isShiftBlockedByPrefs(ds, id));
-      if (!blocked.length) {
-        out[reqMode === 'block' ? 'can' : 'unavailable'].push(ds);
-      } else if (blocked.length === ids.length) {
-        out.unavailable.push(ds);
-      } else {
-        ids.forEach(id => {
-          out[blocked.includes(id) ? 'unavailable' : (reqMode === 'block' ? 'can' : 'unavailable')].push(`${ds}@${id}`);
-        });
-      }
-    });
-    return out;
-  };
-
-  const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [ym]: { ...(prev[ym] || { marks: {}, note: '', mgrNote: '', dirty: false }), ...patch } }));
 
   // דפוס הבקשות הקבועות, לפי יום בשבוע. משמרת ספציפית → אובייקט per-shift; "כל היום" → מחרוזת.
   // אם הוגדרו גם "כל היום" וגם משמרת ספציפית לאותו יום בשבוע, "כל היום" גובר (מוגדר אחרון בלולאה).
   // "ברזל" (מוגדר ע"י המשבץ) מתנהג בדיוק כמו "מעדיפ.ה" (high) בכל הלוגיקה הזו — הוא
   // רק מוצג אחרת (🔒, ראו ironPattern) ואי אפשר לכבות/למחוק אותו כאן, רק לבטל תאריך ספציפי.
+  // חלה בדיוק אותו הדבר על כל הטיוטות — לא תלויה ב-selectedRank.
   const recurringPattern = React.useMemo(() => {
     const byWd = {};
     (recurring || []).filter(r => r.active).forEach(r => {
@@ -2798,20 +2794,22 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     return byWd;
   }, [recurring]);
 
-  // מה שבאמת יישלח: בקשות קבועות + דריסות ספציפיות לחודש הזה, שתמיד מנצחות.
-  // local.marks[ds] === null = "בוטל לחודש הזה בלבד" (הדריסה עצמה נשארת פעילה לחודשים הבאים).
-  const effectiveMarks = React.useMemo(() => {
+  // מה שבאמת יישלח לטיוטה נתונה: בקשות קבועות + דריסות ספציפיות לחודש הזה שתמיד מנצחות +
+  // חופשה (משותפת, חזקה מהכול). marks[ds] === null = "בוטל לחודש הזה בלבד" (הדריסה עצמה
+  // נשארת פעילה לחודשים הבאים). פונקציה טהורה (לא hook) כדי שאפשר יהיה להריץ אותה על
+  // כל טיוטה בנפרד — גם כאלה שלא נבחרות כרגע — בשליחה ובבדיקת קריטריונים לכל הטיוטות יחד.
+  const buildEffectiveMarks = (marks) => {
     const out = {};
     activeDates.forEach(ds => {
+      if (vacationDates[ds]) { out[ds] = 'vacation'; return; } // חופשה — חזקה מהכול, נבדקת ראשונה
       let v;
-      if (Object.prototype.hasOwnProperty.call(local.marks, ds)) {
-        if (local.marks[ds] !== null) v = local.marks[ds];
+      if (Object.prototype.hasOwnProperty.call(marks, ds)) {
+        if (marks[ds] !== null) v = marks[ds];
       } else {
         const p = recurringPattern[weekdayOf(ds)];
         if (p !== undefined) v = p;
       }
       if (v === undefined) return; // יום לגמרי לא מסומן — ברירת המחדל הכללית (כולל חסימות) תיושם בהמשך
-      if (v === 'vacation') { out[ds] = v; return; } // חופשה חוסמת את כל היום — חזקה מכל חסימת העדפה
       const ids = dayShiftIds(ds);
       const blocked = ids.filter(id => isShiftBlockedByPrefs(ds, id));
       if (!blocked.length) { out[ds] = v; return; }
@@ -2825,7 +2823,102 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
       out[ds] = perShift;
     });
     return out;
-  }, [activeDates, recurringPattern, local.marks, myPrefs]);
+  };
+  const effectiveMarks = React.useMemo(() => buildEffectiveMarks(local.marks),
+    [local.marks, vacationDates, recurringPattern, activeDates, myPrefs]);
+
+  // ערך לתצוגה בלוח החודשי בלבד — משלים חסימות גם על ימים שלא נגעו בהם כלל (effectiveMarks
+  // נשאר "נקי" בשבילם), כדי שהחסימה תיראה מיד בלוח ולא רק בפתיחת פאנל הדיוק לפי משמרת
+  const gridValueFor = (ds) => {
+    const v = effectiveMarks[ds];
+    if (v !== undefined) return v;
+    const ids = dayShiftIds(ds);
+    const blocked = ids.filter(id => isShiftBlockedByPrefs(ds, id));
+    if (!blocked.length) return undefined;
+    if (blocked.length === ids.length) return 'un';
+    const perShift = {};
+    blocked.forEach(id => { perShift[id] = 'un'; });
+    return perShift;
+  };
+  // מרחיב תאריכים לגמרי לא-מסומנים לפי ברירת המחדל של מצב נתון — אבל משמרת חסומה תמיד "לא",
+  // גם אם המצב הכללי הוא "מסמן חסימות" (שאר הימים = יכול). mode מפורש (לא closure) כדי
+  // שאפשר יהיה להשתמש בזה גם עבור טיוטות שאינן הנבחרת כרגע, שיש להן reqMode משלהן.
+  const expandUnmarked = (dates, mode) => {
+    const out = { unavailable: [], can: [] };
+    dates.forEach(ds => {
+      const ids = dayShiftIds(ds);
+      const blocked = ids.filter(id => isShiftBlockedByPrefs(ds, id));
+      if (!blocked.length) {
+        out[mode === 'block' ? 'can' : 'unavailable'].push(ds);
+      } else if (blocked.length === ids.length) {
+        out.unavailable.push(ds);
+      } else {
+        ids.forEach(id => {
+          out[blocked.includes(id) ? 'unavailable' : (mode === 'block' ? 'can' : 'unavailable')].push(`${ds}@${id}`);
+        });
+      }
+    });
+    return out;
+  };
+  // שורת זמינות "אפקטיבית" לטיוטה נתונה — marks + ברירת המחדל של המצב, בדיוק מה שיישלח
+  // בפועל ב-submit() (פונקציה טהורה, לאותה סיבה כמו buildEffectiveMarks למעלה)
+  const buildEffectiveRow = (effMarks, mode) => {
+    const unmarkedDates = activeDates.filter(ds => !Object.prototype.hasOwnProperty.call(effMarks, ds));
+    const row = { unavailable: [], high: [], can: [] };
+    Object.entries(effMarks).forEach(([ds, v]) => {
+      if (v === 'vacation') return; // חופשה נספרת בנפרד — לא נכנסת לבדיקת הקריטריונים כ"לא זמין"
+      if (typeof v === 'string') row[v === 'un' ? 'unavailable' : v === 'high' ? 'high' : 'can'].push(ds);
+      else Object.entries(v || {}).forEach(([sid, m]) => row[m === 'un' ? 'unavailable' : m === 'high' ? 'high' : 'can'].push(`${ds}@${sid}`));
+    });
+    const expanded = expandUnmarked(unmarkedDates, mode);
+    row.unavailable.push(...expanded.unavailable);
+    row.can.push(...expanded.can);
+    return row;
+  };
+
+  const setLocal = (patch) => setLocalReqs(prev => ({ ...prev, [draftKey]: { ...(prev[draftKey] || DEFAULT_DRAFT), ...patch } }));
+
+  // סימון/ביטול יום חופשה — משותף לכל הטיוטות הפעילות (עובדה אחת, לא נבדלת בין טיוטות).
+  // מדגיש "dirty" רק על טיוטות שכבר קיימות מקומית (שנטענו/נערכו במכשיר הזה) — כדי לא
+  // ליצור בטעות טיוטה ריקה לאפשרות שמעולם לא נפתחה במכשיר הזה ולדרוס בכך נתונים בשרת
+  // (ראו ranksToSend/submit למטה).
+  const setVacation = (ds, on) => {
+    setLocalReqs(prev => {
+      const vacEntry = prev[vacKey] || { dates: {} };
+      const dates = { ...vacEntry.dates };
+      if (on) dates[ds] = true; else delete dates[ds];
+      const next = { ...prev, [vacKey]: { dates } };
+      activeRanks.forEach(r => {
+        const k = rankKey(r);
+        if (prev[k]) next[k] = { ...prev[k], dirty: true };
+      });
+      return next;
+    });
+  };
+
+  // "+ טיוטה נוספת" — משכפלת את הטיוטה הנבחרת כרגע כנקודת פתיחה (עד 3 בסך הכול)
+  const addDraft = () => {
+    if (activeRanks.length >= 3) return;
+    const nextRank = Math.max(...activeRanks) + 1;
+    setLocalReqs(prev => ({ ...prev, [rankKey(nextRank)]: { ...(prev[draftKey] || DEFAULT_DRAFT), dirty: true } }));
+    setSelectedRank(nextRank);
+    showToast && showToast(`טיוטה ${nextRank} נוצרה כעותק של טיוטה ${selectedRank} ✓`);
+  };
+
+  // מחיקת טיוטה משנית (לא ניתן למחוק את #1) — כולל מחיקה בשרת אם כבר נשלחה, כדי
+  // שהאלגוריתם לא ימשיך לראות נתונים ישנים ממנה
+  const removeDraft = async (rank) => {
+    if (rank === 1) return;
+    const key = rankKey(rank);
+    if (serverReqs[key]) {
+      const { error } = await sb.from('employee_requests').delete().match({ emp_id: me.id, month: ym, option_rank: rank });
+      if (error) { showToast && showToast('שגיאה במחיקת הטיוטה — נסו שוב'); return; }
+    }
+    setLocalReqs(prev => { const next = { ...prev }; delete next[key]; return next; });
+    setServerReqs(prev => { const next = { ...prev }; delete next[key]; return next; });
+    if (selectedRank === rank) setSelectedRank(1);
+    showToast && showToast(`טיוטה ${rank} נמחקה`);
+  };
 
   const resetMonth = () => {
     setLocal({ marks: {}, dirty: true });
@@ -2835,9 +2928,11 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   // שחזור בקשות מהחודש הקודם: לפי יום בשבוע (הרוב בחודש הקודם לאותו יום), לא לפי תאריך מדויק —
   // כדי ש"לא עובד.ת בשישי" יחול על כל השישי-שבתות ולא רק על התאריך הספציפי שהיה אשתקד.
   // ממלא רק ימים שעדיין ריקים החודש (undefined); לא דורס סימון או ביטול (null) שכבר נעשה,
-  // ולא נוגע בבקשות קבועות (הן ממשיכות להתמלא אוטומטית ולהתעדכן בעצמן).
+  // ולא נוגע בבקשות קבועות (הן ממשיכות להתמלא אוטומטית ולהתעדכן בעצמן). שוחזר מאותה
+  // טיוטה (rank) בחודש הקודם — כל טיוטה משוחזרת מהמקבילה שלה, לא תמיד מ-#1.
   const prevYm = addMonths(ym, -1);
-  const prevMarks = localReqs[prevYm]?.marks || null;
+  const prevDraftKey = selectedRank === 1 ? prevYm : `${prevYm}#${selectedRank}`;
+  const prevMarks = localReqs[prevDraftKey]?.marks || null;
   const restoreFromLastMonth = () => {
     if (!prevMarks || !Object.keys(prevMarks).length) { showToast && showToast('אין בקשות מהחודש הקודם לשחזור'); return; }
     const votes = {};
@@ -2875,8 +2970,10 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
   const tapDay = (dStr) => {
     setSelDay(dStr);
     if (!editable || !brush) return;
+    if (brush === 'vacation') { setVacation(dStr, true); return; }
+    if (brush === 'erase' && vacationDates[dStr]) { setVacation(dStr, false); return; }
     const cur = effectiveMarks[dStr];
-    if (cur && typeof cur === 'object' && brush !== 'erase' && brush !== 'vacation') return;
+    if (cur && typeof cur === 'object' && brush !== 'erase') return;
     const marks = { ...local.marks };
     if (brush === 'erase') {
       // אם יש כאן בקשה קבועה, "מחיקה" צריכה לבטל אותה לחודש הזה בלבד — לא סתם למחוק
@@ -2907,60 +3004,93 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     setLocal({ marks, dirty: true });
   };
 
+  // אילו טיוטות אכן יישלחו: רק כאלה שיש להן נתונים מקומיים (נערכו/נוצרו במכשיר הזה).
+  // טיוטה שקיימת רק בשרת (למשל הוגשה ממכשיר אחר ומעולם לא נפתחה כאן) לא נדרסת בטעות
+  // בברירות מחדל ריקות — נשארת כפי שהיא עד שתיערך בפועל במכשיר הזה.
+  const ranksToSend = activeRanks.filter(rank => !!localReqs[rankKey(rank)]);
 
   const submit = async (opts = {}) => {
-    if (saving) return;
+    if (saving || !ranksToSend.length) return;
     setSaving(true);
-    // "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת בודדת. משתמשים ב-effectiveMarks
-    // (לא local.marks) כדי שבקשות קבועות שלא נגעו בהן החודש ייכללו בהגשה בפועל.
-    const toDates = (mark) => {
-      const out = [];
-      Object.entries(effectiveMarks).forEach(([ds, v]) => {
-        if (typeof v === 'string') { if (v === mark) out.push(ds); }
-        else Object.entries(v || {}).forEach(([sid, m]) => { if (m === mark) out.push(`${ds}@${sid}`); });
+    const vacationArr = Object.keys(vacationDates).sort();
+    const rows = ranksToSend.map(rank => {
+      const key = rankKey(rank);
+      const draft = localReqs[key] || DEFAULT_DRAFT;
+      const mode = draft.reqMode || 'avail';
+      const effMarks = buildEffectiveMarks(draft.marks);
+      // "YYYY-MM-DD" = יום שלם, "YYYY-MM-DD@shiftId" = משמרת בודדת
+      const toDates = (mark) => {
+        const out = [];
+        Object.entries(effMarks).forEach(([ds, v]) => {
+          if (typeof v === 'string') { if (v === mark) out.push(ds); }
+          else Object.entries(v || {}).forEach(([sid, m]) => { if (m === mark) out.push(`${ds}@${sid}`); });
+        });
+        return out.sort();
+      };
+      // הרחבת סימונים משתמעים: ימים לא-מסומנים (בטווח בפועל, לא כולל ימים מוחרגים) מקבלים
+      // את הסטטוס ברירת-מחדל של המצב הנוכחי — למעט משמרות חסומות לפי ההעדפות, שתמיד "לא"
+      const markedDs = new Set(Object.keys(effMarks));
+      const unmarkedDates = activeDates.filter(ds => !markedDs.has(ds));
+      let unavailable = toDates('un');
+      let canArr = toDates('can');
+      const expandedUnmarked = expandUnmarked(unmarkedDates, mode);
+      unavailable = [...unavailable, ...expandedUnmarked.unavailable];
+      canArr = [...canArr, ...expandedUnmarked.can];
+      // משמרות לא-מסומנות בימים עם סימון חלקי → ברירת מחדל של המצב
+      // (למשל: אם "לילה=יכול" ביום שלישי, שאר המשמרות של אותו יום נחסמות)
+      Object.entries(effMarks).forEach(([ds, v]) => {
+        if (typeof v !== 'object' || !v) return;
+        shiftTypesFor(ds, settings).filter(s => !s.continuation).forEach(sh => {
+          if (v[sh.id]) return;
+          if (mode === 'block') canArr.push(`${ds}@${sh.id}`);
+          else unavailable.push(`${ds}@${sh.id}`);
+        });
       });
-      return out.sort();
-    };
-    // הרחבת סימונים משתמעים: ימים לא-מסומנים (בטווח בפועל, לא כולל ימים מוחרגים) מקבלים
-    // את הסטטוס ברירת-מחדל של המצב הנוכחי — למעט משמרות חסומות לפי ההעדפות, שתמיד "לא"
-    const markedDs = new Set(Object.keys(effectiveMarks));
-    const unmarkedDates = activeDates.filter(ds => !markedDs.has(ds));
-    let unavailable = toDates('un');
-    let canArr = toDates('can');
-    const expandedUnmarked = expandUnmarked(unmarkedDates);
-    unavailable = [...unavailable, ...expandedUnmarked.unavailable];
-    canArr = [...canArr, ...expandedUnmarked.can];
-    // משמרות לא-מסומנות בימים עם סימון חלקי → ברירת מחדל של המצב
-    // (למשל: אם "לילה=יכול" ביום שלישי, שאר המשמרות של אותו יום נחסמות)
-    Object.entries(effectiveMarks).forEach(([ds, v]) => {
-      if (typeof v !== 'object' || !v) return;
-      shiftTypesFor(ds, settings).filter(s => !s.continuation).forEach(sh => {
-        if (v[sh.id]) return;
-        if (reqMode === 'block') canArr.push(`${ds}@${sh.id}`);
-        else unavailable.push(`${ds}@${sh.id}`);
-      });
+      unavailable = unavailable.sort();
+      canArr = canArr.sort();
+      return {
+        emp_id: me.id, month: ym, option_rank: rank,
+        unavailable, high: toDates('high'), can: canArr, vacation: vacationArr,
+        note: draft.note || '', manager_note: draft.mgrNote || '',
+        updated_at: new Date().toISOString(), updated_by: email,
+        is_draft: !!opts.quiet,
+      };
     });
-    unavailable = unavailable.sort();
-    canArr = canArr.sort();
-    const row = {
-      emp_id: me.id, month: ym,
-      unavailable, high: toDates('high'), can: canArr, vacation: toDates('vacation'),
-      note: local.note || '', manager_note: local.mgrNote || '',
-      updated_at: new Date().toISOString(), updated_by: email,
-      is_draft: !!opts.quiet,
-    };
-    const { data, error } = await sb.from('employee_requests').upsert(row).select().single();
+    const { data, error } = await sb.from('employee_requests').upsert(rows).select();
     setSaving(false);
     if (error) { console.error(error); showToast('שגיאה בשליחה — נסו שוב'); return; }
-    setServerReqs(prev => ({ ...prev, [ym]: data }));
-    setLocal({ dirty: false });
+    setServerReqs(prev => {
+      const next = { ...prev };
+      (data || []).forEach(row => { next[rankKey(row.option_rank || 1)] = row; });
+      return next;
+    });
+    setLocalReqs(prev => {
+      const next = { ...prev };
+      ranksToSend.forEach(r => { const k = rankKey(r); if (next[k]) next[k] = { ...next[k], dirty: false }; });
+      return next;
+    });
     showToast(opts.quiet ? 'נשמר ✓' : 'הבקשות נשלחו ✓');
   };
 
-  // לפני שליחה בפועל: אם יש חריגות מהמינימום שהמשבץ ביקש, מציגים פופ-אפ עם אפשרות
-  // "לשלוח בכל זאת" או "לחזור לעריכת הבקשה" — במקום להציג אזהרה קבועה על המסך
+  // לפני שליחה בפועל: אם יש חריגות מהמינימום שהמשבץ ביקש בטיוטה כלשהי שתישלח, מציגים
+  // פופ-אפ עם אפשרות "לשלוח בכל זאת" או "לחזור לעריכת הבקשה" — במקום להציג אזהרה קבועה
+  const computeAllWarnings = () => {
+    if (!editable) return [];
+    const out = [];
+    ranksToSend.forEach(rank => {
+      const draft = localReqs[rankKey(rank)] || DEFAULT_DRAFT;
+      const mode = draft.reqMode || 'avail';
+      const effMarks = buildEffectiveMarks(draft.marks);
+      const critDates = activeDates.filter(ds => effMarks[ds] !== 'vacation');
+      const row = buildEffectiveRow(effMarks, mode);
+      const warnings = checkRequestCriteria(critDates, row, settings, myCriteria);
+      if (warnings.length) out.push({ rank, warnings });
+    });
+    return out;
+  };
   const trySubmit = () => {
-    if (criteriaWarnings.length > 0) { setCriteriaGateOpen(true); return; }
+    const allWarnings = computeAllWarnings();
+    if (allWarnings.length) { setCriteriaGateOpen(allWarnings); return; }
     submit();
   };
 
@@ -3156,8 +3286,16 @@ ${shiftsDesc}
   };
 
   const hasMarks = Object.keys(effectiveMarks).length > 0;
-  // "שמירה ללא שליחה" משאירה is_draft:true — עדיין נחשב כ"טרם נשלח בפועל", לא רק dirty מקומי
+  // "שמירה ללא שליחה" משאירה is_draft:true — עדיין נחשב כ"טרם נשלח בפועל", לא רק dirty מקומי.
+  // needSend הוא על הטיוטה המוצגת כרגע (לשורת הסטטוס); anyNeedSend על כל הטיוטות יחד (לכפתור).
   const needSend = !server || server.is_draft || local.dirty;
+  const anyNeedSend = activeRanks.some(rank => {
+    const key = rankKey(rank);
+    const draft = localReqs[key];
+    const srv = serverReqs[key];
+    return !srv || srv.is_draft || draft?.dirty;
+  });
+  const anySentBefore = activeRanks.some(rank => !!serverReqs[rankKey(rank)]);
   const stats = React.useMemo(() => {
     const s = { un: 0, high: 0, can: 0, vacation: 0, days: 0, shifts: 0 };
     Object.values(effectiveMarks).forEach(v => {
@@ -3172,22 +3310,9 @@ ${shiftsDesc}
   // פנויים): עובד בחופשה לא צריך "להספיק" זמינות באותם ימים
   const criteriaDates = React.useMemo(() => activeDates.filter(ds => effectiveMarks[ds] !== 'vacation'), [activeDates, effectiveMarks]);
 
-  // שורת זמינות "אפקטיבית" — marks + ברירת המחדל של המצב, בדיוק מה שיישלח בפועל ב-submit()
-  const effectiveRow = React.useMemo(() => {
-    const unmarkedDates = activeDates.filter(ds => !Object.prototype.hasOwnProperty.call(effectiveMarks, ds));
-    const row = { unavailable: [], high: [], can: [] };
-    Object.entries(effectiveMarks).forEach(([ds, v]) => {
-      if (v === 'vacation') return; // חופשה נספרת בנפרד — לא נכנסת לבדיקת הקריטריונים כ"לא זמין"
-      if (typeof v === 'string') row[v === 'un' ? 'unavailable' : v === 'high' ? 'high' : 'can'].push(ds);
-      else Object.entries(v || {}).forEach(([sid, m]) => row[m === 'un' ? 'unavailable' : m === 'high' ? 'high' : 'can'].push(`${ds}@${sid}`));
-    });
-    const expanded = expandUnmarked(unmarkedDates);
-    row.unavailable.push(...expanded.unavailable);
-    row.can.push(...expanded.can);
-    return row;
-  }, [effectiveMarks, activeDates, reqMode, myPrefs]);
+  const effectiveRow = React.useMemo(() => buildEffectiveRow(effectiveMarks, reqMode), [effectiveMarks, activeDates, reqMode, myPrefs]);
 
-  // אזהרה בלבד — לא חוסמת שליחה
+  // אזהרה בלבד — לא חוסמת שליחה (של הטיוטה המוצגת כרגע — לדרופדאון "מה מצופה ממני")
   const criteriaWarnings = React.useMemo(() => {
     if (!editable) return [];
     return checkRequestCriteria(criteriaDates, effectiveRow, settings, myCriteria);
@@ -3212,12 +3337,41 @@ ${shiftsDesc}
       <MonthSwitcher label={monthLabel(ym)} canPrev={mi > 0} canNext={mi < months.length - 1}
         onPrev={() => setMi(mi - 1)} onNext={() => setMi(mi + 1)} />
 
+      {/* בורר טיוטות ("אפשרויות שיבוץ") — כולן לוח מלא ונפרד לאותו חודש, מדורגות בעדיפות.
+          #1 היא הבכירה; האלגוריתם מנסה למלא אותה קודם, ועובר לבאות רק אם משמרת נשארת פתוחה. */}
+      {(editable || activeRanks.length > 1) && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          {activeRanks.map(rank => {
+            const active = rank === selectedRank;
+            return (
+              <div key={rank} onClick={() => setSelectedRank(rank)} style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
+                background: active ? INK : '#FFF', color: active ? '#FFF' : '#6B6760',
+                border: active ? `1.5px solid ${INK}` : '1.5px solid #D8D4CE', fontSize: 12.5, fontWeight: 800 }}>
+                <span>טיוטה {rank}</span>
+                {rank > 1 && editable && (
+                  <span onClick={(e) => { e.stopPropagation(); removeDraft(rank); }}
+                    title="מחיקת הטיוטה הזו" style={{ opacity: 0.7, fontSize: 11 }}>✕</span>
+                )}
+              </div>
+            );
+          })}
+          {editable && activeRanks.length < 3 && (
+            <div onClick={addDraft} style={{ padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontSize: 12.5, fontWeight: 800,
+              color: TEAL_DARK, border: `1.5px dashed ${TEAL}`, background: '#FFF' }}>+ טיוטה נוספת</div>
+          )}
+        </div>
+      )}
+      {editable && activeRanks.length > 1 && (
+        <div style={{ fontSize: 11.5, color: '#8A867F' }}>טיוטה 1 בכירה על השאר — האלגוריתם מנסה למלא אותה קודם, ופונה לטיוטות הבאות רק אם משמרת נשארת פתוחה.</div>
+      )}
+
       {editable && (hasMarks || (prevMarks && Object.keys(prevMarks).length > 0)) && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14 }}>
           {prevMarks && Object.keys(prevMarks).length > 0 && (
             <span onClick={restoreFromLastMonth} style={{ fontSize: 12.5, fontWeight: 700, color: TEAL_DARK, cursor: 'pointer' }}>↻ שחזור מ{monthName(prevYm)}</span>
           )}
-          {hasMarks && <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס החודש</span>}
+          {hasMarks && <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס הטיוטה</span>}
         </div>
       )}
       {editable && myCriteriaLines.length > 0 && (
@@ -3279,7 +3433,7 @@ ${shiftsDesc}
             const isExcluded = excludedSet.has(dStr);
             const realV = effectiveMarks[dStr];
             const v = gridValueFor(dStr); // כמו realV, אך גם משלים חסימות לתצוגה בימים שלא נגעו בהם
-            const isRecurring = realV !== undefined && !Object.prototype.hasOwnProperty.call(local.marks, dStr);
+            const isRecurring = realV !== undefined && realV !== 'vacation' && !Object.prototype.hasOwnProperty.call(local.marks, dStr);
             const ironVal = ironPattern[weekdayOf(dStr)];
             const isIron = isRecurring && (ironVal === true || (ironVal && typeof ironVal === 'object' && Object.keys(ironVal).length > 0));
             const whole = typeof v === 'string';
@@ -3334,13 +3488,9 @@ ${shiftsDesc}
           <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(selDs.slice(0, 7))}</div>
           {effectiveMarks[selDs] === 'vacation' ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: MARK_STATUS.vacation.bg, border: MARK_STATUS.vacation.bd, borderRadius: 10, padding: '9px 12px' }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: MARK_STATUS.vacation.fg }}>🏖️ יום חופשה — לא ניתן לשיבוץ</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: MARK_STATUS.vacation.fg }}>🏖️ יום חופשה — לא ניתן לשיבוץ (בכל הטיוטות)</span>
               {editable && (
-                <span onClick={() => {
-                  const marks = { ...local.marks };
-                  if (recurringPattern[weekdayOf(selDs)] !== undefined) marks[selDs] = null; else delete marks[selDs];
-                  setLocal({ marks, dirty: true });
-                }} style={{ fontSize: 11.5, fontWeight: 700, color: MARK_STATUS.vacation.fg, textDecoration: 'underline', cursor: 'pointer', flexShrink: 0 }}>ביטול</span>
+                <span onClick={() => setVacation(selDs, false)} style={{ fontSize: 11.5, fontWeight: 700, color: MARK_STATUS.vacation.fg, textDecoration: 'underline', cursor: 'pointer', flexShrink: 0 }}>ביטול</span>
               )}
             </div>
           ) : (<>
@@ -3407,7 +3557,7 @@ ${shiftsDesc}
 
       {editable && (<>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>בקשה חופשית</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>בקשה חופשית{activeRanks.length > 1 ? ` (טיוטה ${selectedRank})` : ''}</div>
           <textarea placeholder='כתבו בקשה בשפה חופשית — למשל "לא יכול ימי שני לילה, מעדיף רביעי בוקר"' value={local.note}
             onChange={e => { setLocal({ note: e.target.value, dirty: true }); setAiError(null); }}
             style={{ border: `1.5px solid ${INK}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 80 }} />
@@ -3464,7 +3614,7 @@ ${shiftsDesc}
 
         {/* הערה למשבץ — נפרדת מהטקסט ל-AI, לא מתפרשת לתאריכים, רק מוצגת למשבץ כפי שהיא */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>הערה למשבץ (רשות)</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>הערה למשבץ (רשות){activeRanks.length > 1 ? ` (טיוטה ${selectedRank})` : ''}</div>
           <div style={{ fontSize: 11.5, color: '#8A867F', marginTop: -4 }}>לא מתורגמת אוטומטית לתאריכים — תוצג למשבץ כפי שהיא, ליד השם שלך.</div>
           <textarea placeholder='למשל: "יש לי אירוע משפחתי בסוף החודש, אשמח לגמישות" או בקשה מיוחדת אחרת'
             value={local.mgrNote || ''}
@@ -3472,14 +3622,14 @@ ${shiftsDesc}
             style={{ border: '1.5px solid #D8D4CE', borderRadius: 10, padding: '12px 14px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 64, font: 'inherit' }} />
         </div>
 
-        <div onClick={needSend ? trySubmit : undefined} style={{
-          background: needSend ? INK : '#FFF', color: needSend ? '#FFF' : TEAL_DARK,
-          border: needSend ? `1.5px solid ${INK}` : `1.5px solid ${TEAL}`,
-          borderRadius: 10, padding: '14px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, cursor: needSend ? 'pointer' : 'default',
+        <div onClick={anyNeedSend ? trySubmit : undefined} style={{
+          background: anyNeedSend ? INK : '#FFF', color: anyNeedSend ? '#FFF' : TEAL_DARK,
+          border: anyNeedSend ? `1.5px solid ${INK}` : `1.5px solid ${TEAL}`,
+          borderRadius: 10, padding: '14px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, cursor: anyNeedSend ? 'pointer' : 'default',
           opacity: saving ? 0.6 : 1, transition: 'background 0.2s, color 0.2s' }}>
-          {saving ? 'שולח…' : needSend ? (server ? 'שליחת עדכון' : 'שליחת בקשות') : 'הבקשות נשלחו ✓'}
+          {saving ? 'שולח…' : anyNeedSend ? (anySentBefore ? 'שליחת עדכון' : 'שליחת בקשות') : 'הבקשות נשלחו ✓'}
         </div>
-        {needSend && (
+        {anyNeedSend && (
           <div onClick={saving ? undefined : saveWithoutSending} style={{
             textAlign: 'center', fontSize: 12.5, fontWeight: 700, color: '#8A867F',
             cursor: saving ? 'default' : 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
@@ -3490,6 +3640,7 @@ ${shiftsDesc}
           <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
             {server?.is_draft ? 'נשמרה טיוטה' : 'עודכן לאחרונה'}: {sentAt}
             {(local.dirty || server?.is_draft) ? ' · טרם נשלח סופית למשבץ' : ''}
+            {activeRanks.length > 1 ? ` · טיוטה ${selectedRank}` : ''}
           </div>
         )}
       </>)}
@@ -3514,8 +3665,13 @@ ${shiftsDesc}
         <ConfirmDialog
           title="לא הוגש המינימום שהמשבץ ביקש"
           body={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              {criteriaWarnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {criteriaGateOpen.map(({ rank, warnings }) => (
+                <div key={rank}>
+                  {activeRanks.length > 1 && <div style={{ fontWeight: 800, marginBottom: 3 }}>טיוטה {rank}:</div>}
+                  {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+                </div>
+              ))}
             </div>
           }
           confirmLabel="לשלוח בכל זאת"

@@ -1242,6 +1242,24 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     return !!(r && (r.vacation || []).includes(dStr));
   };
 
+  const ALT_REQUESTS = {};
+  // טיוטות שיבוץ משניות (2/3, ראו RequestsTab.addDraft באפליקציית העובד) — קריאה מהאובייקט
+  // החי (window.ShiftData.ALT_REQUESTS), מסונכרן מה-state altRequests של האפליקציה.
+  // rank הוא 2 או 3; אין טיוטה 1 כאן — היא reqOf/availabilityOn הרגילים.
+  const altReqOf = (empId, dStr, rank) => {
+    const month = dStr.slice(0, 7);
+    return (window.ShiftData?.ALT_REQUESTS || ALT_REQUESTS)[empId]?.[month]?.[rank] || null;
+  };
+  const altAvailabilityOn = (empId, dStr, shiftId, rank) => {
+    const r = altReqOf(empId, dStr, rank);
+    if (!r) return null;
+    const hit = (arr) => (arr || []).some((v) => v === dStr || (shiftId && v === dStr + '@' + shiftId));
+    if (hit(r.unavailable)) return 'unavailable';
+    if (hit(r.high)) return 'high';
+    if (hit(r.can)) return 'can';
+    return null;
+  };
+
   // פירוק ערך בקשה "YYYY-MM-DD[@shiftId]" לתאריך + משמרת
   const splitReqEntry = (v) => {
     const i = (v || '').indexOf('@');
@@ -1267,9 +1285,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   const FIXED_SHIFTS = [];
 
   window.ShiftData = {
-    MONTH, HEB_DAYS, HEB_DAYS_SHORT, EMPLOYEES, REQUESTS, FIXED_SHIFTS,
+    MONTH, HEB_DAYS, HEB_DAYS_SHORT, EMPLOYEES, REQUESTS, ALT_REQUESTS, FIXED_SHIFTS,
     pad, parseDate, dateStr, addDays, weekdayOf, dayLabel, shortDate, monthLabel,
-    getBase, shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, isVacationOn, empById, initials, shiftKey, orderShifts,
+    getBase, shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, isVacationOn, altReqOf, altAvailabilityOn, empById, initials, shiftKey, orderShifts,
     splitReqEntry, shiftNameOf, hebrewHolidayOf,
     atTime, nearestClock, personTimes, hasPersonTimes, fmtHM,
   };
@@ -1391,7 +1409,16 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       // להשתמש באותה בדיקה גם עבור שיבוץ ברזל וגם עבור התחרות הרגילה בין מועמדים
       const hardBlocked = (e) => {
         const av = D.availabilityOn(e.id, dStr, shift.id);
-        if (on('unavailable') && av === 'unavailable') return true;
+        if (on('unavailable') && av === 'unavailable') {
+          // חסום לפי הטיוטה הבכירה (1) — אבל אם לעובד יש טיוטה משנית (2/3) שכן מאפשרת
+          // את המשמרת הזו, הוא עדיין מועמד לגיטימי (רק בניקוד נמוך בהרבה, ראו score
+          // למטה) כדי שהמנוע יוכל לסתום משמרות שנשארות פתוחות בעזרתה
+          const altOk = on('multiOptionFallback') && [2, 3].some((rank) => {
+            const altAv = D.altAvailabilityOn(e.id, dStr, shift.id, rank);
+            return altAv === 'high' || altAv === 'can';
+          });
+          if (!altOk) return true;
+        }
         if (on('maxQuota') && counts[e.id] >= e.max) return true;
         // העדפות עצמאיות לכל משמרת סוף שבוע בנפרד — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
         if (on('wantsFridayShort') && wdShift0 === 5 && shift.id === 'short' && e.wantsFridayShort === false) return true;
@@ -1473,7 +1500,18 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           let s = 0;
           if (on('biasHighCan')) {
             if (av === 'high') s += 6;
-            if (av === 'can') s += 2;
+            else if (av === 'can') s += 2;
+            else if (av === 'unavailable' && on('multiOptionFallback')) {
+              // מועמד רק דרך טיוטה משנית (ראו hardBlocked) — ניקוד נמוך בהרבה ממי שמתאים
+              // לטיוטה הבכירה שלו, כדי שהמנוע תמיד יעדיף קודם למלא לפי מה שהעובד באמת
+              // ביקש; טיוטה 2 מקבלת עדיפות על טיוטה 3
+              const alt2 = D.altAvailabilityOn(e.id, dStr, shift.id, 2);
+              const alt3 = D.altAvailabilityOn(e.id, dStr, shift.id, 3);
+              if (alt2 === 'high') s += 1;
+              else if (alt2 === 'can') s += 0.4;
+              else if (alt3 === 'high') s += 0.3;
+              else if (alt3 === 'can') s += 0.1;
+            }
           }
           if (on('biasNightOwl') && e.nightOwl && shift.id === 'night') s += 5;
           if (on('biasLoadBalance')) s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
@@ -4076,7 +4114,7 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, vac
 }
 
 // ---- RequestDetailPanel ----
-function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
+function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
   const SD = window.ShiftData;
   const SE = window.ShiftEngine;
   const [brush, setBrush] = React.useState('view');
@@ -4276,6 +4314,40 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
             <div style={{fontSize:10.5,fontWeight:700,color:'var(--ink-3)',marginBottom:2}}>הערה למשבץ מ-{emp.name}</div>
             <div style={{fontSize:12.5,lineHeight:1.5}}>{entry.managerNote}</div>
           </div>
+        </div>
+      )}
+
+      {/* טיוטות שיבוץ נוספות (2/3) שהעובד יצר באפליקציה שלו — לקריאה בלבד; טיוטה 1 (entry) היא
+          הבכירה שהאלגוריתם מנסה למלא קודם, ורק אם משמרת נשארת פתוחה נעזר בטיוטות האלה */}
+      {altOptions && Object.keys(altOptions).length > 0 && (
+        <div style={{flexShrink:0,background:'var(--surface)',border:'1px solid var(--line)',borderRadius:9,padding:'9px 12px',display:'flex',flexDirection:'column',gap:8}}>
+          <div style={{fontSize:10.5,fontWeight:700,color:'var(--ink-3)'}}>טיוטות שיבוץ נוספות שהעובד יצר — לקריאה בלבד</div>
+          {Object.keys(altOptions).sort((a, b) => a - b).map(rank => {
+            const opt = altOptions[rank];
+            const tags = [
+              ...(opt.unavailable || []).map(v => ({ v, type: 'unavailable' })),
+              ...(opt.high || []).map(v => ({ v, type: 'high' })),
+              ...(opt.can || []).map(v => ({ v, type: 'can' })),
+            ].sort((a, b) => a.v.localeCompare(b.v));
+            const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can' };
+            return (
+              <div key={rank} style={{display:'flex',flexDirection:'column',gap:4}}>
+                <div style={{fontSize:11,fontWeight:800}}>טיוטה {rank}{opt.isDraft ? ' — טיוטה בלבד, טרם נשלחה' : ''}</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                  {tags.map(({ v, type }) => {
+                    const { d, sid } = SD.splitReqEntry(v);
+                    return (
+                      <span key={v + type} className={'req-tag av-tag ' + tagCls[type]}>
+                        {SD.shortDate(d)}{sid ? ` · ${SD.shiftNameOf(sid, shiftSettings)}` : ''}
+                      </span>
+                    );
+                  })}
+                  {!tags.length && <span style={{fontSize:11,color:'var(--ink-3)'}}>אין תאריכים</span>}
+                </div>
+                {opt.note && <div style={{fontSize:11.5,color:'var(--ink-2)'}}>{opt.note}</div>}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -4537,7 +4609,7 @@ function RequestDetailPanel({ emp, entry, month, openRange, onUpdate, onAnalyze,
 // "בקשות" (RequestDetailPanel, כפי שהיה במסך "בקשות" הנפרד) ו"פרטי עובד"
 // (EmployeeProfileForm, כפי שהיה במסך "עובדים" הנפרד) — כדי לא לקפוץ בין שני מסכים
 // עם שתי רשימות עובדים נפרדות כדי לעשות שתי פעולות שקשורות לאותו עובד.
-function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, initialMonth, apiKey, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria }) {
+function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, altRequests, initialMonth, apiKey, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria }) {
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
   const [refreshing, setRefreshing] = React.useState(false);
   const refresh = async () => {
@@ -4931,6 +5003,7 @@ ${shiftsDesc}
                 <RequestDetailPanel
                   emp={selectedEmp}
                   entry={entryOf(selectedEmp.id)}
+                  altOptions={altRequests[selectedEmp.id]?.[month] || null}
                   month={month}
                   openRange={openRangeByMonth?.[month] || null}
                   onUpdate={updateEntry}
@@ -5181,6 +5254,7 @@ function CriteriaGateModal({ gate, onProceed, onCancel }) {
 function SchedulingRulesScreen({ ruleToggles, onToggle }) {
   const HARD = [
     { key: 'unavailable', t: 'עובד סימן "לא יכול"', d: 'משמרת/יום שסומנו unavailable — לעולם לא ישובצו שם אוטומטית.' },
+    { key: 'multiOptionFallback', t: 'שימוש בטיוטות שיבוץ משניות למילוי חורים', d: 'אם לעובד יש כמה "טיוטות בקשה" (עד 3, נוצרות באפליקציית העובד) — משמרת שחסומה לפי הטיוטה הבכירה (1) אבל פתוחה לפי טיוטה משנית (2/3) לא תיחסם אוטומטית; העובד עדיין נחשב מועמד, אך בניקוד נמוך משמעותית ממי שמתאים לפי הטיוטה הבכירה שלו — כך שהמנוע מעדיף קודם למלא לפי מה שהעובד באמת ביקש, ופונה לטיוטות המשניות רק כדי לסתום משמרות שנשארות פתוחות.' },
     { key: 'maxQuota', t: 'מכסה חודשית', d: 'לא משבצים עובד שכבר הגיע למכסת המשמרות החודשית שלו (שדה "מכסה" בכרטיס העובד).' },
     { key: 'wantsFridayShort', t: 'עושה שישי קצר', d: 'עובד שסימן שאינו עושה "שישי קצר" (09:00–15:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
     { key: 'wantsFridayLong', t: 'עושה שישי ארוך', d: 'עובד שסימן שאינו עושה "שישי ארוך" (09:00–21:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
@@ -5677,7 +5751,12 @@ function App() {
     return normalizeMax(saved?.employees || [...AD.EMPLOYEES], saved?.empMaxV);
   });
   // בקשות עובדים: { [empId]: { [חודש YYYY-MM]: { text, analyzedText, unavailable, high, can, note, analyzedAt } } }
+  // זו תמיד "אפשרות 1" (הבכירה) — הטיוטה שהאלגוריתם ומסך ניתוח הטקסט/שליחה בשם העובד עובדים איתה
   const [requests, setRequests] = React.useState(() => saved?.requests || {});
+  // "טיוטות" נוספות (2/3) שהעובד יצר באפליקציית העובד — לקריאה בלבד כאן (לא נערכות/נשלחות
+  // מהמשבץ), רק לתצוגה בכרטיס הבקשות. { [empId]: { [month]: { [rank]: row } } }. לא נשמר
+  // ב-mishmarot_state — תמיד נטען מחדש מ-employee_requests, כמו requests עצמו.
+  const [altRequests, setAltRequests] = React.useState({});
   // העדפות עובד (employee_prefs) — יעד משמרות/שבוע בימי חול, ואילו משמרות סוף שבוע העובד עושה.
   // חי בטבלה ייעודית, לא ב-state הכללי, כדי שעריכה מהעובד לא תיחסם ע"י שמירה חוזרת מהמשבץ
   const [prefs, setPrefs] = React.useState({});
@@ -5691,7 +5770,7 @@ function App() {
   // מפתח/ברירת מחדל לכל תנאי שיבוץ (ראו מסך "תנאי שיבוץ") — כולם דלוקים כברירת מחדל.
   // כיבוי מפתח כלשהו כאן מנטרל אותו בפועל במנוע (ShiftEngine.generate מקבל ruleToggles).
   const DEFAULT_RULE_TOGGLES = {
-    unavailable: true, maxQuota: true,
+    unavailable: true, multiOptionFallback: true, maxQuota: true,
     wantsFridayShort: true, wantsFridayLong: true, wantsShabbatLong: true, wantsSaturdayShort: true,
     noWeekdayNights: true, shabbatWeeklyCap: true, noThursdayIfShabbat: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
     biasHighCan: true, biasNightOwl: true, biasLoadBalance: true,
@@ -5772,6 +5851,12 @@ function App() {
     window.ShiftData.REQUESTS = flat;
   }, [requests]);
 
+  // סנכרון altRequests (טיוטות שיבוץ משניות 2/3) → window.ShiftData.ALT_REQUESTS,
+  // כבר במבנה הנכון { [empId]: { [month]: { [rank]: row } } } — ראו altAvailabilityOn
+  React.useEffect(() => {
+    window.ShiftData.ALT_REQUESTS = altRequests;
+  }, [altRequests]);
+
   // טעינה ראשונית מ-Supabase
   React.useEffect(() => {
     if (!dbAvailable.current) { setSyncStatus('idle'); return; }
@@ -5826,7 +5911,7 @@ function App() {
     setRequests(prev => {
       let changed = false;
       const next = { ...prev };
-      rows.forEach(r => {
+      rows.filter(r => (r.option_rank || 1) === 1).forEach(r => {
         const cur = (next[r.emp_id] || {})[r.month];
         // מיזוג רק כשיש עדכון חדש מהעובד — עריכות מקומיות של המשבץ נשמרות בינתיים
         if (cur && cur.employeeUpdatedAt === r.updated_at) return;
@@ -5849,6 +5934,17 @@ function App() {
       });
       return changed ? next : prev;
     });
+    // טיוטות 2/3 ("אפשרויות שיבוץ" נוספות) — לקריאה בלבד, נטענות מחדש בכל ריענון
+    const alt = {};
+    rows.filter(r => (r.option_rank || 1) !== 1).forEach(r => {
+      alt[r.emp_id] = alt[r.emp_id] || {};
+      alt[r.emp_id][r.month] = alt[r.emp_id][r.month] || {};
+      alt[r.emp_id][r.month][r.option_rank] = {
+        unavailable: r.unavailable || [], high: r.high || [], can: r.can || [],
+        note: r.note || '', isDraft: !!r.is_draft, updatedAt: r.updated_at,
+      };
+    });
+    setAltRequests(alt);
   }, []);
 
   // קליטת העדפות עובד (employee_prefs) — יעד משמרות/שבוע, ואילו משמרות סוף שבוע העובד עושה.
@@ -6812,7 +6908,7 @@ ${JSON.stringify(emptySlots, null, 2)}
 
       <ShiftSettingsCtx.Provider value={shiftSettings}>
         {screen === 'requests' && <PeopleScreen employees={employees} onEmployeesChange={setEmployees}
-          requests={requests} onRequestsChange={setRequests}
+          requests={requests} onRequestsChange={setRequests} altRequests={altRequests}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth}
           adminKey={adminKey} requestCriteria={requestCriteria}
           prefs={prefs} onSavePref={(empId, patch) => {

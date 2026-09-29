@@ -249,3 +249,14 @@ alter table employee_requests
 --     בנפרד לפי שנה בכרטיס העובד. לא נכנסים למערך unavailable עצמו.
 alter table employee_requests
   add column if not exists vacation jsonb not null default '[]';
+
+-- 15. טיוטות שיבוץ מרובות ("אפשרויות") לאותו emp_id+month — עד 3, מדורגות בעדיפות
+--     (1 = הבכירה). כל טיוטה היא לוח מלא ונפרד (unavailable/high/can/note); עמודת
+--     vacation נשמרת זהה בכל הטיוטות של אותו חודש ע"י האפליקציה עצמה — ימי חופשה הם
+--     עובדה אחת, לא העדפה שמשתנה בין טיוטות. האלגוריתם מנסה קודם option_rank=1,
+--     ורק אם משמרת נשארת פתוחה — נעזר בטיוטות הבאות (ראו availabilityOn/hardBlocked).
+alter table employee_requests
+  add column if not exists option_rank int not null default 1;
+
+alter table employee_requests drop constraint if exists employee_requests_pkey;
+alter table employee_requests add primary key (emp_id, month, option_rank);

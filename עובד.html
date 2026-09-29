@@ -342,6 +342,7 @@ const MARK_STATUS = {
   un:   { bg: 'oklch(0.93 0.06 25)',  bd: '1.5px solid oklch(0.62 0.16 25)',  fg: 'oklch(0.42 0.16 25)' },
   high: { bg: 'oklch(0.94 0.06 155)', bd: '1.5px solid oklch(0.6 0.13 155)',  fg: 'oklch(0.4 0.12 155)' },
   can:  { bg: 'oklch(0.94 0.05 240)', bd: '1.5px solid oklch(0.6 0.12 240)',  fg: 'oklch(0.42 0.12 240)' },
+  vacation: { bg: 'oklch(0.93 0.07 70)', bd: '1.5px solid oklch(0.65 0.15 70)', fg: 'oklch(0.45 0.14 70)' },
   none: { bg: '#FFFFFF', bd: '1px solid #E7E4DF', fg: '#3A3631' },
 };
 // מזהה עובד להתחזות (אדמין בלבד) — מוגדר כ-URL param ?impersonate=<id>
@@ -456,6 +457,7 @@ function sequentialNeighbors(timeline, ds, shiftId) {
 function availOf(req, ds, shiftId) {
   if (!req) return null;
   const hit = (arr) => (arr || []).some(v => v === ds || v === ds + '@' + shiftId);
+  if (hit(req.vacation)) return 'unavailable'; // יום חופשה — חוסם בדיוק כמו "לא זמין"
   if (hit(req.unavailable)) return 'unavailable';
   if (hit(req.high)) return 'high';
   if (hit(req.can)) return 'can';
@@ -2809,6 +2811,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
         if (p !== undefined) v = p;
       }
       if (v === undefined) return; // יום לגמרי לא מסומן — ברירת המחדל הכללית (כולל חסימות) תיושם בהמשך
+      if (v === 'vacation') { out[ds] = v; return; } // חופשה חוסמת את כל היום — חזקה מכל חסימת העדפה
       const ids = dayShiftIds(ds);
       const blocked = ids.filter(id => isShiftBlockedByPrefs(ds, id));
       if (!blocked.length) { out[ds] = v; return; }
@@ -2873,7 +2876,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     setSelDay(dStr);
     if (!editable || !brush) return;
     const cur = effectiveMarks[dStr];
-    if (cur && typeof cur === 'object' && brush !== 'erase') return;
+    if (cur && typeof cur === 'object' && brush !== 'erase' && brush !== 'vacation') return;
     const marks = { ...local.marks };
     if (brush === 'erase') {
       // אם יש כאן בקשה קבועה, "מחיקה" צריכה לבטל אותה לחודש הזה בלבד — לא סתם למחוק
@@ -2941,7 +2944,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     canArr = canArr.sort();
     const row = {
       emp_id: me.id, month: ym,
-      unavailable, high: toDates('high'), can: canArr,
+      unavailable, high: toDates('high'), can: canArr, vacation: toDates('vacation'),
       note: local.note || '', manager_note: local.mgrNote || '',
       updated_at: new Date().toISOString(), updated_by: email,
       is_draft: !!opts.quiet,
@@ -3156,20 +3159,25 @@ ${shiftsDesc}
   // "שמירה ללא שליחה" משאירה is_draft:true — עדיין נחשב כ"טרם נשלח בפועל", לא רק dirty מקומי
   const needSend = !server || server.is_draft || local.dirty;
   const stats = React.useMemo(() => {
-    const s = { un: 0, high: 0, can: 0, days: 0, shifts: 0 };
+    const s = { un: 0, high: 0, can: 0, vacation: 0, days: 0, shifts: 0 };
     Object.values(effectiveMarks).forEach(v => {
-      if (typeof v === 'string') { s.days++; s[v]++; }
-      else Object.values(v || {}).forEach(m => { s.shifts++; s[m]++; });
+      if (typeof v === 'string') { if (v !== 'vacation') s.days++; s[v] = (s[v] || 0) + 1; }
+      else Object.values(v || {}).forEach(m => { s.shifts++; s[m] = (s[m] || 0) + 1; });
     });
     return s;
   }, [effectiveMarks]);
   const sentAt = fmtSentAt(server?.updated_at);
+
+  // ימים שסומנו כחופשה — לא נכנסים לחישוב עמידה בקריטריוני ההגשה (מינימום לילות/ימים/שישי/שבת
+  // פנויים): עובד בחופשה לא צריך "להספיק" זמינות באותם ימים
+  const criteriaDates = React.useMemo(() => activeDates.filter(ds => effectiveMarks[ds] !== 'vacation'), [activeDates, effectiveMarks]);
 
   // שורת זמינות "אפקטיבית" — marks + ברירת המחדל של המצב, בדיוק מה שיישלח בפועל ב-submit()
   const effectiveRow = React.useMemo(() => {
     const unmarkedDates = activeDates.filter(ds => !Object.prototype.hasOwnProperty.call(effectiveMarks, ds));
     const row = { unavailable: [], high: [], can: [] };
     Object.entries(effectiveMarks).forEach(([ds, v]) => {
+      if (v === 'vacation') return; // חופשה נספרת בנפרד — לא נכנסת לבדיקת הקריטריונים כ"לא זמין"
       if (typeof v === 'string') row[v === 'un' ? 'unavailable' : v === 'high' ? 'high' : 'can'].push(ds);
       else Object.entries(v || {}).forEach(([sid, m]) => row[m === 'un' ? 'unavailable' : m === 'high' ? 'high' : 'can'].push(`${ds}@${sid}`));
     });
@@ -3182,17 +3190,21 @@ ${shiftsDesc}
   // אזהרה בלבד — לא חוסמת שליחה
   const criteriaWarnings = React.useMemo(() => {
     if (!editable) return [];
-    return checkRequestCriteria(activeDates, effectiveRow, settings, myCriteria);
-  }, [effectiveRow, activeDates, settings, myCriteria, editable]);
+    return checkRequestCriteria(criteriaDates, effectiveRow, settings, myCriteria);
+  }, [effectiveRow, criteriaDates, settings, myCriteria, editable]);
 
   // מצב "✓ עומד בקריטריון" חי, לכל סוג קריטריון בנפרד — לדרופדאון "מה מצופה ממני"
   const myCriteriaMet = React.useMemo(() => {
-    return meetsRequestCriteria(activeDates, effectiveRow, settings, myCriteria);
-  }, [effectiveRow, activeDates, settings, myCriteria]);
+    return meetsRequestCriteria(criteriaDates, effectiveRow, settings, myCriteria);
+  }, [effectiveRow, criteriaDates, settings, myCriteria]);
 
-  const BRUSHES = reqMode === 'block'
-    ? [{ id: 'un', label: 'לא זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }, { id: 'erase', label: 'מחיקה' }]
-    : [{ id: 'can', label: 'זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }, { id: 'erase', label: 'מחיקה' }];
+  const BRUSHES = [
+    ...(reqMode === 'block'
+      ? [{ id: 'un', label: 'לא זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }]
+      : [{ id: 'can', label: 'זמינ.ה' }, { id: 'high', label: 'מעדיפ.ה' }]),
+    { id: 'vacation', label: '🏖️ חופשה' },
+    { id: 'erase', label: 'מחיקה' },
+  ];
 
   return (
     <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.25s' }}>
@@ -3240,7 +3252,7 @@ ${shiftsDesc}
           })}
         </div>
         <div style={{ fontSize: 12, color: '#8A867F' }}>{brush ? '1. בוחרים סימון · 2. מקישים על הימים בלוח' : 'לחצו על יום לצפייה — בחרו סימון כדי לערוך'}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 7 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
           {BRUSHES.map(c => {
             const s = c.id === 'erase' ? { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' } : MARK_STATUS[c.id];
             const active = brush === c.id;
@@ -3291,6 +3303,7 @@ ${shiftsDesc}
                 cursor: isExcluded ? 'default' : 'pointer', transition: 'background 0.15s, border 0.15s',
                 opacity: isExcluded ? 0.7 : (inCurMonth ? 1 : 0.75) }}>
                 {isRecurring && !isExcluded && <span style={{ position: 'absolute', top: 3, insetInlineEnd: 4, fontSize: 8 }}>{isIron ? '🔒' : '🔁'}</span>}
+                {v === 'vacation' && !isExcluded && <span style={{ position: 'absolute', top: 3, insetInlineStart: 4, fontSize: 8 }}>🏖️</span>}
                 <span>{dayNum}</span>
                 {dots.length > 0 && (
                   <span style={{ display: 'flex', gap: 2 }}>
@@ -3303,6 +3316,7 @@ ${shiftsDesc}
         </div>
         <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
           {stats.un} לא זמין · {stats.high} מעדיף · {stats.can} יכול
+          {stats.vacation > 0 && <> · {stats.vacation} חופשה</>}
           {stats.shifts > 0 && <> — {stats.days} ימים מלאים · {stats.shifts} משמרות</>}
           {editable && (() => {
             const markedCount = Object.keys(effectiveMarks).length;
@@ -3318,59 +3332,72 @@ ${shiftsDesc}
         {/* כרטיס פירוט היום הנבחר — דיוק ברמת משמרת */}
         <div style={{ background: '#FFF', borderRadius: 14, border: '1px solid #EAE7E1', padding: 14, display: 'flex', flexDirection: 'column', gap: 9 }}>
           <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(selDs.slice(0, 7))}</div>
-          {editable && !Object.prototype.hasOwnProperty.call(local.marks, selDs) && recurringPattern[weekdayOf(selDs)] !== undefined && (() => {
-            const ironVal = ironPattern[weekdayOf(selDs)];
-            const isIron = ironVal === true || (ironVal && typeof ironVal === 'object' && Object.keys(ironVal).length > 0);
-            return isIron ? (
-              <div style={{ fontSize: 11.5, color: 'oklch(0.45 0.18 300)', background: 'oklch(0.97 0.02 300)', borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔒 משמרת קבועה שהמשבץ סימן — אפשר לבטל ליום הזה בלבד באמצעות סימון "לא זמין"</div>
-            ) : (
-              <div style={{ fontSize: 11.5, color: TEAL_DARK, background: TEAL_SOFT, borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔁 מהבקשה הקבועה שלך — שינוי כאן ישפיע רק על החודש הזה</div>
-            );
-          })()}
-          {editable && <div style={{ fontSize: 12, color: '#8A867F' }}>דיוק לפי משמרת — בחרו סימון לכל משמרת בנפרד:</div>}
-          {dayShifts.map(sh => {
-            const dayMark = effectiveMarks[selDs];
-            const rawCur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
-            // יום שלא נגעו בו כלל (לא ב-effectiveMarks) — עדיין מציגים "לא" כברירת מחדל למשמרת חסומה
-            const cur = rawCur || (isShiftBlockedByPrefs(selDs, sh.id) ? 'un' : null);
-            const CHIPS = [[null, '—'], ['un', 'לא'], ['high', 'מעדיף'], ['can', 'יכול']];
-            return (
-              <div key={sh.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: '#FBFAF8', border: '1px solid #ECEAE5' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotOf(sh.id), flexShrink: 0 }} />
-                <span style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{sh.name}</span>
-                <span style={{ fontSize: 11, color: '#8A867F', whiteSpace: 'nowrap' }}>{sh.start}–{sh.end}</span>
-                {editable ? (
-                  <span style={{ display: 'flex', gap: 4, marginInlineStart: 'auto' }}>
-                    {CHIPS.map(([m, label]) => {
-                      const st = m ? MARK_STATUS[m] : { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' };
-                      const active = cur === m;
-                      return (
-                        <span key={label} onClick={() => setShiftMark(sh.id, m)} style={{
-                          padding: '5px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 800,
-                          background: active ? st.bg : '#FFF', color: active ? st.fg : '#A09C94',
-                          border: active ? (m ? st.bd : `1.5px solid ${INK}`) : '1px solid #E7E4DF',
-                          cursor: 'pointer', transition: 'background 0.15s, border 0.15s' }}>
-                          {label}
-                        </span>
-                      );
-                    })}
-                  </span>
-                ) : (
-                  <span style={{ marginInlineStart: 'auto', fontSize: 11.5, fontWeight: 700, color: '#A09C94' }}>
-                    {{ un: 'לא', high: 'מעדיף', can: 'יכול' }[cur] || 'לא סומן'}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-          {contShifts.map(sh => (
-            <div key={'cont-' + sh.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: 'oklch(0.96 0.04 80)', border: '1px dashed oklch(0.72 0.1 70)' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotOf(sh.id), flexShrink: 0 }} />
-              <span style={{ fontSize: 13, fontWeight: 800 }}>{sh.name}</span>
-              <span style={{ fontSize: 11, color: '#8A867F' }}>נמשכת מ־{shortDate(sh.originDate)} — לסימון בחרו את יום ההתחלה</span>
+          {effectiveMarks[selDs] === 'vacation' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: MARK_STATUS.vacation.bg, border: MARK_STATUS.vacation.bd, borderRadius: 10, padding: '9px 12px' }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: MARK_STATUS.vacation.fg }}>🏖️ יום חופשה — לא ניתן לשיבוץ</span>
+              {editable && (
+                <span onClick={() => {
+                  const marks = { ...local.marks };
+                  if (recurringPattern[weekdayOf(selDs)] !== undefined) marks[selDs] = null; else delete marks[selDs];
+                  setLocal({ marks, dirty: true });
+                }} style={{ fontSize: 11.5, fontWeight: 700, color: MARK_STATUS.vacation.fg, textDecoration: 'underline', cursor: 'pointer', flexShrink: 0 }}>ביטול</span>
+              )}
             </div>
-          ))}
-          {!dayShifts.length && !contShifts.length && <div style={{ fontSize: 12, color: '#A09C94' }}>לא הוגדרו משמרות ליום זה.</div>}
+          ) : (<>
+            {editable && !Object.prototype.hasOwnProperty.call(local.marks, selDs) && recurringPattern[weekdayOf(selDs)] !== undefined && (() => {
+              const ironVal = ironPattern[weekdayOf(selDs)];
+              const isIron = ironVal === true || (ironVal && typeof ironVal === 'object' && Object.keys(ironVal).length > 0);
+              return isIron ? (
+                <div style={{ fontSize: 11.5, color: 'oklch(0.45 0.18 300)', background: 'oklch(0.97 0.02 300)', borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔒 משמרת קבועה שהמשבץ סימן — אפשר לבטל ליום הזה בלבד באמצעות סימון "לא זמין"</div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: TEAL_DARK, background: TEAL_SOFT, borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔁 מהבקשה הקבועה שלך — שינוי כאן ישפיע רק על החודש הזה</div>
+              );
+            })()}
+            {editable && <div style={{ fontSize: 12, color: '#8A867F' }}>דיוק לפי משמרת — בחרו סימון לכל משמרת בנפרד:</div>}
+            {dayShifts.map(sh => {
+              const dayMark = effectiveMarks[selDs];
+              const rawCur = typeof dayMark === 'string' ? dayMark : (dayMark || {})[sh.id] || null;
+              // יום שלא נגעו בו כלל (לא ב-effectiveMarks) — עדיין מציגים "לא" כברירת מחדל למשמרת חסומה
+              const cur = rawCur || (isShiftBlockedByPrefs(selDs, sh.id) ? 'un' : null);
+              const CHIPS = [[null, '—'], ['un', 'לא'], ['high', 'מעדיף'], ['can', 'יכול']];
+              return (
+                <div key={sh.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: '#FBFAF8', border: '1px solid #ECEAE5' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotOf(sh.id), flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>{sh.name}</span>
+                  <span style={{ fontSize: 11, color: '#8A867F', whiteSpace: 'nowrap' }}>{sh.start}–{sh.end}</span>
+                  {editable ? (
+                    <span style={{ display: 'flex', gap: 4, marginInlineStart: 'auto' }}>
+                      {CHIPS.map(([m, label]) => {
+                        const st = m ? MARK_STATUS[m] : { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' };
+                        const active = cur === m;
+                        return (
+                          <span key={label} onClick={() => setShiftMark(sh.id, m)} style={{
+                            padding: '5px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 800,
+                            background: active ? st.bg : '#FFF', color: active ? st.fg : '#A09C94',
+                            border: active ? (m ? st.bd : `1.5px solid ${INK}`) : '1px solid #E7E4DF',
+                            cursor: 'pointer', transition: 'background 0.15s, border 0.15s' }}>
+                            {label}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  ) : (
+                    <span style={{ marginInlineStart: 'auto', fontSize: 11.5, fontWeight: 700, color: '#A09C94' }}>
+                      {{ un: 'לא', high: 'מעדיף', can: 'יכול' }[cur] || 'לא סומן'}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            {contShifts.map(sh => (
+              <div key={'cont-' + sh.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: 'oklch(0.96 0.04 80)', border: '1px dashed oklch(0.72 0.1 70)' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotOf(sh.id), flexShrink: 0 }} />
+                <span style={{ fontSize: 13, fontWeight: 800 }}>{sh.name}</span>
+                <span style={{ fontSize: 11, color: '#8A867F' }}>נמשכת מ־{shortDate(sh.originDate)} — לסימון בחרו את יום ההתחלה</span>
+              </div>
+            ))}
+            {!dayShifts.length && !contShifts.length && <div style={{ fontSize: 12, color: '#A09C94' }}>לא הוגדרו משמרות ליום זה.</div>}
+          </>)}
         </div>
       </>)}
 

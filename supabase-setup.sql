@@ -243,3 +243,9 @@ alter table employee_requests
 --     שהעובד לחץ עליה "שליחה". נכתב מ-false בהגשה רגילה, ומ-true בשמירת טיוטה.
 alter table employee_requests
   add column if not exists is_draft boolean not null default false;
+
+-- 14. ימי חופשה — מסומנים ע"י העובד בלוח הבקשות (מברשת "🏖️ חופשה", יום שלם בלבד).
+--     חוסמים שיבוץ בדיוק כמו unavailable (ראו availabilityOn באפליקציית המשבץ), ונספרים
+--     בנפרד לפי שנה בכרטיס העובד. לא נכנסים למערך unavailable עצמו.
+alter table employee_requests
+  add column if not exists vacation jsonb not null default '[]';

@@ -25,6 +25,8 @@
     --ok-bg: oklch(0.96 0.03 155);
     --warn-bg: oklch(0.96 0.04 80);
     --danger-bg: oklch(0.95 0.03 27);
+    --vacation: oklch(0.5 0.15 300);
+    --vacation-bg: oklch(0.96 0.03 300);
     --shadow: 0 1px 2px oklch(0.2 0.02 255 / 0.06), 0 4px 16px oklch(0.2 0.02 255 / 0.07);
     --r: 10px;
     --cell-pad: 8px;
@@ -48,6 +50,7 @@
     --ok-bg: oklch(0.32 0.05 155);
     --warn-bg: oklch(0.33 0.05 80);
     --danger-bg: oklch(0.32 0.05 27);
+    --vacation-bg: oklch(0.32 0.05 300);
     --shadow: 0 1px 2px oklch(0 0 0 / 0.3), 0 4px 16px oklch(0 0 0 / 0.3);
     --glass-border: color-mix(in oklab, white 10%, transparent);
   }
@@ -298,6 +301,7 @@
   .av-no { background: var(--danger-bg); color: var(--danger); }
   .av-high { background: var(--ok-bg); color: var(--ok); }
   .av-can { background: var(--warn-bg); color: var(--warn); }
+  .av-vacation { background: var(--vacation-bg); color: var(--vacation); }
   .emp-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
   .emp-count { font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
   .emp-count-over { color: var(--danger); font-weight: 700; }
@@ -1223,10 +1227,19 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     const r = reqOf(empId);
     if (!r) return null;
     const hit = (arr) => (arr || []).some((v) => v === dStr || (shiftId && v === dStr + '@' + shiftId));
+    // יום חופשה — תת-סוג של "לא זמין" לצורך שיבוץ (חוסם לגמרי), נבדק ומוצג בנפרד רק דרך isVacationOn
+    if (hit(r.vacation)) return 'unavailable';
     if (hit(r.unavailable)) return 'unavailable';
     if (hit(r.high)) return 'high';
     if (hit(r.can)) return 'can';
     return null;
+  };
+
+  // האם תאריך מסומן ע"י העובד כיום חופשה (עובד.html) — נספר בכרטיס העובד לפי שנה,
+  // ומוצג בממשק בנפרד מ"לא זמין" הרגיל, אך חוסם שיבוץ בדיוק כמוהו (ראו availabilityOn)
+  const isVacationOn = (empId, dStr) => {
+    const r = reqOf(empId);
+    return !!(r && (r.vacation || []).includes(dStr));
   };
 
   // פירוק ערך בקשה "YYYY-MM-DD[@shiftId]" לתאריך + משמרת
@@ -1256,7 +1269,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   window.ShiftData = {
     MONTH, HEB_DAYS, HEB_DAYS_SHORT, EMPLOYEES, REQUESTS, FIXED_SHIFTS,
     pad, parseDate, dateStr, addDays, weekdayOf, dayLabel, shortDate, monthLabel,
-    getBase, shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, empById, initials, shiftKey, orderShifts,
+    getBase, shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, isVacationOn, empById, initials, shiftKey, orderShifts,
     splitReqEntry, shiftNameOf, hebrewHolidayOf,
     atTime, nearestClock, personTimes, hasPersonTimes, fmtHM,
   };
@@ -2491,6 +2504,7 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
   const req = PD.reqOf(emp.id);
   const overMax = count > emp.max;
   const av = selectedDate ? PD.availabilityOn(emp.id, selectedDate) : null;
+  const onVacation = selectedDate ? PD.isVacationOn(emp.id, selectedDate) : false;
 
   return (
     <div
@@ -2513,7 +2527,9 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
         </div>
         <div className="emp-meta">
           <span className="emp-role">{emp.role}</span>
-          {av === 'unavailable' && <span className="av-tag av-no">לא יכול</span>}
+          {av === 'unavailable' && (onVacation
+            ? <span className="av-tag av-vacation">🏖️ בחופשה</span>
+            : <span className="av-tag av-no">לא יכול</span>)}
           {av === 'high' && <span className="av-tag av-high">עדיפות גבוהה</span>}
           {av === 'can' && <span className="av-tag av-can">יכול לעבוד</span>}
           {extraBadge}
@@ -2539,8 +2555,8 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
 function RequestsPanel() {
   const settings = React.useContext(window.ShiftSettingsCtx);
   const empsWithReqs = PD.EMPLOYEES.filter((e) => PD.reqOf(e.id));
-  const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can' };
-  const tagLabel = { unavailable: 'לא יכול', high: 'עדיפות', can: 'יכול' };
+  const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can', vacation: 'av-vacation' };
+  const tagLabel = { unavailable: 'לא יכול', high: 'עדיפות', can: 'יכול', vacation: '🏖️ חופשה' };
 
   if (!empsWithReqs.length) {
     return <div style={{padding:'24px 16px',color:'var(--ink-3)',fontSize:'13px',textAlign:'center'}}>אין בקשות לחודש זה</div>;
@@ -2554,6 +2570,7 @@ function RequestsPanel() {
           ...(req.unavailable || []).map((v) => ({ v, type: 'unavailable' })),
           ...(req.high || []).map((v) => ({ v, type: 'high' })),
           ...(req.can || []).map((v) => ({ v, type: 'can' })),
+          ...(req.vacation || []).map((v) => ({ v, type: 'vacation' })),
         ].sort((a, b) => a.v.localeCompare(b.v));
 
         return (
@@ -3802,7 +3819,14 @@ function ApprovePendingModal({ pending, COLORS, onClose, onApproved }) {
 // ---- EmployeeProfileForm ----
 // טופס פרטי עובד — מוצג inline בתוך הטאב "⚙ פרטי עובד" (במקום המודאל הישן של
 // מסך "עובדים" הנפרד, שהתמזג לתוך מסך "עובדים ובקשות" האחוד). emp=null → הוספת עובד חדש.
-function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onSave, onCancel, onDelete }) {
+function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, vacationDates, onSave, onCancel, onDelete }) {
+  const vacationByYear = React.useMemo(() => {
+    const byYear = {};
+    (vacationDates || []).forEach(ds => { const y = ds.slice(0, 4); byYear[y] = (byYear[y] || 0) + 1; });
+    const curYear = String(new Date().getFullYear());
+    if (!(curYear in byYear)) byYear[curYear] = 0;
+    return Object.entries(byYear).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [vacationDates]);
   const COLORS = ['oklch(0.62 0.14 250)','oklch(0.62 0.14 330)','oklch(0.62 0.14 160)','oklch(0.62 0.14 50)','oklch(0.62 0.14 210)','oklch(0.62 0.14 10)','oklch(0.62 0.14 290)','oklch(0.62 0.14 130)'];
   const buildDraft = (e) => {
     const p = prefs?.[e?.id];
@@ -3911,6 +3935,20 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, onS
             <span className="field-hint">משמרות לחודש</span>
           </div>
         </div>
+        {!isNew && (
+          <div className="field">
+            <label className="field-label">🏖️ ימי חופשה</label>
+            <div style={{display:'flex',flexDirection:'column',gap:2}}>
+              {vacationByYear.map(([y, cnt]) => (
+                <div key={y} style={{display:'flex',justifyContent:'space-between',fontSize:'13px',padding:'3px 2px'}}>
+                  <span style={{color:'var(--ink-2)'}}>{y}</span>
+                  <span style={{fontWeight:700}}>{cnt} ימים</span>
+                </div>
+              ))}
+            </div>
+            <span className="field-hint">נספר אוטומטית מהימים שהעובד.ת מסמנ.ת כחופשה באפליקציית העובדים</span>
+          </div>
+        )}
         <div className="field">
           <label className="field-label">
             יעד משמרות/שבוע בימי חול (א׳–ה׳)
@@ -4558,6 +4596,13 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
 
   const entryOf = (empId) => (requests[empId] || {})[month] || null;
 
+  // כל תאריכי החופשה של עובד, מכל החודשים שנטענו (לכל השנים) — לספירה לפי שנה בכרטיס העובד
+  const vacationDatesFor = (empId) => {
+    const out = [];
+    Object.values(requests[empId] || {}).forEach(r => out.push(...(r.vacation || [])));
+    return out;
+  };
+
   const updateEntry = (empId, patch) => {
     onRequestsChange(prev => ({
       ...prev,
@@ -4909,6 +4954,7 @@ ${shiftsDesc}
                   requestCriteria={requestCriteria}
                   adminKey={adminKey}
                   isNew={addingNew}
+                  vacationDates={!addingNew && selectedEmp ? vacationDatesFor(selectedEmp.id) : []}
                   onSave={saveEmployee}
                   onCancel={() => setAddingNew(false)}
                   onDelete={deleteEmployee}
@@ -5713,14 +5759,15 @@ function App() {
   React.useEffect(() => {
     const flat = {};
     Object.entries(requests).forEach(([empId, months]) => {
-      const agg = { unavailable: [], high: [], can: [], note: '' };
+      const agg = { unavailable: [], high: [], can: [], vacation: [], note: '' };
       Object.values(months || {}).forEach(r => {
         agg.unavailable.push(...(r.unavailable || []));
         agg.high.push(...(r.high || []));
         agg.can.push(...(r.can || []));
+        agg.vacation.push(...(r.vacation || []));
         if (r.note) agg.note = agg.note ? agg.note + ' · ' + r.note : r.note;
       });
-      if (agg.unavailable.length || agg.high.length || agg.can.length || agg.note) flat[empId] = agg;
+      if (agg.unavailable.length || agg.high.length || agg.can.length || agg.vacation.length || agg.note) flat[empId] = agg;
     });
     window.ShiftData.REQUESTS = flat;
   }, [requests]);
@@ -5790,6 +5837,7 @@ function App() {
             unavailable: r.unavailable || [],
             high: r.high || [],
             can: r.can || [],
+            vacation: r.vacation || [],
             note: r.note || '',
             managerNote: r.manager_note || '',
             fromEmployee: true,

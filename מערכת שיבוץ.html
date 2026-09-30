@@ -4168,7 +4168,7 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, vac
 }
 
 // ---- RequestDetailPanel ----
-function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
+function RequestDetailPanel({ emp, entry, altOptions, scheduleResponse, month, openRange, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
   const SD = window.ShiftData;
   const SE = window.ShiftEngine;
   const [brush, setBrush] = React.useState('view');
@@ -4178,6 +4178,9 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
   const [newRule, setNewRule] = React.useState({ weekday: 2, shiftId: '', mark: 'high' });
   const [standingReqs, setStandingReqs] = React.useState([]);
   const [standingBusy, setStandingBusy] = React.useState(false);
+  // איזו טיוטה (אפשרות שיבוץ) מוצגת בלוח — 1 היא הבכירה, היחידה הניתנת לעריכה כאן.
+  // 2/3 (אם קיימות, ראו altOptions) מוצגות באותו לוח בדיוק, אך לקריאה בלבד.
+  const [selectedRank, setSelectedRank] = React.useState(1);
 
   // "משמרות קבועות" (employee_recurring_requests) — אותה טבלה בדיוק שהעובד יוצר ממנה
   // בקשות קבועות באפליקציה שלו. כשהמשבץ מוסיף כלל כאן, הוא מופיע ומתנהג אצל
@@ -4193,8 +4196,16 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
     setBrush('view');
     setShowStanding(false);
     setNewRule({ weekday: 2, shiftId: '', mark: 'high' });
+    setSelectedRank(1);
     loadStanding();
   }, [emp.id, month]);
+
+  // אילו טיוטות קיימות בפועל לחודש הזה — תמיד כולל את #1
+  const activeRanks = React.useMemo(() => [1, ...Object.keys(altOptions || {}).map(Number)].sort((a, b) => a - b), [altOptions]);
+  // הטיוטה שהלוח מציג כרגע: #1 היא entry עצמו (הבכירה, ניתנת לעריכה); 2/3 הן
+  // מ-altOptions (לקריאה בלבד — הוגשו ע"י העובד, לא נערכות מכאן)
+  const viewRow = selectedRank === 1 ? entry : altOptions?.[selectedRank];
+  const rankEditable = selectedRank === 1;
 
   const MARK_ST = {
     un:   { bg: 'var(--danger-bg)', bd: '1.5px solid color-mix(in oklab, var(--danger) 50%, transparent)', fg: 'var(--danger)' },
@@ -4207,7 +4218,8 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
   const SHIFT_DOTS = { morning: 'oklch(0.78 0.13 80)', evening: 'oklch(0.62 0.12 250)', short: 'oklch(0.68 0.11 160)', night: 'oklch(0.45 0.09 290)' };
   const dotOf = (id) => SHIFT_DOTS[id] || 'oklch(0.62 0.14 25)';
 
-  // marks keyed by full date string "YYYY-MM-DD"
+  // marks keyed by full date string "YYYY-MM-DD" — של הטיוטה המוצגת כרגע (viewRow),
+  // עם חופשה (entry.vacation) תמיד על-גבי הכול — היא משותפת לכל הטיוטות, לא רק לבכירה
   const marks = React.useMemo(() => {
     const m = {};
     const apply = (arr, mark) => {
@@ -4226,14 +4238,15 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
         }
       });
     };
-    apply(entry?.unavailable, 'un');
-    apply(entry?.high, 'high');
-    apply(entry?.can, 'can');
+    apply(viewRow?.unavailable, 'un');
+    apply(viewRow?.high, 'high');
+    apply(viewRow?.can, 'can');
     apply(entry?.vacation, 'vacation');
     return m;
-  }, [entry?.unavailable, entry?.high, entry?.can, entry?.vacation]);
+  }, [viewRow?.unavailable, viewRow?.high, viewRow?.can, entry?.vacation]);
 
   const commitMarks = (newMarks) => {
+    if (!rankEditable) return;
     const toDates = (targetMark) => {
       const out = [];
       Object.entries(newMarks).forEach(([ds, v]) => {
@@ -4247,7 +4260,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
 
   const tapDay = (dStr) => {
     setSelDay(dStr);
-    if (brush === 'view') return;
+    if (!rankEditable || brush === 'view') return;
     const cur = marks[dStr];
     if (cur && typeof cur === 'object' && brush !== 'erase' && brush !== 'vacation') return;
     const newMarks = { ...marks };
@@ -4257,6 +4270,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
   };
 
   const setShiftMark = (sid, mark) => {
+    if (!rankEditable) return;
     const dayShifts = SD.shiftTypesFor(selDay, shiftSettings).filter(s => !s.continuation);
     const newMarks = { ...marks };
     let cur = newMarks[selDay];
@@ -4285,7 +4299,10 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
   const analyzed = entry && entry.analyzedAt;
   const text = entry?.text || '';
   const stale = analyzed && (entry.analyzedText || '') !== text.trim();
+  // hasDates: תמיד לפי הטיוטה הבכירה (entry) — שולט על כפתור השליחה, ששולח רק אותה.
+  // viewHasDates: לפי הטיוטה המוצגת כרגע בלוח (יכולה להיות 2/3) — לשורת הסיכום מעל הלוח.
   const hasDates = entry && ((entry.unavailable || []).length || (entry.high || []).length || (entry.can || []).length || (entry.vacation || []).length);
+  const viewHasDates = Object.keys(marks).length > 0;
 
   const allShifts = React.useMemo(() => {
     const seen = new Set();
@@ -4373,37 +4390,18 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
         </div>
       )}
 
-      {/* טיוטות שיבוץ נוספות (2/3) שהעובד יצר באפליקציה שלו — לקריאה בלבד; טיוטה 1 (entry) היא
-          הבכירה שהאלגוריתם מנסה למלא קודם, ורק אם משמרת נשארת פתוחה נעזר בטיוטות האלה */}
-      {altOptions && Object.keys(altOptions).length > 0 && (
-        <div style={{flexShrink:0,background:'var(--surface)',border:'1px solid var(--line)',borderRadius:9,padding:'9px 12px',display:'flex',flexDirection:'column',gap:8}}>
-          <div style={{fontSize:10.5,fontWeight:700,color:'var(--ink-3)'}}>טיוטות שיבוץ נוספות שהעובד יצר — לקריאה בלבד</div>
-          {Object.keys(altOptions).sort((a, b) => a - b).map(rank => {
-            const opt = altOptions[rank];
-            const tags = [
-              ...(opt.unavailable || []).map(v => ({ v, type: 'unavailable' })),
-              ...(opt.high || []).map(v => ({ v, type: 'high' })),
-              ...(opt.can || []).map(v => ({ v, type: 'can' })),
-            ].sort((a, b) => a.v.localeCompare(b.v));
-            const tagCls = { unavailable: 'av-no', high: 'av-high', can: 'av-can' };
-            return (
-              <div key={rank} style={{display:'flex',flexDirection:'column',gap:4}}>
-                <div style={{fontSize:11,fontWeight:800}}>טיוטה {rank}{opt.isDraft ? ' — טיוטה בלבד, טרם נשלחה' : ''}</div>
-                <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
-                  {tags.map(({ v, type }) => {
-                    const { d, sid } = SD.splitReqEntry(v);
-                    return (
-                      <span key={v + type} className={'req-tag av-tag ' + tagCls[type]}>
-                        {SD.shortDate(d)}{sid ? ` · ${SD.shiftNameOf(sid, shiftSettings)}` : ''}
-                      </span>
-                    );
-                  })}
-                  {!tags.length && <span style={{fontSize:11,color:'var(--ink-3)'}}>אין תאריכים</span>}
-                </div>
-                {opt.note && <div style={{fontSize:11.5,color:'var(--ink-2)'}}>{opt.note}</div>}
-              </div>
-            );
-          })}
+      {/* הערת העובד על הסידור שפורסם (schedule_responses, נכתבת ממסך "הסידור" באפליקציית
+          העובד לאחר פרסום) — נפרדת לגמרי מהבקשה החודשית של entry/managerNote למעלה */}
+      {scheduleResponse && (scheduleResponse.note || scheduleResponse.approved) && (
+        <div style={{flexShrink:0,background:'color-mix(in oklab, var(--ok) 8%, transparent)',border:'1.5px solid color-mix(in oklab, var(--ok) 35%, transparent)',borderRadius:9,padding:'9px 12px',display:'flex',gap:8,alignItems:'flex-start'}}>
+          <span style={{flexShrink:0,fontSize:14}}>{scheduleResponse.approved ? '✓' : '💬'}</span>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:10.5,fontWeight:700,color:'var(--ink-3)',marginBottom:2}}>
+              תגובת {emp.name} לסידור שפורסם{scheduleResponse.approved ? ' — אישר.ה' : ''}
+              {scheduleResponse.respondedAt ? ' · ' + new Date(scheduleResponse.respondedAt).toLocaleString('he-IL') : ''}
+            </div>
+            {scheduleResponse.note && <div style={{fontSize:12.5,lineHeight:1.5}}>{scheduleResponse.note}</div>}
+          </div>
         </div>
       )}
 
@@ -4414,23 +4412,49 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
           החודש הזה עדיין לא נפתח לבקשות — פתחו אותו במסך "סידור" כדי לצפות בבקשות ולערוך אותן.
         </div>
       ) : (<>
+      {/* בורר טיוטות ("אפשרויות שיבוץ") — מוצג רק כשלעובד יש יותר מטיוטה אחת. כולן מוצגות
+          באותו לוח בדיוק; רק #1 (הבכירה) ניתנת לעריכה כאן, 2/3 הן לקריאה בלבד */}
+      {activeRanks.length > 1 && (
+        <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',flexShrink:0}}>
+          {activeRanks.map(rank => {
+            const active = rank === selectedRank;
+            const opt = rank === 1 ? entry : altOptions?.[rank];
+            return (
+              <div key={rank} onClick={() => setSelectedRank(rank)} style={{
+                padding:'5px 12px',borderRadius:999,cursor:'pointer',fontSize:12,fontWeight:800,
+                background: active ? 'var(--ink)' : 'var(--surface)', color: active ? '#FFF' : 'var(--ink-2)',
+                border: active ? '1.5px solid var(--ink)' : '1.5px solid var(--line)' }}>
+                טיוטה {rank}{rank !== 1 && opt?.isDraft ? ' (טיוטה בלבד)' : ''}
+              </div>
+            );
+          })}
+          {!rankEditable && (
+            <span style={{fontSize:11,color:'var(--ink-3)'}}>לקריאה בלבד — הוגשה ע"י העובד.ת</span>
+          )}
+        </div>
+      )}
+
       {/* Brush mode */}
       <div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0,background:'var(--surface)',borderRadius:8,padding:'6px 10px',border:'1px solid var(--line)'}}>
-        <span style={{fontSize:11,color:'var(--ink-3)',flexShrink:0,marginInlineEnd:3}}>סמן:</span>
-        {[['view','👁 צפייה','var(--surface)','var(--ink)'],['erase','✕ מחק','var(--surface)','var(--ink)'],['un','לא זמין','var(--danger-bg)','var(--danger)'],['high','מבקש לעבוד','var(--ok-bg)','var(--ok)'],['vacation','🏖️ חופשה','var(--vacation-bg)','var(--vacation)']].map(([mode,label,bg,fg]) => {
-          const active = brush === mode;
-          return (
-            <button key={mode} onClick={() => setBrush(b => b === mode ? 'view' : mode)} style={{
-              padding:'4px 10px',borderRadius:7,fontSize:11.5,fontWeight:700,border:'none',cursor:'pointer',
-              background:active ? bg : 'transparent',color:active ? fg : 'var(--ink-3)',
-              outline:active ? `1.5px solid ${fg}` : '1px solid transparent',transition:'all 0.12s',
-            }}>{label}</button>
-          );
-        })}
-        {hasDates && (
+        {rankEditable ? (<>
+          <span style={{fontSize:11,color:'var(--ink-3)',flexShrink:0,marginInlineEnd:3}}>סמן:</span>
+          {[['view','👁 צפייה','var(--surface)','var(--ink)'],['erase','✕ מחק','var(--surface)','var(--ink)'],['un','לא זמין','var(--danger-bg)','var(--danger)'],['high','מבקש לעבוד','var(--ok-bg)','var(--ok)'],['vacation','🏖️ חופשה','var(--vacation-bg)','var(--vacation)']].map(([mode,label,bg,fg]) => {
+            const active = brush === mode;
+            return (
+              <button key={mode} onClick={() => setBrush(b => b === mode ? 'view' : mode)} style={{
+                padding:'4px 10px',borderRadius:7,fontSize:11.5,fontWeight:700,border:'none',cursor:'pointer',
+                background:active ? bg : 'transparent',color:active ? fg : 'var(--ink-3)',
+                outline:active ? `1.5px solid ${fg}` : '1px solid transparent',transition:'all 0.12s',
+              }}>{label}</button>
+            );
+          })}
+        </>) : (
+          <span style={{fontSize:11.5,fontWeight:700,color:'var(--ink-3)'}}>👁 לוח לקריאה בלבד</span>
+        )}
+        {viewHasDates && (
           <span style={{marginInlineStart:'auto',fontSize:11,color:'var(--ink-3)'}}>
-            {(entry.unavailable||[]).length} לא זמין · {(entry.high||[]).length} מבקש
-            {(entry.vacation||[]).length > 0 && <> · {entry.vacation.length} חופשה</>}
+            {(viewRow?.unavailable||[]).length} לא זמין · {(viewRow?.high||[]).length} מבקש
+            {(entry?.vacation||[]).length > 0 && <> · {entry.vacation.length} חופשה</>}
           </span>
         )}
       </div>
@@ -4521,7 +4545,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
                   <span style={{fontSize:12,fontWeight:700,whiteSpace:'nowrap'}}>{sh.name}</span>
                   <span style={{fontSize:10.5,color:'var(--ink-3)',whiteSpace:'nowrap'}}>{sh.start}–{sh.end}</span>
                   <span style={{display:'flex',gap:3,marginInlineStart:'auto'}}>
-                    {[[null,'—'],['un','לא זמין'],['high','מבקש']].map(([mk,label]) => {
+                    {rankEditable ? [[null,'—'],['un','לא זמין'],['high','מבקש']].map(([mk,label]) => {
                       const st = mk ? MARK_ST[mk] : {bg:'var(--surface)',bd:'1px solid var(--line)',fg:'var(--ink-3)'};
                       const active = cur === mk;
                       return (
@@ -4531,7 +4555,11 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
                           border:active ? st.bd : '1px solid var(--line)',cursor:'pointer',transition:'background 0.1s,border 0.1s',
                         }}>{label}</span>
                       );
-                    })}
+                    }) : (
+                      <span style={{fontSize:11,fontWeight:700,color:'var(--ink-3)'}}>
+                        {{un:'לא זמין',high:'מבקש',can:'יכול',vacation:'🏖️ חופשה'}[cur] || 'לא סומן'}
+                      </span>
+                    )}
                   </span>
                 </div>
               );
@@ -4676,7 +4704,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
 // "בקשות" (RequestDetailPanel, כפי שהיה במסך "בקשות" הנפרד) ו"פרטי עובד"
 // (EmployeeProfileForm, כפי שהיה במסך "עובדים" הנפרד) — כדי לא לקפוץ בין שני מסכים
 // עם שתי רשימות עובדים נפרדות כדי לעשות שתי פעולות שקשורות לאותו עובד.
-function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, altRequests, initialMonth, apiKey, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria }) {
+function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, altRequests, scheduleResponses, initialMonth, apiKey, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria }) {
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
   const [refreshing, setRefreshing] = React.useState(false);
   const refresh = async () => {
@@ -5016,7 +5044,7 @@ ${shiftsDesc}
                     <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.name}</span>
                     {entry?.managerNote && <span title={'הערה למשבץ: ' + entry.managerNote} style={{flexShrink:0}}>📌</span>}
                     {altCount > 0 && (
-                      <span title={`העובד.ת הגיש.ה ${altCount} טיוט${altCount === 1 ? 'ה נוספת' : 'ות נוספות'} לחודש זה — ראו למטה בפרטי הבקשה`}
+                      <span title={`העובד.ת הגיש.ה ${altCount} טיוט${altCount === 1 ? 'ה נוספת' : 'ות נוספות'} לחודש זה — בבורר הטיוטות מעל הלוח בפרטי הבקשה`}
                         style={{flexShrink:0,fontSize:9.5,fontWeight:800,color:'var(--vacation)',background:'var(--vacation-bg)',borderRadius:999,padding:'1px 5px'}}>
                         🔀{altCount}
                       </span>
@@ -5079,6 +5107,7 @@ ${shiftsDesc}
                   emp={selectedEmp}
                   entry={entryOf(selectedEmp.id)}
                   altOptions={altRequests[selectedEmp.id]?.[month] || null}
+                  scheduleResponse={scheduleResponses[selectedEmp.id]?.[month] || null}
                   month={month}
                   openRange={openRangeByMonth?.[month] || null}
                   onUpdate={updateEntry}
@@ -7017,7 +7046,7 @@ ${JSON.stringify(emptySlots, null, 2)}
 
       <ShiftSettingsCtx.Provider value={shiftSettings}>
         {screen === 'requests' && <PeopleScreen employees={employees} onEmployeesChange={setEmployees}
-          requests={requests} onRequestsChange={setRequests} altRequests={altRequests}
+          requests={requests} onRequestsChange={setRequests} altRequests={altRequests} scheduleResponses={scheduleResponses}
           initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth}
           adminKey={adminKey} requestCriteria={requestCriteria}
           prefs={prefs} onSavePref={(empId, patch) => {

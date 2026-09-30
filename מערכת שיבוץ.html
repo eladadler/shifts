@@ -1347,7 +1347,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {} }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false }) {
     // כל תנאי דלוק כברירת מחדל — כבוי רק אם המשבץ כיבה אותו במפורש במסך "תנאי שיבוץ"
     const on = (key) => ruleToggles[key] !== false;
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
@@ -1581,13 +1581,16 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       });
     });
 
-    // מעבר שני: כל שאר המשמרות
-    dates.forEach((dStr) => {
-      D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
-        if (shift.continuation || shift.id === 'shabbat') return;
-        assignOne(dStr, shift);
+    // מעבר שני: כל שאר המשמרות — מדולג לגמרי אם shabbatOnly (כפתור "🕯️ שבץ שבתות בלבד"),
+    // כדי לאפשר למשבץ לבדוק/לתקן ידנית את שיבוץ השבתות לפני שממשיכים לשאר המשמרות
+    if (!shabbatOnly) {
+      dates.forEach((dStr) => {
+        D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
+          if (shift.continuation || shift.id === 'shabbat') return;
+          assignOne(dStr, shift);
+        });
       });
-    });
+    }
 
     const total = Object.values(schedule).reduce((n, day) => n + Object.values(day).filter((a) => a.length).length, 0);
     addLog('info', `השיבוץ הושלם: ${total} משמרות אוישו`);
@@ -5893,6 +5896,7 @@ function App() {
   const TOOLBAR_BUTTON_DEFS = [
     { id: 'runAlgo', label: '⚙ מחשב' },
     { id: 'runAI', label: '✦ שבץ AI' },
+    { id: 'runShabbatOnly', label: '🕯️ שבץ שבתות בלבד' },
     { id: 'editRange', label: '✎ ערוך טווח' },
   ];
   const DEFAULT_HIDDEN_BUTTONS = ['runAlgo', 'runAI', 'editRange'];
@@ -6441,6 +6445,29 @@ function App() {
     setGeneratingId(null);
   };
 
+  // שיבוץ שבתות ארוכות בלבד — עוצר שם, כדי לאפשר בדיקה/תיקון ידני של הרוטציה לפני
+  // שממשיכים לשבץ את כל שאר המשמרות (⚙/✦/✦⚙ הרגילים ימלאו רק את מה שעוד ריק,
+  // כי generate() בונה תמיד על גבי existingSchedule ולא דורס שיבוצים קיימים)
+  const runShabbatOnlyImpl = () => {
+    if (!currentDraft) { alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.'); return; }
+    const id = activeDraftId;
+    setGeneratingId(id);
+    const result = AE.generate({
+      startDate: currentDraft.range.start, endDate: currentDraft.range.end,
+      excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
+      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
+      ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
+      shabbatOnly: true,
+    });
+    const ts = new Date().toISOString();
+    const log = [
+      { timestamp: ts, type: 'info', message: '🕯️ שיבוץ שבתות ארוכות בלבד בוצע — שאר המשמרות עדיין ריקות' },
+      ...result.log.filter(l => l.type !== 'info'),
+    ];
+    setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: result.schedule, log } : d));
+    setGeneratingId(null);
+  };
+
   // שיבוץ חכם: שלב א׳ מחשב עם היסטוריה → שלב ב׳ AI ממטב חורים
   const runSmartImpl = async () => {
     if (!currentDraft) { alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.'); return; }
@@ -6746,6 +6773,7 @@ ${JSON.stringify(emptySlots, null, 2)}
 
   // עוטפים את שלוש פעולות השיבוץ בהקפצת חריגות קריטריונים למשבץ לפני ההרצה בפועל
   const runAlgo = runWithCriteriaGate(runAlgoImpl);
+  const runShabbatOnly = runWithCriteriaGate(runShabbatOnlyImpl);
   const runSmart = runWithCriteriaGate(runSmartImpl);
   const runAI = runWithCriteriaGate(runAIImpl);
 
@@ -6950,6 +6978,12 @@ ${JSON.stringify(emptySlots, null, 2)}
                 ייצוא
               </button>
               {(status === 'draft' || status === 'open') && (<>
+                {!hiddenButtons.includes('runShabbatOnly') && (
+                  <button className="btn" onClick={runShabbatOnly} disabled={isGenerating}
+                    title='משבץ רק את משמרות "שבת ארוכה" ועוצר שם — כדי לבדוק/לתקן ידנית את הרוטציה לפני שממשיכים. שאר הכפתורים לא ידרסו שיבוצי שבת שכבר קיימים, רק ימלאו את מה שנשאר ריק.'>
+                    🕯️ שבץ שבתות בלבד
+                  </button>
+                )}
                 <button className="btn btn-smart" onClick={runSmart} disabled={isGenerating} title="מחשב עם היסטוריה + AI לחורים">✦⚙ השיבוץ החכם</button>
                 {!hiddenButtons.includes('runAI') && (
                   <button className="btn btn-ai" onClick={runAI} disabled={isGenerating} title="AI בלבד">✦ שבץ AI</button>

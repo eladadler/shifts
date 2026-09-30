@@ -218,7 +218,7 @@
   .slot-blocked { opacity: 0.45; outline: 2px dashed oklch(0.62 0.16 25); outline-offset: -2px; cursor: not-allowed; }
   .slot-preferred { border-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in oklab, var(--ok) 30%, transparent); }
   /* מצב מיקוד עובד */
-  .slot-focus-assigned { border-color: var(--accent) !important; box-shadow: 0 0 0 2.5px color-mix(in oklab, var(--accent) 45%, transparent) !important; background: color-mix(in oklab, var(--accent) 8%, var(--surface)) !important; }
+  .slot-focus-assigned { border-color: var(--danger) !important; box-shadow: 0 0 0 2.5px color-mix(in oklab, var(--danger) 45%, transparent) !important; background: color-mix(in oklab, var(--danger) 8%, var(--surface)) !important; }
   .slot-focus-option   { border-color: var(--ok) !important; box-shadow: 0 0 0 2px color-mix(in oklab, var(--ok) 35%, transparent) !important; }
   .slot-focus-other    { opacity: 0.28; }
   .emp-card-focused    { outline: 2.5px solid var(--accent); outline-offset: 2px; border-radius: 10px; background: color-mix(in oklab, var(--accent) 8%, var(--surface)) !important; }
@@ -1515,6 +1515,17 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             return daysSince >= minGap;
           });
           if (spaced.length) pool = spaced;
+        }
+        // מועדף מאוד (לא חוסם לגמרי) שלא לבחור עובד שכבר הגיע ליעד משמרות/שבוע האישי
+        // שלו (בימי חול, א׳-ה׳) — כדי למנוע שבועות "ריקים" לסירוגין עם שבועות עמוסים.
+        // משלים את biasWeeklyTarget (שרק מטה ניקוד בין מועמדים, בלי למנוע חריגה בפועל).
+        if (wdShift0 >= 0 && wdShift0 <= 4 && on('weeklyTargetCap')) {
+          const withinTarget = pool.filter((e) => {
+            const already = (weekCounts[wk0] || {})[e.id] || 0;
+            const target = e.weekdayShiftsPerWeek ?? 2;
+            return already < target;
+          });
+          if (withinTarget.length) pool = withinTarget;
         }
 
         if (!pool.length) {
@@ -5395,6 +5406,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'biasNightOwl', t: 'Night owl', d: 'עובד שמסומן ככזה מקבל עדיפות למשמרות לילה.' },
     { key: 'biasLoadBalance', t: 'איזון עומס', d: 'ככל שעובד שובץ ליותר משמרות (החודש ובחודשיים האחרונים) הניקוד שלו יורד, כדי לפזר עומס שווה יותר.' },
     { key: 'biasWeeklyTarget', t: 'יעד משמרות/שבוע בימי חול', d: 'הטיה רכה בלבד (לא חוסמת) — עובד רחוק מהיעד שלו מקבל ניקוד גבוה יותר למשמרות חול, ועובד שכבר עבר את היעד מקבל ניקוד נמוך יותר.' },
+    { key: 'weeklyTargetCap', t: 'תקרת יעד משמרות/שבוע — מועדף מאוד', d: 'משלים את "יעד משמרות/שבוע": עובד שכבר הגיע ליעד האישי שלו (בימי חול, א׳-ה׳) לא ייבחר למשמרת חול נוספת באותו שבוע — מועדף מאוד, לא חוסם לגמרי. אם אין אף מועמד אחר מתחת ליעד לאותה משבצת, המנוע יחרוג כמוצא אחרון. נועד למנוע שבועות "ריקים" לסירוגין עם שבועות עמוסים לאותו עובד.' },
     { key: 'biasShabbatFrequency', t: 'תדירות שבת ארוכה אישית', d: 'ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה ל"שבת ארוכה" ביחס ליעד האישי שלו (ברירת מחדל 45 יום), כך גובר הניקוד שלו למשמרת הבאה.' },
     { key: 'shabbatMinGap', t: 'מרחק מינימלי בין שבתות ארוכות', d: 'עובד לא ייבחר לשבת ארוכה נוספת אם עברו פחות מ-14 יום (או מחצית מיעד התדירות האישי שלו, הגבוה מביניהם) מאז השבת האחרונה שלו — מועדף מאוד, לא חוסם לגמרי: אם באמת אין אף מועמד אחר לאותה משבצת, המנוע יחרוג כמוצא אחרון.' },
     { key: 'biasWeekendShortFrequency', t: 'תדירות משמרת קצרה בסופ״ש אישית', d: 'משפיע רק על עובד שהוגדר לו יעד אישי בכרטיסו (רשות, כבוי כברירת מחדל). ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה למשמרת קצרה בסופ״ש (שישי קצר או בוקר שבת) ביחס ליעד שלו, כך גובר הניקוד שלו למשמרת הבאה מהסוג הזה.' },
@@ -5901,7 +5913,7 @@ function App() {
     wantsFridayShort: true, wantsFridayLong: true, wantsShabbatLong: true, wantsSaturdayShort: true,
     noWeekdayNights: true, shabbatWeeklyCap: true, noThursdayIfShabbat: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
     biasHighCan: true, biasNightOwl: true, biasLoadBalance: true,
-    biasWeeklyTarget: true, biasShabbatFrequency: true, shabbatMinGap: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
+    biasWeeklyTarget: true, weeklyTargetCap: true, biasShabbatFrequency: true, shabbatMinGap: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
   };
   const [ruleToggles, setRuleToggles] = React.useState(() => ({ ...DEFAULT_RULE_TOGGLES, ...(saved?.ruleToggles || {}) }));
   // "שיבוץ חופשי" — הפעלה זמנית (לא נשמרת בין רענונים, בכוונה — כדי שלא תישאר דלוקה בטעות)

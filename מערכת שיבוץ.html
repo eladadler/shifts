@@ -1491,7 +1491,11 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         });
       }
 
-      for (let slot = 0; slot < (required - (schedule[dStr][shift.id] || []).length); slot++) {
+      // חשוב: מספר הסבבים נקבע *פעם אחת* לפני הלולאה, לא מחושב מחדש מ-schedule[dStr][shift.id].length
+      // בכל איטרציה — אחרת מספר האורכה גדל באותו קצב כמו slot וחוצה למעשה את מכסת העובדים
+      // הנדרשת (required=2 היה משבץ רק 1, required=4 רק 2, וכו').
+      const slotsNeeded = required - (schedule[dStr][shift.id] || []).length;
+      for (let slot = 0; slot < slotsNeeded; slot++) {
         const alreadyIn = schedule[dStr][shift.id] || [];
         const wdShift = wdShift0;
         const wk = wk0;

@@ -1519,6 +1519,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         // מועדף מאוד (לא חוסם לגמרי) שלא לבחור עובד שכבר הגיע ליעד משמרות/שבוע האישי
         // שלו (בימי חול, א׳-ה׳) — כדי למנוע שבועות "ריקים" לסירוגין עם שבועות עמוסים.
         // משלים את biasWeeklyTarget (שרק מטה ניקוד בין מועמדים, בלי למנוע חריגה בפועל).
+        let weeklyCapForced = false;
         if (wdShift0 >= 0 && wdShift0 <= 4 && on('weeklyTargetCap')) {
           const withinTarget = pool.filter((e) => {
             const already = (weekCounts[wk0] || {})[e.id] || 0;
@@ -1526,6 +1527,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             return already < target;
           });
           if (withinTarget.length) pool = withinTarget;
+          else weeklyCapForced = true;
         }
 
         if (!pool.length) {
@@ -1578,7 +1580,17 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           s += hash(e.id + dStr + shift.id + slot) * 0.5;
           return s;
         };
-        const best = pool.slice().sort((a, b) => score(b) - score(a))[0];
+        // אם נכנסנו ל"רשת ביטחון" (אף מועמד לא מתחת ליעד השבועי) — מפזרים את החריגה
+        // הבלתי-נמנעת בין כמה אנשים: מי שכבר חרג הכי פחות מהיעד מנצח את התור, כדי לא
+        // להעמיס שוב ושוב על אותו עובד "גמיש" רק בגלל שהוא מנקד הכי גבוה
+        const best = pool.slice().sort((a, b) => {
+          if (weeklyCapForced) {
+            const aAlready = (weekCounts[wk0] || {})[a.id] || 0;
+            const bAlready = (weekCounts[wk0] || {})[b.id] || 0;
+            if (aAlready !== bAlready) return aAlready - bAlready;
+          }
+          return score(b) - score(a);
+        })[0];
         const restViolation = !clean.includes(best);
 
         schedule[dStr][shift.id] = [...alreadyIn, best.id];

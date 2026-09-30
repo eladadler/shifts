@@ -1503,7 +1503,19 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         const clean = on('biasMidMonthRest')
           ? cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H)
           : cands;
-        const pool = clean.length ? clean : cands;
+        let pool = clean.length ? clean : cands;
+        // מרחק מינימלי בין שבתות ארוכות — מועדף מאוד, לא חוסם לגמרי: אם זה משאיר
+        // בריכה ריקה (אין באמת אף מועמד אחר), חוזרים לבריכה המקורית כמוצא אחרון
+        if (shift.id === 'shabbat' && on('shabbatMinGap')) {
+          const spaced = pool.filter((e) => {
+            const prev = lastShabbat[e.id];
+            if (!prev) return true;
+            const daysSince = (D.parseDate(dStr) - D.parseDate(prev)) / 864e5;
+            const minGap = Math.max(14, Math.floor((e.shabbatFrequencyDays || 45) / 2));
+            return daysSince >= minGap;
+          });
+          if (spaced.length) pool = spaced;
+        }
 
         if (!pool.length) {
           if (alreadyIn.length === 0) addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
@@ -5384,6 +5396,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'biasLoadBalance', t: 'איזון עומס', d: 'ככל שעובד שובץ ליותר משמרות (החודש ובחודשיים האחרונים) הניקוד שלו יורד, כדי לפזר עומס שווה יותר.' },
     { key: 'biasWeeklyTarget', t: 'יעד משמרות/שבוע בימי חול', d: 'הטיה רכה בלבד (לא חוסמת) — עובד רחוק מהיעד שלו מקבל ניקוד גבוה יותר למשמרות חול, ועובד שכבר עבר את היעד מקבל ניקוד נמוך יותר.' },
     { key: 'biasShabbatFrequency', t: 'תדירות שבת ארוכה אישית', d: 'ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה ל"שבת ארוכה" ביחס ליעד האישי שלו (ברירת מחדל 45 יום), כך גובר הניקוד שלו למשמרת הבאה.' },
+    { key: 'shabbatMinGap', t: 'מרחק מינימלי בין שבתות ארוכות', d: 'עובד לא ייבחר לשבת ארוכה נוספת אם עברו פחות מ-14 יום (או מחצית מיעד התדירות האישי שלו, הגבוה מביניהם) מאז השבת האחרונה שלו — מועדף מאוד, לא חוסם לגמרי: אם באמת אין אף מועמד אחר לאותה משבצת, המנוע יחרוג כמוצא אחרון.' },
     { key: 'biasWeekendShortFrequency', t: 'תדירות משמרת קצרה בסופ״ש אישית', d: 'משפיע רק על עובד שהוגדר לו יעד אישי בכרטיסו (רשות, כבוי כברירת מחדל). ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה למשמרת קצרה בסופ״ש (שישי קצר או בוקר שבת) ביחס ליעד שלו, כך גובר הניקוד שלו למשמרת הבאה מהסוג הזה.' },
     { key: 'biasMidMonthRest', t: 'מנוחה מינימלית באמצע החודש', d: '8 שעות מנוחה בין משמרות מועדפות מאוד. כשדלוק: אם אין שום מועמד עומד בכך המנוע יחרוג כמוצא אחרון, ותתועד "חריגת מנוחה" ביומן השיבוץ. כשכבוי: המנוע לא מתחשב בשעות מנוחה בין משמרות באמצע החודש בכלל.' },
   ];
@@ -5888,7 +5901,7 @@ function App() {
     wantsFridayShort: true, wantsFridayLong: true, wantsShabbatLong: true, wantsSaturdayShort: true,
     noWeekdayNights: true, shabbatWeeklyCap: true, noThursdayIfShabbat: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
     biasHighCan: true, biasNightOwl: true, biasLoadBalance: true,
-    biasWeeklyTarget: true, biasShabbatFrequency: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
+    biasWeeklyTarget: true, biasShabbatFrequency: true, shabbatMinGap: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
   };
   const [ruleToggles, setRuleToggles] = React.useState(() => ({ ...DEFAULT_RULE_TOGGLES, ...(saved?.ruleToggles || {}) }));
   // "שיבוץ חופשי" — הפעלה זמנית (לא נשמרת בין רענונים, בכוונה — כדי שלא תישאר דלוקה בטעות)

@@ -2504,9 +2504,13 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, myRespons
           {myCount} משמרות החודש · {nightCount === 1 ? 'לילה אחד' : `${nightCount} לילות`}
         </div>
 
-        {pub.shift_settings?._status !== 'open' && (
-          <ScheduleResponseBox month={ym} response={myResponses?.[ym]} onSave={onSaveResponse} />
-        )}
+        {(() => {
+          // מציגים את תיבת התגובה רק כשהסידור פורסם בפועל (לא "פתוח לבקשות") וגם — אם
+          // המשבץ קבע מועד אחרון — הוא עדיין לא עבר. בלי מועד אחרון = תמיד פתוח להערות.
+          const finalAt = pub.shift_settings?._finalAt;
+          const responseWindowOpen = pub.shift_settings?._status !== 'open' && (!finalAt || new Date(finalAt).getTime() > Date.now());
+          return responseWindowOpen && <ScheduleResponseBox month={ym} response={myResponses?.[ym]} onSave={onSaveResponse} />;
+        })()}
 
         {view === 'grid' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

@@ -4985,6 +4985,7 @@ ${shiftsDesc}
           {employees.map(emp => {
             const entry = entryOf(emp.id);
             const hasDates = entry && ((entry.unavailable||[]).length || (entry.high||[]).length || (entry.can||[]).length || (entry.vacation||[]).length);
+            const altCount = Object.keys(altRequests[emp.id]?.[month] || {}).length;
             const fromEmployee = entry?.fromEmployee;
             const analyzed = entry?.analyzedAt;
             const hasText = entry?.text?.trim();
@@ -5014,6 +5015,12 @@ ${shiftsDesc}
                   <div style={{fontSize:12.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4}}>
                     <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.name}</span>
                     {entry?.managerNote && <span title={'הערה למשבץ: ' + entry.managerNote} style={{flexShrink:0}}>📌</span>}
+                    {altCount > 0 && (
+                      <span title={`העובד.ת הגיש.ה ${altCount} טיוט${altCount === 1 ? 'ה נוספת' : 'ות נוספות'} לחודש זה — ראו למטה בפרטי הבקשה`}
+                        style={{flexShrink:0,fontSize:9.5,fontWeight:800,color:'var(--vacation)',background:'var(--vacation-bg)',borderRadius:999,padding:'1px 5px'}}>
+                        🔀{altCount}
+                      </span>
+                    )}
                     {lowWeekly && <span title="מבקש פחות מ-2 משמרות/שבוע בימי חול" style={{flexShrink:0,fontSize:10,color:'var(--danger)'}}>⚠</span>}
                     {criteriaViolationsByEmp[emp.id]?.length > 0 && (
                       <span title={'לא עומד בקריטריוני הגשה: ' + criteriaViolationsByEmp[emp.id].join('; ')} style={{flexShrink:0,fontSize:10,color:'var(--warn)'}}>📋⚠</span>

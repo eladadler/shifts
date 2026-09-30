@@ -25,8 +25,8 @@
     --ok-bg: oklch(0.96 0.03 155);
     --warn-bg: oklch(0.96 0.04 80);
     --danger-bg: oklch(0.95 0.03 27);
-    --vacation: oklch(0.5 0.15 300);
-    --vacation-bg: oklch(0.96 0.03 300);
+    --vacation: oklch(0.5 0.15 340);
+    --vacation-bg: oklch(0.96 0.03 340);
     --shadow: 0 1px 2px oklch(0.2 0.02 255 / 0.06), 0 4px 16px oklch(0.2 0.02 255 / 0.07);
     --r: 10px;
     --cell-pad: 8px;
@@ -50,7 +50,7 @@
     --ok-bg: oklch(0.32 0.05 155);
     --warn-bg: oklch(0.33 0.05 80);
     --danger-bg: oklch(0.32 0.05 27);
-    --vacation-bg: oklch(0.32 0.05 300);
+    --vacation-bg: oklch(0.32 0.05 340);
     --shadow: 0 1px 2px oklch(0 0 0 / 0.3), 0 4px 16px oklch(0 0 0 / 0.3);
     --glass-border: color-mix(in oklab, white 10%, transparent);
   }
@@ -753,6 +753,18 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return data || [];
       } catch (e) {
         console.warn('DB fetchEmployeeRequests failed:', e.message);
+        return null;
+      }
+    },
+    // תגובות עובדים לסידור שפורסם (✓ אישור + הערה חופשית אחת לחודש) — העובד כותב, המשבץ קורא בלבד
+    async fetchScheduleResponses() {
+      if (!client) return null;
+      try {
+        const { data, error } = await client.from('schedule_responses').select('*');
+        if (error) throw error;
+        return data || [];
+      } catch (e) {
+        console.warn('DB fetchScheduleResponses failed:', e.message);
         return null;
       }
     },
@@ -2140,10 +2152,10 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
   // גרירת משמרת (סידור מחדש) פעילה בתא הזה
   const slotDragActive = slotDragKey != null;
   const isBeingDragged = slotDragKey === slotKey;
-  // עובד שנגרר ל-slot זה חסום (ביקש לא זמין) — מונעים שיבוץ
+  // עובד שנגרר ל-slot זה חסום (ביקש לא זמין) — מונעים שיבוץ, אלא אם "שיבוץ חופשי" דלוק
   const slotAv = !slotDragActive && draggingEmp
     ? window.ShiftData?.availabilityOn(draggingEmp, dStr, shift.id) : null;
-  const blocked = slotAv === 'unavailable';
+  const blocked = slotAv === 'unavailable' && !window.ShiftData?.freeAssignMode;
   const preferred = slotAv === 'high';
   // מצב מיקוד עובד
   let focusCls = '';
@@ -2164,7 +2176,7 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
     if (payload.kind === 'slot') { if (onSlotDropReorder) onSlotDropReorder(); return; }
     if (atCapacity) return;
     if (payload.kind === 'emp') {
-      if (window.ShiftData?.availabilityOn(payload.empId, dStr, shift.id) === 'unavailable') return;
+      if (!window.ShiftData?.freeAssignMode && window.ShiftData?.availabilityOn(payload.empId, dStr, shift.id) === 'unavailable') return;
       onAssign(dStr, shift.id, payload.empId);
     } else if (payload.kind === 'chip') onMoveChip(payload.from, { dStr, shiftId: shift.id }, payload.empId, e.shiftKey);
   };
@@ -2947,7 +2959,7 @@ ${editable ? '' : 'שים לב: הסידור נעול כרגע לעריכה — 
 }
 
 // ---- חלונית צד ראשית ----
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey, employees, onEmployeesChange, onAssign, onRemove, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, prefs }) {
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey, employees, onEmployeesChange, onAssign, onRemove, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
   const [shiftFilter, setShiftFilter] = React.useState('all');
@@ -3085,6 +3097,13 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
                     extraBadge={<>
                       {assigned && <span className="assigned-badge">משובץ ✓</span>}
                       {managerNotes?.[emp.id] && <span title={'הערה למשבץ: ' + managerNotes[emp.id]} style={{fontSize:11}}>📌</span>}
+                      {responses?.[emp.id]?.approved && (
+                        <span title={'אישר.ה את הסידור' + (responses[emp.id].respondedAt ? (' · ' + new Date(responses[emp.id].respondedAt).toLocaleString('he-IL')) : '')}
+                          style={{fontSize:11,color:'var(--ok)',fontWeight:800}}>✓ אישר.ה</span>
+                      )}
+                      {responses?.[emp.id]?.note && (
+                        <span title={'הערת ' + emp.name + ' על הסידור: ' + responses[emp.id].note} style={{fontSize:12}}>💬</span>
+                      )}
                       {!compliesWithPrefs(emp) && (
                         <span title="שובץ במשמרת שישי/שבת/לילה באמצע השבוע שסימן/ה שלא רוצה" style={{fontSize:10.5,fontWeight:700,color:'var(--danger)'}}>⚠ לא תואם העדפות</span>
                       )}
@@ -3781,6 +3800,41 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
 }
 
 // ---- ApprovePendingModal ----
+// מודל "אישור ופרסום" — מאפשר להגדיר מועד אחרון (רשות) לתגובת עובדים לסידור.
+// נשמר ב-shift_settings._finalAt; מוצג באפליקציית העובד כספירה לאחור במסך הבית,
+// לצד אישור/הערה שהעובד נותן במסך "הסידור" (ScheduleResponseBox).
+function PublishFinalAtModal({ onClose, onConfirm }) {
+  const [finalAt, setFinalAt] = React.useState('');
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{maxWidth:420}} onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2 className="modal-title">אישור ופרסום</h2>
+          <button className="icon-btn" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body" style={{display:'flex',flexDirection:'column',gap:14}}>
+          <div className="field">
+            <label className="field-label">מועד אחרון להערות/אישור מהעובדים <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
+            <input type="datetime-local"
+              style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
+              value={finalAt} onChange={e => setFinalAt(e.target.value)} />
+            <span className="field-hint" style={{display:'block',marginTop:4}}>יוצג לעובדים כספירה לאחור באפליקציה שלהם, לצד אפשרות לאשר את הסידור או להעיר הערה. השארה ריקה = בלי מועד/ספירה לאחור.</span>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <span></span>
+          <div className="modal-actions">
+            <button className="btn" onClick={onClose}>ביטול</button>
+            <button className="btn btn-primary" onClick={() => onConfirm(finalAt ? new Date(finalAt).toISOString() : null)}>
+              אישור ופרסום
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ApprovePendingModal({ pending, COLORS, onClose, onApproved }) {
   const [appName, setAppName] = React.useState(pending.name || '');
   const [appRole, setAppRole] = React.useState('');
@@ -4146,6 +4200,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
     un:   { bg: 'var(--danger-bg)', bd: '1.5px solid color-mix(in oklab, var(--danger) 50%, transparent)', fg: 'var(--danger)' },
     high: { bg: 'var(--ok-bg)',     bd: '1.5px solid color-mix(in oklab, var(--ok) 50%, transparent)',     fg: 'var(--ok)' },
     can:  { bg: 'var(--warn-bg)',   bd: '1.5px solid color-mix(in oklab, var(--warn) 50%, transparent)',   fg: 'var(--warn)' },
+    vacation: { bg: 'var(--vacation-bg)', bd: '1.5px solid color-mix(in oklab, var(--vacation) 50%, transparent)', fg: 'var(--vacation)' },
     iron: { bg: 'color-mix(in oklab, oklch(0.45 0.18 300) 15%, transparent)', bd: '1.5px solid oklch(0.45 0.18 300)', fg: 'oklch(0.45 0.18 300)' },
     none: { bg: 'var(--surface)',   bd: '1px solid var(--line)',   fg: 'var(--ink)' },
   };
@@ -4174,8 +4229,9 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
     apply(entry?.unavailable, 'un');
     apply(entry?.high, 'high');
     apply(entry?.can, 'can');
+    apply(entry?.vacation, 'vacation');
     return m;
-  }, [entry?.unavailable, entry?.high, entry?.can]);
+  }, [entry?.unavailable, entry?.high, entry?.can, entry?.vacation]);
 
   const commitMarks = (newMarks) => {
     const toDates = (targetMark) => {
@@ -4186,14 +4242,14 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
       });
       return out.sort();
     };
-    onUpdate(emp.id, { unavailable: toDates('un'), high: toDates('high'), can: toDates('can') });
+    onUpdate(emp.id, { unavailable: toDates('un'), high: toDates('high'), can: toDates('can'), vacation: toDates('vacation') });
   };
 
   const tapDay = (dStr) => {
     setSelDay(dStr);
     if (brush === 'view') return;
     const cur = marks[dStr];
-    if (cur && typeof cur === 'object' && brush !== 'erase') return;
+    if (cur && typeof cur === 'object' && brush !== 'erase' && brush !== 'vacation') return;
     const newMarks = { ...marks };
     if (brush === 'erase') delete newMarks[dStr];
     else newMarks[dStr] = brush;
@@ -4229,7 +4285,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
   const analyzed = entry && entry.analyzedAt;
   const text = entry?.text || '';
   const stale = analyzed && (entry.analyzedText || '') !== text.trim();
-  const hasDates = entry && ((entry.unavailable || []).length || (entry.high || []).length || (entry.can || []).length);
+  const hasDates = entry && ((entry.unavailable || []).length || (entry.high || []).length || (entry.can || []).length || (entry.vacation || []).length);
 
   const allShifts = React.useMemo(() => {
     const seen = new Set();
@@ -4361,7 +4417,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
       {/* Brush mode */}
       <div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0,background:'var(--surface)',borderRadius:8,padding:'6px 10px',border:'1px solid var(--line)'}}>
         <span style={{fontSize:11,color:'var(--ink-3)',flexShrink:0,marginInlineEnd:3}}>סמן:</span>
-        {[['view','👁 צפייה','var(--surface)','var(--ink)'],['erase','✕ מחק','var(--surface)','var(--ink)'],['un','לא זמין','var(--danger-bg)','var(--danger)'],['high','מבקש לעבוד','var(--ok-bg)','var(--ok)']].map(([mode,label,bg,fg]) => {
+        {[['view','👁 צפייה','var(--surface)','var(--ink)'],['erase','✕ מחק','var(--surface)','var(--ink)'],['un','לא זמין','var(--danger-bg)','var(--danger)'],['high','מבקש לעבוד','var(--ok-bg)','var(--ok)'],['vacation','🏖️ חופשה','var(--vacation-bg)','var(--vacation)']].map(([mode,label,bg,fg]) => {
           const active = brush === mode;
           return (
             <button key={mode} onClick={() => setBrush(b => b === mode ? 'view' : mode)} style={{
@@ -4374,6 +4430,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
         {hasDates && (
           <span style={{marginInlineStart:'auto',fontSize:11,color:'var(--ink-3)'}}>
             {(entry.unavailable||[]).length} לא זמין · {(entry.high||[]).length} מבקש
+            {(entry.vacation||[]).length > 0 && <> · {entry.vacation.length} חופשה</>}
           </span>
         )}
       </div>
@@ -4406,7 +4463,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
                 const dayNum = Number(dStr.slice(8));
                 return (
                   <div key={dStr} onClick={() => tapDay(dStr)} style={{
-                    aspectRatio:'1',borderRadius:7,
+                    position:'relative',aspectRatio:'1',borderRadius:7,
                     background: inCurMonth ? s.bg : (v ? s.bg : 'var(--bg)'),
                     border: isSel ? '2px solid var(--ink)' : (inCurMonth ? s.bd : '1px dashed var(--line)'),
                     color: inCurMonth ? s.fg : (v ? s.fg : 'var(--ink-3)'),
@@ -4415,6 +4472,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
                     fontSize:12,fontWeight:inCurMonth ? 700 : 500,cursor:'pointer',
                     transition:'background 0.1s,border 0.1s',opacity:inCurMonth ? 1 : 0.7,
                   }}>
+                    {v === 'vacation' && <span style={{position:'absolute',top:1,insetInlineStart:2,fontSize:7}}>🏖️</span>}
                     <span>{dayNum}</span>
                     {dots.length > 0 && (
                       <span style={{display:'flex',gap:1}}>
@@ -4432,6 +4490,7 @@ function RequestDetailPanel({ emp, entry, altOptions, month, openRange, onUpdate
               ['var(--danger-bg)','color-mix(in oklab, var(--danger) 50%, transparent)','לא זמין'],
               ['var(--ok-bg)','color-mix(in oklab, var(--ok) 50%, transparent)','מבקש לעבוד'],
               ['var(--warn-bg)','color-mix(in oklab, var(--warn) 50%, transparent)','גמיש / יכול'],
+              ['var(--vacation-bg)','color-mix(in oklab, var(--vacation) 50%, transparent)','🏖️ חופשה'],
             ].map(([bg, bd, label]) => (
               <div key={label} style={{display:'flex',alignItems:'center',gap:6}}>
                 <span style={{width:16,height:16,borderRadius:4,background:bg,border:`1.5px solid ${bd}`,flexShrink:0,display:'inline-block'}} />
@@ -4863,6 +4922,7 @@ ${shiftsDesc}
         unavailable: entry.unavailable || [],
         high: entry.high || [],
         can: entry.can || [],
+        vacation: entry.vacation || [],
         note: entry.note || '',
         updated_at: new Date().toISOString(),
         updated_by: 'manager',
@@ -4924,7 +4984,7 @@ ${shiftsDesc}
           )}
           {employees.map(emp => {
             const entry = entryOf(emp.id);
-            const hasDates = entry && ((entry.unavailable||[]).length || (entry.high||[]).length || (entry.can||[]).length);
+            const hasDates = entry && ((entry.unavailable||[]).length || (entry.high||[]).length || (entry.can||[]).length || (entry.vacation||[]).length);
             const fromEmployee = entry?.fromEmployee;
             const analyzed = entry?.analyzedAt;
             const hasText = entry?.text?.trim();
@@ -5306,7 +5366,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
       </div>
       <div style={{padding:'0 28px 28px',display:'flex',flexDirection:'column',gap:22,maxWidth:760}}>
         <div style={{fontSize:'12.5px',color:'var(--ink-3)',lineHeight:1.6}}>
-          רשימה מלאה ומדויקת של התנאים שקבועים בקוד מנוע השיבוץ האוטומטי (⚙ מחשב / ✦⚙ חכם / ✦ AI). לכל תנאי יש toggle — כיבוי מנטרל אותו בפועל בהרצה הבאה של השיבוץ האוטומטי. שיבוץ ידני תמיד יכול לעקוף כל תנאי קשיח, גם כשהוא דלוק; המנוע האוטומטי אוכף רק תנאים דלוקים.
+          רשימה מלאה ומדויקת של התנאים שקבועים בקוד מנוע השיבוץ האוטומטי (⚙ מחשב / ✦⚙ חכם / ✦ AI). לכל תנאי יש toggle — כיבוי מנטרל אותו בפועל בהרצה הבאה של השיבוץ האוטומטי. שיבוץ ידני (גרירה/צ'אט AI) כבר עוקף בפועל את רוב התנאים הקשיחים כאן (מכסה, מנוחה, העדפות סוף שבוע וכו') — התנאי היחיד שנאכף גם בשיבוץ ידני הוא "לא יכול"; אפשר לעקוף גם אותו זמנית עם כפתור "🔓 שיבוץ חופשי" בסרגל הכלים.
         </div>
         <div>
           <div className="settings-sec-title" style={{marginBottom:10}}>🚫 חוקים קשיחים — חוסמים לגמרי בשיבוץ האוטומטי</div>
@@ -5765,6 +5825,9 @@ function App() {
   // מהמשבץ), רק לתצוגה בכרטיס הבקשות. { [empId]: { [month]: { [rank]: row } } }. לא נשמר
   // ב-mishmarot_state — תמיד נטען מחדש מ-employee_requests, כמו requests עצמו.
   const [altRequests, setAltRequests] = React.useState({});
+  // תגובות עובדים לסידור שפורסם: { [empId]: { [month]: { approved, note, respondedAt } } } —
+  // קריאה בלבד כאן, לא נשמר ב-mishmarot_state, תמיד נטען מחדש מ-schedule_responses
+  const [scheduleResponses, setScheduleResponses] = React.useState({});
   // העדפות עובד (employee_prefs) — יעד משמרות/שבוע בימי חול, ואילו משמרות סוף שבוע העובד עושה.
   // חי בטבלה ייעודית, לא ב-state הכללי, כדי שעריכה מהעובד לא תיחסם ע"י שמירה חוזרת מהמשבץ
   const [prefs, setPrefs] = React.useState({});
@@ -5785,6 +5848,11 @@ function App() {
     biasWeeklyTarget: true, biasShabbatFrequency: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
   };
   const [ruleToggles, setRuleToggles] = React.useState(() => ({ ...DEFAULT_RULE_TOGGLES, ...(saved?.ruleToggles || {}) }));
+  // "שיבוץ חופשי" — הפעלה זמנית (לא נשמרת בין רענונים, בכוונה — כדי שלא תישאר דלוקה בטעות)
+  // שמאפשרת שיבוץ ידני (גרירה/AI-צ'אט) גם למשמרת שהעובד סימן "לא יכול" בה, בלי לשנות את
+  // הבקשה המקורית שהוגשה. לא משפיעה על האלגוריתם האוטומטי (⚙/✦), רק על שיבוץ ידני.
+  const [freeAssignMode, setFreeAssignMode] = React.useState(false);
+  React.useEffect(() => { window.ShiftData.freeAssignMode = freeAssignMode; }, [freeAssignMode]);
   // כפתורי סרגל כלים מוסתרים — ברירת מחדל: מחשב/שבץ AI/ערוך טווח מוסתרים, ניתן להחזיר בהגדרות (⚙)
   const TOOLBAR_BUTTON_DEFS = [
     { id: 'runAlgo', label: '⚙ מחשב' },
@@ -5803,6 +5871,7 @@ function App() {
   const [focusedEmpId, setFocusedEmpId] = React.useState(null);
   const [modalOpen, setModalOpen] = React.useState(false);
   const [modalMode, setModalMode] = React.useState('create'); // 'create' | 'edit' (עריכת טווח לטיוטה הפעילה)
+  const [publishModalOpen, setPublishModalOpen] = React.useState(false);
   const [logOpen, setLogOpen] = React.useState(false);
   const [screen, setScreen] = React.useState('calendar');
   const [shiftsDrawerOpen, setShiftsDrawerOpen] = React.useState(false);
@@ -5905,6 +5974,7 @@ function App() {
       refreshEmployeeRequests();
       refreshEmployeePrefs();
       refreshAllRecurring();
+      refreshScheduleResponses();
       // סנכרון מפתח Anthropic ל-Supabase אם קיים ב-localStorage (למען אפליקציית העובדים)
       const existingKey = localStorage.getItem('anthropic-api-key');
       if (existingKey) window.__db.saveAnthropicKey(existingKey);
@@ -5988,10 +6058,23 @@ function App() {
     setAllRecurring(rows || []);
   }, []);
 
+  // תגובות עובדים לסידור שפורסם (✓ אישור + הערה) — קריאה בלבד, העובד כותב מהאפליקציה שלו
+  const refreshScheduleResponses = React.useCallback(async () => {
+    if (!dbAvailable.current || !window.__db.fetchScheduleResponses) return;
+    const rows = await window.__db.fetchScheduleResponses();
+    if (!rows) return;
+    const next = {};
+    rows.forEach(r => {
+      next[r.emp_id] = next[r.emp_id] || {};
+      next[r.emp_id][r.month] = { approved: !!r.approved, note: r.note || '', respondedAt: r.responded_at };
+    });
+    setScheduleResponses(next);
+  }, []);
+
   React.useEffect(() => {
-    const t = setInterval(() => { refreshEmployeeRequests(); refreshEmployeePrefs(); refreshAllRecurring(); }, 60000);
+    const t = setInterval(() => { refreshEmployeeRequests(); refreshEmployeePrefs(); refreshAllRecurring(); refreshScheduleResponses(); }, 60000);
     return () => clearInterval(t);
-  }, [refreshEmployeeRequests, refreshEmployeePrefs, refreshAllRecurring]);
+  }, [refreshEmployeeRequests, refreshEmployeePrefs, refreshAllRecurring, refreshScheduleResponses]);
 
   // סנכרון רשימת העובדים לטבלת app_employees — כך אפליקציית העובדים מזהה עובד לפי אימייל
   React.useEffect(() => {
@@ -6644,8 +6727,9 @@ ${JSON.stringify(emptySlots, null, 2)}
   };
   const setDraftStatus = (id, s) => updateDraft(id, () => ({ status: s }));
 
-  // אישור ופרסום — מפרסם את הסידור גם לאפליקציית העובדים (published_schedules)
-  const publishDraft = (id) => {
+  // אישור ופרסום — מפרסם את הסידור גם לאפליקציית העובדים (published_schedules).
+  // finalAt (רשות, ISO) — מועד אחרון לתגובת עובדים, מוצג כספירה לאחור אצלם
+  const publishDraft = (id, finalAt) => {
     const d = drafts.find(x => x.id === id);
     setDraftStatus(id, 'final');
     if (d && dbAvailable.current && window.__db.publishSchedule) {
@@ -6653,7 +6737,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       window.__db.publishSchedule({
         month: d.month,
         schedule: d.schedule,
-        shift_settings: cleanSettings,
+        shift_settings: { ...cleanSettings, _finalAt: finalAt || null },
         employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
         published_at: new Date().toISOString(),
       });
@@ -6705,7 +6789,7 @@ ${JSON.stringify(emptySlots, null, 2)}
 
   const assign = (dStr, shiftId, empId) => {
     if (!activeDraftId) return;
-    if (AD.availabilityOn(empId, dStr, shiftId) === 'unavailable') return;
+    if (!AD.freeAssignMode && AD.availabilityOn(empId, dStr, shiftId) === 'unavailable') return;
     updateDraft(activeDraftId, d => {
       const day = { ...(d.schedule[dStr] || {}) };
       const cur = day[shiftId] || [];
@@ -6837,6 +6921,11 @@ ${JSON.stringify(emptySlots, null, 2)}
                 {!hiddenButtons.includes('runAlgo') && (
                   <button className="btn" onClick={runAlgo} disabled={isGenerating} title="שיבוץ מהיר ללא AI">⚙ מחשב</button>
                 )}
+                <button className="btn" onClick={() => setFreeAssignMode(v => !v)}
+                  style={freeAssignMode ? {background:'var(--danger)',borderColor:'var(--danger)',color:'#FFF'} : {}}
+                  title='שיבוץ ידני (גרירה / צ&quot;אט AI) יתעלם מ"לא יכול" של העובד, בלי לשנות את הבקשה שהוגש — כבו כשסיימתם'>
+                  {freeAssignMode ? '🔓 שיבוץ חופשי — דלוק' : '🔒 שיבוץ חופשי'}
+                </button>
               </>)}
               {(status === 'draft' || status === 'open') && !hiddenButtons.includes('editRange') && (
                 <button className="btn" onClick={() => { setModalMode('edit'); setModalOpen(true); }} disabled={isGenerating}
@@ -6846,7 +6935,7 @@ ${JSON.stringify(emptySlots, null, 2)}
                 <button className="btn" style={{borderColor:'oklch(0.38 0.14 200)',color:'oklch(0.38 0.14 200)'}} onClick={() => openForRequests(activeDraftId)}>📤 פתח לבקשות</button>
               )}
               {(status === 'draft' || status === 'open') && (
-                <button className="btn btn-final" onClick={() => publishDraft(activeDraftId)}>אישור ופרסום</button>
+                <button className="btn btn-final" onClick={() => setPublishModalOpen(true)}>אישור ופרסום</button>
               )}
               {status === 'final' && vapidPublicKey && (
                 <button className="btn" style={{borderColor:'oklch(0.55 0.18 300)',color:'oklch(0.45 0.18 300)'}}
@@ -6879,6 +6968,11 @@ ${JSON.stringify(emptySlots, null, 2)}
       )}
       {screen === 'calendar' && status === 'final' && (
         <div className="final-banner">הסידור פורסם לעובדים והוא נעול לעריכה. לחצו ״חזרה לעריכה״ כדי לבצע שינויים.</div>
+      )}
+      {screen === 'calendar' && freeAssignMode && (
+        <div className="final-banner" style={{background:'var(--danger-bg)',color:'var(--danger)',fontWeight:700}}>
+          🔓 שיבוץ חופשי דלוק — גרירה או שיבוץ דרך צ'אט AI יתעלמו מ"לא יכול" של העובדים. לא נשמר בין רענונים; כבו כשסיימתם.
+        </div>
       )}
 
       {screen === 'requests' && (
@@ -6969,6 +7063,7 @@ ${JSON.stringify(emptySlots, null, 2)}
               onAssign={assign} onRemove={remove}
               focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift}
               managerNotes={Object.fromEntries(employees.map(e => [e.id, requests[e.id]?.[currentMonth]?.managerNote || '']).filter(([, n]) => n))}
+              responses={Object.fromEntries(employees.map(e => [e.id, scheduleResponses[e.id]?.[currentMonth]]).filter(([, r]) => r))}
               prefs={prefs} />
           </main>
         )}
@@ -7025,6 +7120,12 @@ ${JSON.stringify(emptySlots, null, 2)}
       <window.CriteriaGateModal gate={criteriaGate}
         onCancel={() => setCriteriaGate(null)}
         onProceed={() => { const fn = criteriaGate?.proceed; setCriteriaGate(null); if (fn) fn(); }} />
+      {publishModalOpen && (
+        <PublishFinalAtModal
+          onClose={() => setPublishModalOpen(false)}
+          onConfirm={(finalAt) => { setPublishModalOpen(false); publishDraft(activeDraftId, finalAt); }}
+        />
+      )}
       {pendingApproveModal && (
         <ApprovePendingModal
           pending={pendingApproveModal}

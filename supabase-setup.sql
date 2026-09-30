@@ -260,3 +260,24 @@ alter table employee_requests
 
 alter table employee_requests drop constraint if exists employee_requests_pkey;
 alter table employee_requests add primary key (emp_id, month, option_rank);
+
+-- 16. תגובת עובד לסידור שפורסם — סימון כללי אחד לכל חודש (✓ אישור + הערה חופשית אחת),
+--     לא לפי משמרת. העובד כותב מאפליקציית העובד (מסך "הסידור"); המשבץ קורא בלבד וקוראה
+--     מוצפת ליד שמו של העובד ברשימת הצד במסך הסידור הראשי (💬 הערה, ✓ אישר.ה).
+create table if not exists schedule_responses (
+  emp_id       text not null,
+  month        text not null,               -- 'YYYY-MM'
+  approved     boolean not null default false,
+  note         text not null default '',
+  responded_at timestamptz,
+  primary key (emp_id, month)
+);
+
+alter table schedule_responses enable row level security;
+drop policy if exists "open access" on schedule_responses;
+create policy "open access" on schedule_responses
+  for all to anon, authenticated using (true) with check (true);
+
+-- 17. מועד אחרון (רשות) לתגובת עובדים לסידור, נקבע ע"י המשבץ בעת "אישור ופרסום" —
+--     נשמר בתוך published_schedules.shift_settings._finalAt (ISO timestamp או null),
+--     לא עמודה נפרדת. מוצג לעובד כספירה לאחור במסך הבית באפליקציה שלו.

@@ -905,6 +905,7 @@ function App() {
   });
   const [allReqs, setAllReqs] = React.useState({});          // { 'YYYY-MM': { emp_id: row } } — כל העובדים
   const [swaps, setSwaps] = React.useState([]);               // כל בקשות החילוף (shift_swap_requests)
+  const [myResponses, setMyResponses] = React.useState({});   // { 'YYYY-MM': { approved, note, respondedAt } } — התגובה שלי לסידור שפורסם
   const [mgrEmps, setMgrEmps] = React.useState([]);          // כרטיסי העובדים מהמשבץ (max, no_weekday_nights ממוזג מ-employee_prefs)
   const [swapSettings, setSwapSettings] = React.useState(DEFAULT_SWAP_SETTINGS);
   const [recurring, setRecurring] = React.useState([]);       // בקשות קבועות (employee_recurring_requests)
@@ -934,6 +935,19 @@ function App() {
   }, []);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
+  // תגובה לסידור שפורסם — סימון כללי אחד לחודש (✓ אישור + הערה חופשית), לא לפי משמרת
+  const saveResponse = async (month, patch) => {
+    const row = {
+      emp_id: me.id, month,
+      approved: patch.approved ?? (myResponses[month]?.approved || false),
+      note: patch.note ?? (myResponses[month]?.note || ''),
+      responded_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from('schedule_responses').upsert(row);
+    if (error) { console.error(error); showToast('שגיאה בשמירת התגובה — נסו שוב'); return; }
+    setMyResponses(prev => ({ ...prev, [month]: { approved: row.approved, note: row.note, respondedAt: row.responded_at } }));
+    showToast('התגובה נשמרה ✓');
+  };
   const refreshSwaps = React.useCallback(() => {
     sb.from('shift_swap_requests').select('*').order('created_at', { ascending: false })
       .then(({ data }) => setSwaps(data || [])).catch(() => {});
@@ -1002,7 +1016,7 @@ function App() {
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
 
-      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }, { data: recurRows }, { data: prefRow }, { data: allPrefRows }] = await Promise.all([
+      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }, { data: recurRows }, { data: prefRow }, { data: allPrefRows }, { data: respRows }] = await Promise.all([
         sb.from('published_schedules').select('*'),
         sb.from('employee_requests').select('*'),
         sb.from('mishmarot_state').select('data').eq('id', 'main').maybeSingle(),
@@ -1010,10 +1024,14 @@ function App() {
         sb.from('employee_recurring_requests').select('*').eq('emp_id', mine.id).order('weekday', { ascending: true }),
         sb.from('employee_prefs').select('*').eq('emp_id', mine.id).maybeSingle(),
         sb.from('employee_prefs').select('emp_id,no_weekday_nights'),
+        sb.from('schedule_responses').select('*').eq('emp_id', mine.id),
       ]);
       if (e2) throw e2;
       if (e3) throw e3;
       setSwaps(swapRows || []);
+      const respMap = {};
+      (respRows || []).forEach(r => { respMap[r.month] = { approved: !!r.approved, note: r.note || '', respondedAt: r.responded_at }; });
+      setMyResponses(respMap);
       setRecurring(recurRows || []);
       setMyPrefs(prefRow || { weekday_shifts_per_week: 2, no_weekday_nights: false, wants_friday_short: true, wants_friday_long: true, wants_shabbat_long: true, wants_saturday_short: true });
       // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
@@ -1233,6 +1251,7 @@ function App() {
       {tab === 'home' && <HomeTab me={me} empNames={empNames} published={published} TM={TM} swaps={swaps} goSched={() => setTab('schedule')} goReq={() => setTab('requests')} goSwaps={() => setTab('swaps')}
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'schedule' && <ScheduleTab me={me} empNames={empNames} published={published} TM={TM} serverReqs={serverReqs} goReq={() => setTab('requests')}
+        myResponses={myResponses} onSaveResponse={saveResponse}
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey}
@@ -2223,6 +2242,27 @@ function SwapBanner({ items, empNames, published, goSwaps }) {
   );
 }
 
+// ספירה לאחור עד מועד אחרון (רשות) שהמשבץ קבע לתגובת עובדים לסידור — מתעדכנת כל דקה
+function CountdownChip({ finalAt }) {
+  const [, forceTick] = React.useState(0);
+  React.useEffect(() => {
+    const t = setInterval(() => forceTick(x => x + 1), 60000);
+    return () => clearInterval(t);
+  }, []);
+  const ms = new Date(finalAt).getTime() - Date.now();
+  if (ms <= 0) return null;
+  const totalMin = Math.floor(ms / 60000);
+  const days = Math.floor(totalMin / (60 * 24));
+  const hours = Math.floor((totalMin % (60 * 24)) / 60);
+  const mins = totalMin % 60;
+  const label = days > 0 ? `${days} ימים ו-${hours} שעות` : hours > 0 ? `${hours} שעות ו-${mins} דק'` : `${mins} דק'`;
+  return (
+    <span style={{ fontSize: 12, fontWeight: 800, background: 'oklch(0.94 0.06 25)', color: 'oklch(0.42 0.16 25)', borderRadius: 999, padding: '4px 12px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+      ⏱ {label} להגיב
+    </span>
+  );
+}
+
 function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, onOpenShift }) {
   const today = todayStr();
   const relOf = (off) => off === 0 ? 'היום' : off === 1 ? 'מחר' : `בעוד ${off} ימים`;
@@ -2256,6 +2296,22 @@ function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, 
   const openMarket = (swaps || []).filter(r => r.status === 'open' && (r.kind === 'full' || r.kind === 'partial'))
     .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 
+  // מועד אחרון (רשות) שהמשבץ קבע לתגובת עובדים לסידור — הקרוב ביותר מבין כל החודשים
+  // שפורסמו בפועל (לא "פתוח לבקשות") ועדיין לא עבר
+  const soonestDeadline = React.useMemo(() => {
+    const now = Date.now();
+    let best = null;
+    Object.entries(published).forEach(([m, row]) => {
+      const finalAt = row?.shift_settings?._finalAt;
+      const status = row?.shift_settings?._status;
+      if (!finalAt || status === 'open') return;
+      const t = new Date(finalAt).getTime();
+      if (!(t > now)) return;
+      if (!best || t < best.t) best = { month: m, finalAt, t };
+    });
+    return best;
+  }, [published]);
+
   return (
     <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 14, animation: 'fadeIn 0.25s' }}>
       <div style={{ fontSize: 24, fontWeight: 900 }}>שלום, {firstName}</div>
@@ -2285,6 +2341,13 @@ function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, 
         <div style={{ background: INK, color: '#FFF', borderRadius: 18, padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 800, color: 'color-mix(in oklab, #41ABC3 45%, white)' }}>המשמרת הקרובה שלך</span>
           <span style={{ fontSize: 18, fontWeight: 800 }}>אין משמרות קרובות בסידור שפורסם</span>
+        </div>
+      )}
+
+      {soonestDeadline && (
+        <div onClick={goSched} style={{ background: 'oklch(0.97 0.03 25)', border: '1px solid color-mix(in oklab, oklch(0.6 0.15 25) 30%, white)', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, cursor: 'pointer' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'oklch(0.42 0.16 25)' }}>יש זמן להגיב לסידור {monthName(soonestDeadline.month)}</span>
+          <CountdownChip finalAt={soonestDeadline.finalAt} />
         </div>
       )}
 
@@ -2330,7 +2393,45 @@ function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, 
 }
 
 /* ============ טאב הסידור ============ */
-function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, onOpenShift }) {
+// תגובת עובד לסידור שפורסם — ✓ אישור + הערה חופשית אחת לחודש (לא לפי משמרת). המשבץ
+// רואה זאת רק לקריאה, מוצף ליד שם העובד במסך הסידור הראשי שלו (💬 הערה, ✓ אישר.ה).
+function ScheduleResponseBox({ month, response, onSave }) {
+  const [note, setNote] = React.useState(response?.note || '');
+  const [saving, setSaving] = React.useState(false);
+  React.useEffect(() => { setNote(response?.note || ''); }, [month]);
+  const approved = !!response?.approved;
+  const dirty = note !== (response?.note || '');
+  const doSave = async (patch) => {
+    if (saving) return;
+    setSaving(true);
+    await onSave(month, patch);
+    setSaving(false);
+  };
+  return (
+    <div style={{ background: '#FFF', border: '1px solid #EAE7E1', borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontSize: 13, fontWeight: 800 }}>התגובה שלך לסידור</div>
+      <div onClick={() => doSave({ approved: !approved, note })} style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, cursor: saving ? 'default' : 'pointer',
+        background: approved ? 'oklch(0.94 0.06 155)' : '#F7F6F3', border: approved ? '1.5px solid oklch(0.6 0.13 155)' : '1.5px solid #D8D4CE',
+        color: approved ? 'oklch(0.4 0.12 155)' : '#6B6760', fontWeight: 800, fontSize: 13.5, transition: 'background 0.15s, border 0.15s' }}>
+        <span>{approved ? '✓' : '○'}</span>
+        <span>{approved ? 'אישרת את הסידור' : 'מאשר.ת את הסידור'}</span>
+        {response?.respondedAt && approved && <span style={{ marginInlineStart: 'auto', fontSize: 11, fontWeight: 600, color: '#8A867F' }}>{fmtSentAt(response.respondedAt)}</span>}
+      </div>
+      <textarea placeholder="הערה על הסידור (רשות) — יוצג למשבץ"
+        value={note} onChange={e => setNote(e.target.value)}
+        style={{ border: '1.5px solid #D8D4CE', borderRadius: 10, padding: '10px 12px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 60, font: 'inherit' }} />
+      {dirty && (
+        <div onClick={() => doSave({ note, approved })} style={{
+          alignSelf: 'flex-start', fontSize: 12.5, fontWeight: 700, color: TEAL_DARK, cursor: saving ? 'default' : 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+          {saving ? 'שומר…' : 'שמירת הערה'}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, myResponses, onSaveResponse, onOpenShift }) {
   const months = React.useMemo(() => {
     const set = new Set([TM, addMonths(TM, 1), ...Object.keys(published)]);
     return [...set].sort();
@@ -2402,6 +2503,10 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, onOpenShi
         <div style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 800, color: TEAL_DARK, background: TEAL_SOFT, borderRadius: 999, padding: '5px 12px' }}>
           {myCount} משמרות החודש · {nightCount === 1 ? 'לילה אחד' : `${nightCount} לילות`}
         </div>
+
+        {pub.shift_settings?._status !== 'open' && (
+          <ScheduleResponseBox month={ym} response={myResponses?.[ym]} onSave={onSaveResponse} />
+        )}
 
         {view === 'grid' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

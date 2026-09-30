@@ -3109,6 +3109,17 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     setLocal({ marks, dirty: true });
   };
 
+  // קביעת סימון לכל משמרות היום בבת אחת מכרטיס הפירוט — דורס כל דיוק קודם לפי משמרת,
+  // בדיוק כמו הקשה על היום בלוח עם מברשת נבחרת (אבל בלי לצאת מכרטיס הפירוט)
+  const setWholeDayMark = (mark) => {
+    if (!editable) return;
+    const marks = { ...local.marks };
+    if (mark) marks[selDs] = mark;
+    else if (recurringPattern[weekdayOf(selDs)] !== undefined) marks[selDs] = null;
+    else delete marks[selDs];
+    setLocal({ marks, dirty: true });
+  };
+
   // אילו טיוטות אכן יישלחו: רק כאלה שיש להן נתונים מקומיים (נערכו/נוצרו במכשיר הזה).
   // טיוטה שקיימת רק בשרת (למשל הוגשה ממכשיר אחר ומעולם לא נפתחה כאן) לא נדרסת בטעות
   // בברירות מחדל ריקות — נשארת כפי שהיא עד שתיערך בפועל במכשיר הזה.
@@ -3606,6 +3617,31 @@ ${shiftsDesc}
                 <div style={{ fontSize: 11.5, color: 'oklch(0.45 0.18 300)', background: 'oklch(0.97 0.02 300)', borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔒 משמרת קבועה שהמשבץ סימן — אפשר לבטל ליום הזה בלבד באמצעות סימון "לא זמין"</div>
               ) : (
                 <div style={{ fontSize: 11.5, color: TEAL_DARK, background: TEAL_SOFT, borderRadius: 8, padding: '5px 9px', alignSelf: 'flex-start' }}>🔁 מהבקשה הקבועה שלך — שינוי כאן ישפיע רק על החודש הזה</div>
+              );
+            })()}
+            {editable && dayShifts.length > 1 && (() => {
+              const wholeCur = typeof effectiveMarks[selDs] === 'string' ? effectiveMarks[selDs] : null;
+              const CHIPS = [[null, '—'], ['un', 'לא'], ['high', 'מעדיף'], ['can', 'יכול']];
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: '#FFF', border: `1.5px solid ${INK}` }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap' }}>כל היום</span>
+                  <span style={{ fontSize: 11, color: '#8A867F', whiteSpace: 'nowrap' }}>כל המשמרות ביחד</span>
+                  <span style={{ display: 'flex', gap: 4, marginInlineStart: 'auto' }}>
+                    {CHIPS.map(([m, label]) => {
+                      const st = m ? MARK_STATUS[m] : { bg: '#FFF', bd: '1px solid #D8D4CE', fg: '#6B6760' };
+                      const active = wholeCur === m;
+                      return (
+                        <span key={label} onClick={() => setWholeDayMark(m)} style={{
+                          padding: '5px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 800,
+                          background: active ? st.bg : '#FFF', color: active ? st.fg : '#A09C94',
+                          border: active ? (m ? st.bd : `1.5px solid ${INK}`) : '1px solid #E7E4DF',
+                          cursor: 'pointer', transition: 'background 0.15s, border 0.15s' }}>
+                          {label}
+                        </span>
+                      );
+                    })}
+                  </span>
+                </div>
               );
             })()}
             {editable && <div style={{ fontSize: 12, color: '#8A867F' }}>דיוק לפי משמרת — בחרו סימון לכל משמרת בנפרד:</div>}

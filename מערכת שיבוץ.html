@@ -1353,11 +1353,19 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
     const schedule = {};
     const log = [];
-    const counts = {}; const hist = {}; const lastEnd = {};
+    const counts = {}; const hist = {}; const busy = {};
     // counts = החודש הנוכחי בלבד, ומולו נבדקת המכסה החודשית.
     // hist = משמרות מחודשים קודמים, ומשמש לאיזון עומסים בניקוד בלבד — הזרקתו
     // למונה החודשי הייתה חוסמת לאלתר כל מי שעבד בחודש שעבר.
-    D.EMPLOYEES.forEach((e) => { counts[e.id] = 0; hist[e.id] = initialCounts[e.id] || 0; lastEnd[e.id] = null; });
+    // busy = כל המשמרות ששובצו לעובד בהרצה הזו. המנוחה נבדקת מול כולן, לפני ואחרי — לא מול
+    // "המשמרת האחרונה" בלבד, כי מעבר השבתות משבץ קודם תאריכים מאוחרים בחודש.
+    D.EMPLOYEES.forEach((e) => { counts[e.id] = 0; hist[e.id] = initialCounts[e.id] || 0; busy[e.id] = []; });
+    const markBusy = (empId, iv) => { (busy[empId] = busy[empId] || []).push(iv); };
+    const restOk = (empId, t) => (busy[empId] || []).every((iv) => {
+      if (iv.end <= t.start) return gapHours(iv.end, t.start) >= MIN_REST_H;
+      if (iv.start >= t.end) return gapHours(t.end, iv.start) >= MIN_REST_H;
+      return false;
+    });
     // lastShabbat = התאריך האחרון שבו כל עובד שובץ ל"שבת ארוכה", כולל היסטוריה
     // שהתקבלה מבחוץ — משמש להטיית הניקוד לעבר מי שמגיע לו תור (ראו score()).
     const lastShabbat = { ...initialLastShabbat };
@@ -1387,7 +1395,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         if (shift.continuation) return;
         (schedule[dStr][shift.id] || []).forEach((empId) => {
           counts[empId] = (counts[empId] || 0) + 1;
-          lastEnd[empId] = D.personTimes(dStr, shift, empId).end;
+          markBusy(empId, D.personTimes(dStr, shift, empId));
           if (shift.id === 'shabbat') {
             if (!lastShabbat[empId] || dStr > lastShabbat[empId]) lastShabbat[empId] = dStr;
             const wk = weekKeyOf(dStr);
@@ -1478,7 +1486,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           }
           schedule[dStr][shift.id] = [...(schedule[dStr][shift.id] || []), empId];
           counts[empId] += 1;
-          lastEnd[empId] = t.end;
+          markBusy(empId, t);
           if (shift.id === 'shabbat') {
             lastShabbat[empId] = dStr;
             (shabbatWeeks[wk0] = shabbatWeeks[wk0] || new Set()).add(empId);
@@ -1501,7 +1509,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         const wk = wk0;
         const cands = D.EMPLOYEES.filter((e) => !alreadyIn.includes(e.id) && !hardBlocked(e));
         const clean = on('biasMidMonthRest')
-          ? cands.filter((e) => !lastEnd[e.id] || gapHours(lastEnd[e.id], t.start) >= MIN_REST_H)
+          ? cands.filter((e) => restOk(e.id, t))
           : cands;
         let pool = clean.length ? clean : cands;
         // מרחק מינימלי בין שבתות ארוכות — מועדף מאוד, לא חוסם לגמרי: אם זה משאיר
@@ -1595,7 +1603,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
 
         schedule[dStr][shift.id] = [...alreadyIn, best.id];
         counts[best.id] += 1;
-        lastEnd[best.id] = t.end;
+        markBusy(best.id, t);
         if (shift.id === 'shabbat') {
           lastShabbat[best.id] = dStr;
           (shabbatWeeks[wk] = shabbatWeeks[wk] || new Set()).add(best.id);

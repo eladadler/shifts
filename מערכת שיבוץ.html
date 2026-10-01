@@ -1347,7 +1347,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false, proposals = null }) {
     // כל תנאי דלוק כברירת מחדל — כבוי רק אם המשבץ כיבה אותו במפורש במסך "תנאי שיבוץ"
     const on = (key) => ruleToggles[key] !== false;
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
@@ -1427,11 +1427,12 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
 
     // מטפל בהקצאת עובדים למשמרת בודדת (dStr/shift) — משותף לשני המעברים למטה
     // mode: 'full' = ברזל + מילוי כל המקומות, 'iron' = ברזל בלבד, 'one' = מקום אחד בלי ברזל,
-    // 'count' = רק מחזיר כמה מועמדים כשירים יש כרגע למשמרת (לבחירת המשמרת הבאה למילוי)
-    function assignOne(dStr, shift, mode = 'full') {
+    // 'count' = רק מחזיר כמה מועמדים כשירים יש כרגע למשמרת (לבחירת המשמרת הבאה למילוי),
+    // 'propose' = משבץ את proposeEmp בלבד אם הוא עומד בכל החסימות (הצעות AI); מחזיר true/false
+    function assignOne(dStr, shift, mode = 'full', proposeEmp = null) {
       const required = shift.required || 1;
       const needed = required - (schedule[dStr][shift.id] || []).length;
-      if (needed <= 0) return;
+      if (needed <= 0) return false;
 
       const t = D.shiftTimes(dStr, shift);
 
@@ -1442,6 +1443,8 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       const hardBlocked = (e) => {
         // עובד לא יכול להיות בשתי משמרות חופפות בזמן — חסימה מוחלטת, לא תלויה באף תנאי
         if ((busy[e.id] || []).some((iv) => iv.start < t.end && t.start < iv.end)) return true;
+        // מנוחה מינימלית (8 ש׳) לפני ואחרי כל משמרת אחרת של העובד — חוסם; עדיף חור פתוח
+        if (on('biasMidMonthRest') && !restOk(e.id, t)) return true;
         // יעד משמרות/שבוע הוא תקרה: כל סוגי המשמרות נספרים (כולל שישי/שבת), שבוע = א׳-ש׳
         if (on('weeklyTargetCap') && (weekTotal[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return true;
         const av = D.availabilityOn(e.id, dStr, shift.id);
@@ -1484,9 +1487,27 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return false;
       };
 
+      const place = (empId) => {
+        schedule[dStr][shift.id] = [...(schedule[dStr][shift.id] || []), empId];
+        counts[empId] = (counts[empId] || 0) + 1;
+        markBusy(empId, t);
+        if (shift.id === 'shabbat') {
+          lastShabbat[empId] = dStr;
+          (shabbatWeeks[wk0] = shabbatWeeks[wk0] || new Set()).add(empId);
+        }
+        if (isWeekendShort(wdShift0, shift.id)) lastWeekendShort[empId] = dStr;
+        recordWeek(dStr, empId, shift.id);
+      };
+
       if (mode === 'count') {
         const inNow = schedule[dStr][shift.id] || [];
         return D.EMPLOYEES.filter((e) => !inNow.includes(e.id) && !hardBlocked(e)).length;
+      }
+      if (mode === 'propose') {
+        const e = D.EMPLOYEES.find((x) => x.id === proposeEmp);
+        if (!e || (schedule[dStr][shift.id] || []).includes(e.id) || hardBlocked(e)) return false;
+        place(e.id);
+        return true;
       }
 
       // משמרות ברזל (עובד קבוע חובה) — משובצים ראשונים, לפני התחרות הרגילה בין מועמדים.
@@ -1505,15 +1526,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             addLog('dilemma', `עובד ברזל ${e.name} לא ניתן לשיבוץ ל${shift.name} ב־${D.shortDate(dStr)} — נחסם ע"י תנאי אחר`);
             return;
           }
-          schedule[dStr][shift.id] = [...(schedule[dStr][shift.id] || []), empId];
-          counts[empId] += 1;
-          markBusy(empId, t);
-          if (shift.id === 'shabbat') {
-            lastShabbat[empId] = dStr;
-            (shabbatWeeks[wk0] = shabbatWeeks[wk0] || new Set()).add(empId);
-          }
-          if (isWeekendShort(wdShift0, shift.id)) lastWeekendShort[empId] = dStr;
-          recordWeek(dStr, empId, shift.id);
+          place(empId);
           addLog('info', `שובץ ${e.name} ל${shift.name} ב־${D.shortDate(dStr)} — משמרת ברזל קבועה`);
         });
       }
@@ -1527,11 +1540,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         const alreadyIn = schedule[dStr][shift.id] || [];
         const wdShift = wdShift0;
         const wk = wk0;
-        const cands = D.EMPLOYEES.filter((e) => !alreadyIn.includes(e.id) && !hardBlocked(e));
-        const clean = on('biasMidMonthRest')
-          ? cands.filter((e) => restOk(e.id, t))
-          : cands;
-        let pool = clean.length ? clean : cands;
+        let pool = D.EMPLOYEES.filter((e) => !alreadyIn.includes(e.id) && !hardBlocked(e));
         // מרחק מינימלי בין שבתות ארוכות — מועדף מאוד, לא חוסם לגמרי: אם זה משאיר
         // בריכה ריקה (אין באמת אף מועמד אחר), חוזרים לבריכה המקורית כמוצא אחרון
         if (shift.id === 'shabbat' && on('shabbatMinGap')) {
@@ -1603,22 +1612,23 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           return s;
         };
         const best = pool.slice().sort((a, b) => score(b) - score(a))[0];
-        const restViolation = !clean.includes(best);
 
-        schedule[dStr][shift.id] = [...alreadyIn, best.id];
-        counts[best.id] += 1;
-        markBusy(best.id, t);
-        if (shift.id === 'shabbat') {
-          lastShabbat[best.id] = dStr;
-          (shabbatWeeks[wk] = shabbatWeeks[wk] || new Set()).add(best.id);
-        }
-        if (isWeekendShort(wdShift, shift.id)) lastWeekendShort[best.id] = dStr;
-        recordWeek(dStr, best.id, shift.id);
+        place(best.id);
 
         const av = D.availabilityOn(best.id, dStr, shift.id);
-        if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
-        else if (av === 'high') addLog('info', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} לפי בקשה בעדיפות גבוהה`);
+        if (av === 'high') addLog('info', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} לפי בקשה בעדיפות גבוהה`);
       }
+    }
+
+    // הצעות חיצוניות (AI): כל הצעה עוברת את אותן חסימות בדיוק כמו שיבוץ אלגוריתמי, לפי הסדר;
+    // הצעה שמפרה תנאי (או משבצת שכבר מלאה) נדחית ומוחזרת ב-rejected. בלי מעברי המילוי הרגילים.
+    if (proposals) {
+      const rejected = [];
+      proposals.forEach((p) => {
+        const shift = schedule[p.dStr] && D.shiftTypesFor(p.dStr, shiftSettings).find((s) => s.id === p.shiftId && !s.continuation);
+        if (!shift || !assignOne(p.dStr, shift, 'propose', p.empId)) rejected.push(p);
+      });
+      return { schedule, log, rejected };
     }
 
     // מעבר ראשון: משמרות "שבת ארוכה" בלבד — כדי שברגע שמגיעים למשמרות החול של אותו
@@ -5430,6 +5440,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
   const HARD = [
     { key: 'unavailable', t: 'עובד סימן "לא יכול"', d: 'משמרת/יום שסומנו unavailable — לעולם לא ישובצו שם אוטומטית.' },
     { key: null, t: 'משמרות חופפות (תמיד פעיל)', d: 'עובד לעולם לא ישובץ אוטומטית לשתי משמרות שחופפות בזמן (למשל "יום" ו"יום קצר" באותו יום).' },
+    { key: 'biasMidMonthRest', t: 'מנוחה מינימלית בין משמרות', d: 'לפחות 8 שעות מנוחה לפני ואחרי כל משמרת אחרת של העובד — כולל משמרות צמודות כמו "שישי קצר" ואחריו "שבת ארוכה", או "שבת ארוכה" ואחריה "מוצאי שבת". אם אין מועמד שעומד בכך המשמרת נשארת פתוחה ומסומנת כדילמה.' },
     { key: 'multiOptionFallback', t: 'שימוש בטיוטות שיבוץ משניות למילוי חורים', d: 'אם לעובד יש כמה "טיוטות בקשה" (עד 3, נוצרות באפליקציית העובד) — משמרת שחסומה לפי הטיוטה הבכירה (1) אבל פתוחה לפי טיוטה משנית (2/3) לא תיחסם אוטומטית; העובד עדיין נחשב מועמד, אך בניקוד נמוך משמעותית ממי שמתאים לפי הטיוטה הבכירה שלו — כך שהמנוע מעדיף קודם למלא לפי מה שהעובד באמת ביקש, ופונה לטיוטות המשניות רק כדי לסתום משמרות שנשארות פתוחות.' },
     { key: 'maxQuota', t: 'מכסה חודשית', d: 'לא משבצים עובד שכבר הגיע למכסת המשמרות החודשית שלו (שדה "מכסה" בכרטיס העובד).' },
     { key: 'wantsFridayShort', t: 'עושה שישי קצר', d: 'עובד שסימן שאינו עושה "שישי קצר" (09:00–15:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
@@ -5453,7 +5464,6 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'biasShabbatFrequency', t: 'תדירות שבת ארוכה אישית', d: 'ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה ל"שבת ארוכה" ביחס ליעד האישי שלו (ברירת מחדל 45 יום), כך גובר הניקוד שלו למשמרת הבאה.' },
     { key: 'shabbatMinGap', t: 'מרחק מינימלי בין שבתות ארוכות', d: 'עובד לא ייבחר לשבת ארוכה נוספת אם עברו פחות מ-14 יום (או מחצית מיעד התדירות האישי שלו, הגבוה מביניהם) מאז השבת האחרונה שלו — מועדף מאוד, לא חוסם לגמרי: אם באמת אין אף מועמד אחר לאותה משבצת, המנוע יחרוג כמוצא אחרון.' },
     { key: 'biasWeekendShortFrequency', t: 'תדירות משמרת קצרה בסופ״ש אישית', d: 'משפיע רק על עובד שהוגדר לו יעד אישי בכרטיסו (רשות, כבוי כברירת מחדל). ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה למשמרת קצרה בסופ״ש (שישי קצר או בוקר שבת) ביחס ליעד שלו, כך גובר הניקוד שלו למשמרת הבאה מהסוג הזה.' },
-    { key: 'biasMidMonthRest', t: 'מנוחה מינימלית באמצע החודש', d: '8 שעות מנוחה בין משמרות מועדפות מאוד. כשדלוק: אם אין שום מועמד עומד בכך המנוע יחרוג כמוצא אחרון, ותתועד "חריגת מנוחה" ביומן השיבוץ. כשכבוי: המנוע לא מתחשב בשעות מנוחה בין משמרות באמצע החודש בכלל.' },
   ];
   const Item = ({ item }) => {
     const on = ruleToggles?.[item.key] !== false;
@@ -5479,7 +5489,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
       </div>
       <div style={{padding:'0 28px 28px',display:'flex',flexDirection:'column',gap:22,maxWidth:760}}>
         <div style={{fontSize:'12.5px',color:'var(--ink-3)',lineHeight:1.6}}>
-          רשימה מלאה ומדויקת של התנאים שקבועים בקוד מנוע השיבוץ האוטומטי (⚙ מחשב / ✦⚙ חכם / ✦ AI). לכל תנאי יש toggle — כיבוי מנטרל אותו בפועל בהרצה הבאה של השיבוץ האוטומטי. שיבוץ ידני (גרירה/צ'אט AI) כבר עוקף בפועל את רוב התנאים הקשיחים כאן (מכסה, מנוחה, העדפות סוף שבוע וכו') — התנאי היחיד שנאכף גם בשיבוץ ידני הוא "לא יכול"; אפשר לעקוף גם אותו זמנית עם כפתור "🔓 שיבוץ חופשי" בסרגל הכלים.
+          רשימה מלאה ומדויקת של התנאים שקבועים בקוד מנוע השיבוץ האוטומטי (⚙ שיבוץ ללא AI / ✦⚙ חכם / ✦ AI — גם הצעות ה-AI נבדקות מול אותם תנאים, ומה שמפר אותם נדחה). לכל תנאי יש toggle — כיבוי מנטרל אותו בפועל בהרצה הבאה של השיבוץ האוטומטי. שיבוץ ידני (גרירה/צ'אט AI) כבר עוקף בפועל את רוב התנאים הקשיחים כאן (מכסה, מנוחה, העדפות סוף שבוע וכו') — התנאי היחיד שנאכף גם בשיבוץ ידני הוא "לא יכול"; אפשר לעקוף גם אותו זמנית עם כפתור "🔓 שיבוץ חופשי" בסרגל הכלים.
         </div>
         <div>
           <div className="settings-sec-title" style={{marginBottom:10}}>🚫 חוקים קשיחים — חוסמים לגמרי בשיבוץ האוטומטי</div>
@@ -5966,14 +5976,14 @@ function App() {
   // הבקשה המקורית שהוגשה. לא משפיעה על האלגוריתם האוטומטי (⚙/✦), רק על שיבוץ ידני.
   const [freeAssignMode, setFreeAssignMode] = React.useState(false);
   React.useEffect(() => { window.ShiftData.freeAssignMode = freeAssignMode; }, [freeAssignMode]);
-  // כפתורי סרגל כלים מוסתרים — ברירת מחדל: מחשב/שבץ AI/ערוך טווח מוסתרים, ניתן להחזיר בהגדרות (⚙)
+  // כפתורי סרגל כלים מוסתרים — ברירת מחדל: שבץ AI/ערוך טווח מוסתרים, ניתן להחזיר בהגדרות (⚙).
+  // "השיבוץ החכם" ו"שיבוץ ללא AI" תמיד מוצגים — המשבץ בוחר ביניהם בכל הרצה
   const TOOLBAR_BUTTON_DEFS = [
-    { id: 'runAlgo', label: '⚙ מחשב' },
     { id: 'runAI', label: '✦ שבץ AI' },
     { id: 'runShabbatOnly', label: '🕯️ שבץ שבתות בלבד' },
     { id: 'editRange', label: '✎ ערוך טווח' },
   ];
-  const DEFAULT_HIDDEN_BUTTONS = ['runAlgo', 'runAI', 'editRange'];
+  const DEFAULT_HIDDEN_BUTTONS = ['runAI', 'editRange'];
   const [hiddenButtons, setHiddenButtons] = React.useState(() => saved?.hiddenButtons ?? DEFAULT_HIDDEN_BUTTONS);
   const [vapidPublicKey, setVapidPublicKey] = React.useState(() => saved?.vapidPublicKey || '');
   const [sendRemindersOpen, setSendRemindersOpen] = React.useState(false);
@@ -6542,6 +6552,26 @@ function App() {
     setGeneratingId(null);
   };
 
+  // הצעות ה-AI עוברות דרך אותן חסימות של האלגוריתם (חפיפה, מנוחה, תקרה שבועית, "לא יכול" וכו');
+  // מה שמפר תנאי נדחה ומתועד ביומן, כך שה-AI ממלא חורים בלי לשבור את חוקי השיבוץ
+  const applyAiProposals = (draft, baseSchedule, assignments, extra = {}) => {
+    const proposals = [];
+    Object.entries(assignments || {}).forEach(([dStr, shifts]) => Object.entries(shifts || {}).forEach(([shiftId, emps]) =>
+      (Array.isArray(emps) ? emps : []).forEach((empId) => proposals.push({ dStr, shiftId, empId }))));
+    proposals.sort((a, b) => a.dStr.localeCompare(b.dStr));
+    const res = AE.generate({
+      startDate: draft.range.start, endDate: draft.range.end, excluded: draft.excluded || [],
+      existingSchedule: baseSchedule, shiftSettings, initialLastEnd: carryOverEnds,
+      initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
+      proposals, ...extra,
+    });
+    const rejectedLog = res.rejected.map((p) => ({
+      type: 'decision',
+      message: `[AI] הצעה נדחתה: ${AD.empById(p.empId)?.name || p.empId} ל${AD.shiftNameOf(p.shiftId, shiftSettings)} ב־${AD.shortDate(p.dStr)} — מפרה תנאי שיבוץ`,
+    }));
+    return { schedule: res.schedule, rejectedLog };
+  };
+
   // שיבוץ חכם: שלב א׳ מחשב עם היסטוריה → שלב ב׳ AI ממטב חורים
   const runSmartImpl = async () => {
     if (!currentDraft) { alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.'); return; }
@@ -6671,17 +6701,11 @@ ${JSON.stringify(emptySlots, null, 2)}
       if (!jsonMatch) throw new Error(`AI לא החזיר JSON (stop_reason: ${data.stop_reason})`);
       const aiResult = JSON.parse(jsonMatch[0]);
 
-      // מיזוג: שלב א׳ + שלב ב׳
-      const merged = JSON.parse(JSON.stringify(snap2));
-      Object.entries(aiResult.assignments || {}).forEach(([d, shifts]) => {
-        if (!merged[d]) merged[d] = {};
-        Object.entries(shifts || {}).forEach(([sid, emps]) => {
-          const existing = merged[d][sid] || [];
-          merged[d][sid] = [...existing, ...(emps || []).filter(id => !existing.includes(id))];
-        });
-      });
+      // מיזוג: שלב א׳ + שלב ב׳ — רק הצעות AI שעומדות בכל תנאי השיבוץ
+      const { schedule: merged, rejectedLog } = applyAiProposals(currentDraft, snap2, aiResult.assignments, { initialCounts: histCounts });
 
       (aiResult.log || []).forEach(l => smartLog.push({ timestamp: ts(), type: l.type || 'info', message: `[AI] ${l.msg || l.message || ''}` }));
+      rejectedLog.forEach(l => smartLog.push({ ...l, timestamp: ts() }));
       smartLog.push({ timestamp: ts(), type: 'info', message: 'שיבוץ חכם הושלם (מחשב + AI)' });
       setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: merged, log: smartLog } : d));
       setSmartSummary(buildSmartSummary(merged, currentDraft, shiftSettings, true));
@@ -6801,16 +6825,8 @@ ${JSON.stringify(emptySlots, null, 2)}
       const result = JSON.parse(jsonMatch[0]);
       if (!result.assignments) throw new Error('פורמט תגובה שגוי — חסר שדה assignments');
 
-      // מיזוג: שיבוצים קיימים + שיבוצים חדשים מה-AI
-      const mergedSchedule = JSON.parse(JSON.stringify(snap.schedule));
-      Object.entries(result.assignments || {}).forEach(([d, shifts]) => {
-        if (!mergedSchedule[d]) mergedSchedule[d] = {};
-        Object.entries(shifts || {}).forEach(([sid, emps]) => {
-          const existing = mergedSchedule[d][sid] || [];
-          const added = (emps || []).filter(id => !existing.includes(id));
-          mergedSchedule[d][sid] = [...existing, ...added];
-        });
-      });
+      // מיזוג: שיבוצים קיימים + שיבוצים חדשים מה-AI — רק הצעות שעומדות בכל תנאי השיבוץ
+      const { schedule: mergedSchedule, rejectedLog } = applyAiProposals(snap, snap.schedule, result.assignments);
 
       // השלמה: כל משמרת שקיבלה פחות עובדים מהנדרש — תמולא ע"י האלגוריתם
       const topUp = AE.generate({
@@ -6824,6 +6840,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       const finalLog = [
         { timestamp: ts, type: 'info', message: 'שיבוץ AI בוצע על ידי Claude Sonnet 4.6' },
         ...(result.log || []).map(l => ({ timestamp: ts, type: l.type || 'info', message: l.msg || l.message || '' })),
+        ...rejectedLog.map(l => ({ ...l, timestamp: ts })),
         ...topUp.log.filter(l => l.type !== 'info').map(l => ({ ...l, timestamp: ts, message: '[השלמה] ' + l.message })),
       ];
       setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: topUp.schedule, log: finalLog } : d));
@@ -7053,12 +7070,10 @@ ${JSON.stringify(emptySlots, null, 2)}
                     🕯️ שבץ שבתות בלבד
                   </button>
                 )}
-                <button className="btn btn-smart" onClick={runSmart} disabled={isGenerating} title="מחשב עם היסטוריה + AI לחורים">✦⚙ השיבוץ החכם</button>
+                <button className="btn btn-smart" onClick={runSmart} disabled={isGenerating} title="אלגוריתם + AI שממלא את המשבצות שנשארו פתוחות (הצעות AI שמפרות תנאי שיבוץ נדחות)">✦⚙ השיבוץ החכם</button>
+                <button className="btn" onClick={runAlgo} disabled={isGenerating} title="אלגוריתם בלבד — משבצות בלי מועמד מתאים נשארות פתוחות">⚙ שיבוץ ללא AI</button>
                 {!hiddenButtons.includes('runAI') && (
                   <button className="btn btn-ai" onClick={runAI} disabled={isGenerating} title="AI בלבד">✦ שבץ AI</button>
-                )}
-                {!hiddenButtons.includes('runAlgo') && (
-                  <button className="btn" onClick={runAlgo} disabled={isGenerating} title="שיבוץ מהיר ללא AI">⚙ מחשב</button>
                 )}
                 <button className="btn" onClick={() => setFreeAssignMode(v => !v)}
                   style={freeAssignMode ? {background:'var(--danger)',borderColor:'var(--danger)',color:'#FFF'} : {}}

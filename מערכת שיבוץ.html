@@ -1376,6 +1376,19 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     // weekCounts = כמה משמרות בימי א׳-ה׳ (חול) כבר שובצו לכל עובד בכל שבוע (מפתח = יום ראשון
     // של אותו שבוע) — משמש לאיזון רך מול יעד weekdayShiftsPerWeek האישי (ראו score())
     const weekCounts = {};
+    // weekTotal = כל המשמרות (כולל שישי/שבת) לכל עובד בכל שבוע — מולו נבדק יעד משמרות/שבוע.
+    // weekMix/monthMix = פיצול המשמרות של כל עובד (בשבוע/בחודש) ליום/לילה, לאיזון סוגי משמרות.
+    // "שבת ארוכה" לא נספרת בפיצול — היא לא יום ולא לילה.
+    const weekTotal = {}; const weekMix = {}; const monthMix = {};
+    const recordWeek = (dStr, empId, shiftId) => {
+      const wk = weekKeyOf(dStr); const wd = D.weekdayOf(dStr);
+      (weekTotal[wk] = weekTotal[wk] || {})[empId] = (weekTotal[wk][empId] || 0) + 1;
+      if (wd >= 0 && wd <= 4) (weekCounts[wk] = weekCounts[wk] || {})[empId] = (weekCounts[wk][empId] || 0) + 1;
+      if (shiftId === 'shabbat') return;
+      const kind = shiftId === 'night' ? 'night' : 'day';
+      ((weekMix[wk] = weekMix[wk] || {})[empId] = weekMix[wk][empId] || { day: 0, night: 0 })[kind] += 1;
+      (monthMix[empId] = monthMix[empId] || { day: 0, night: 0 })[kind] += 1;
+    };
     // shabbatWeeks[weekKey] = Set של מי ששובץ ל"שבת ארוכה" באותו שבוע — תנאי קשיח:
     // מי שיש לו שבת ארוכה באותו שבוע מקבל משמרת חול אחת פחות מהיעד הרגיל שלו (ראו תנאי #8 במסך "תנאי שיבוץ")
     const shabbatWeeks = {};
@@ -1404,10 +1417,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           if (isWeekendShort(wd0, shift.id) && (!lastWeekendShort[empId] || dStr > lastWeekendShort[empId])) {
             lastWeekendShort[empId] = dStr;
           }
-          if (wd0 >= 0 && wd0 <= 4) {
-            const wk = weekKeyOf(dStr);
-            (weekCounts[wk] = weekCounts[wk] || {})[empId] = (weekCounts[wk][empId] || 0) + 1;
-          }
+          recordWeek(dStr, empId, shift.id);
         });
       });
     });
@@ -1416,7 +1426,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     excluded.forEach((d) => addLog('info', `יום ${D.shortDate(d)} הוחרג מהסידור`));
 
     // מטפל בהקצאת עובדים למשמרת בודדת (dStr/shift) — משותף לשני המעברים למטה
-    function assignOne(dStr, shift) {
+    // mode: 'full' = ברזל + מילוי כל המקומות, 'iron' = ברזל בלבד, 'one' = מקום אחד בלי ברזל,
+    // 'count' = רק מחזיר כמה מועמדים כשירים יש כרגע למשמרת (לבחירת המשמרת הבאה למילוי)
+    function assignOne(dStr, shift, mode = 'full') {
       const required = shift.required || 1;
       const needed = required - (schedule[dStr][shift.id] || []).length;
       if (needed <= 0) return;
@@ -1428,6 +1440,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       // חסימות קשיחות "רגילות" — לא כולל "כבר בתפוסה"/מכסת שיבוץ ברזל, כדי שאפשר יהיה
       // להשתמש באותה בדיקה גם עבור שיבוץ ברזל וגם עבור התחרות הרגילה בין מועמדים
       const hardBlocked = (e) => {
+        // עובד לא יכול להיות בשתי משמרות חופפות בזמן — חסימה מוחלטת, לא תלויה באף תנאי
+        if ((busy[e.id] || []).some((iv) => iv.start < t.end && t.start < iv.end)) return true;
+        // יעד משמרות/שבוע הוא תקרה: כל סוגי המשמרות נספרים (כולל שישי/שבת), שבוע = א׳-ש׳
+        if (on('weeklyTargetCap') && (weekTotal[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return true;
         const av = D.availabilityOn(e.id, dStr, shift.id);
         if (on('unavailable') && av === 'unavailable') {
           // חסום לפי הטיוטה הבכירה (1) — אבל אם לעובד יש טיוטה משנית (2/3) שכן מאפשרת
@@ -1468,10 +1484,15 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return false;
       };
 
+      if (mode === 'count') {
+        const inNow = schedule[dStr][shift.id] || [];
+        return D.EMPLOYEES.filter((e) => !inNow.includes(e.id) && !hardBlocked(e)).length;
+      }
+
       // משמרות ברזל (עובד קבוע חובה) — משובצים ראשונים, לפני התחרות הרגילה בין מועמדים.
       // עדיין כפופים לחסימות הקשיחות הרגילות (כולל "לא יכול" — כך העובד יכול לבטל מופע
       // ספציפי) ולתפוסת המשמרת; אם יש יותר עובדי ברזל ממקום פנוי, העודפים מתועדים כדילמה.
-      if (on('ironStanding')) {
+      if (on('ironStanding') && mode !== 'one') {
         (ironAssignments[dStr]?.[shift.id] || []).forEach((empId) => {
           if ((schedule[dStr][shift.id] || []).includes(empId)) return;
           if ((schedule[dStr][shift.id] || []).length >= required) {
@@ -1492,17 +1513,16 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             (shabbatWeeks[wk0] = shabbatWeeks[wk0] || new Set()).add(empId);
           }
           if (isWeekendShort(wdShift0, shift.id)) lastWeekendShort[empId] = dStr;
-          if (wdShift0 >= 0 && wdShift0 <= 4) {
-            (weekCounts[wk0] = weekCounts[wk0] || {})[empId] = (weekCounts[wk0][empId] || 0) + 1;
-          }
+          recordWeek(dStr, empId, shift.id);
           addLog('info', `שובץ ${e.name} ל${shift.name} ב־${D.shortDate(dStr)} — משמרת ברזל קבועה`);
         });
       }
+      if (mode === 'iron') return;
 
       // חשוב: מספר הסבבים נקבע *פעם אחת* לפני הלולאה, לא מחושב מחדש מ-schedule[dStr][shift.id].length
       // בכל איטרציה — אחרת מספר האורכה גדל באותו קצב כמו slot וחוצה למעשה את מכסת העובדים
       // הנדרשת (required=2 היה משבץ רק 1, required=4 רק 2, וכו').
-      const slotsNeeded = required - (schedule[dStr][shift.id] || []).length;
+      const slotsNeeded = Math.min(mode === 'one' ? 1 : Infinity, required - (schedule[dStr][shift.id] || []).length);
       for (let slot = 0; slot < slotsNeeded; slot++) {
         const alreadyIn = schedule[dStr][shift.id] || [];
         const wdShift = wdShift0;
@@ -1524,20 +1544,6 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           });
           if (spaced.length) pool = spaced;
         }
-        // מועדף מאוד (לא חוסם לגמרי) שלא לבחור עובד שכבר הגיע ליעד משמרות/שבוע האישי
-        // שלו (בימי חול, א׳-ה׳) — כדי למנוע שבועות "ריקים" לסירוגין עם שבועות עמוסים.
-        // משלים את biasWeeklyTarget (שרק מטה ניקוד בין מועמדים, בלי למנוע חריגה בפועל).
-        let weeklyCapForced = false;
-        if (wdShift0 >= 0 && wdShift0 <= 4 && on('weeklyTargetCap')) {
-          const withinTarget = pool.filter((e) => {
-            const already = (weekCounts[wk0] || {})[e.id] || 0;
-            const target = e.weekdayShiftsPerWeek ?? 2;
-            return already < target;
-          });
-          if (withinTarget.length) pool = withinTarget;
-          else weeklyCapForced = true;
-        }
-
         if (!pool.length) {
           if (alreadyIn.length === 0) addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
           else addLog('dilemma', `אין עובד נוסף זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)} (שובץ ${alreadyIn.length}/${required})`);
@@ -1564,11 +1570,19 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           }
           if (on('biasNightOwl') && e.nightOwl && shift.id === 'night') s += 5;
           if (on('biasLoadBalance')) s -= (counts[e.id] + (hist[e.id] || 0)) * 0.9;
-          if (on('biasWeeklyTarget') && wdShift >= 0 && wdShift <= 4) {
-            // איזון רך מול יעד משמרות/שבוע אישי בימי חול — לא חוסם, רק מטה ניקוד
-            const already = (weekCounts[wk] || {})[e.id] || 0;
+          if (on('biasWeeklyTarget')) {
+            // מי שרחוק יותר מהיעד השבועי שלו (כל סוגי המשמרות) מקבל עדיפות
+            const already = (weekTotal[wk] || {})[e.id] || 0;
             const target = e.weekdayShiftsPerWeek ?? 2;
             s += (target - already) * 1.2;
+          }
+          if (on('biasShiftMix') && shift.id !== 'shabbat' && !e.noWeekdayNights) {
+            // איזון יום/לילה (יעד: משמרת יום ומשמרת לילה בשבוע): מי שכבר קיבל יותר משמרות
+            // מהסוג השני — השבוע, ובמשקל קטן יותר גם בחודש כולו — מקבל עדיפות לסוג הזה
+            const w = weekMix[wk]?.[e.id] || { day: 0, night: 0 };
+            const mo = monthMix[e.id] || { day: 0, night: 0 };
+            const sign = shift.id === 'night' ? 1 : -1;
+            s += sign * ((w.day - w.night) * 2.5 + (mo.day - mo.night) * 1.2);
           }
           if (on('biasShabbatFrequency') && shift.id === 'shabbat') {
             // הטיה לעבר מי שמגיע לו תור ל"שבת ארוכה" — יעד אישי per employee (ברירת מחדל 45 יום)
@@ -1588,17 +1602,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           s += hash(e.id + dStr + shift.id + slot) * 0.5;
           return s;
         };
-        // אם נכנסנו ל"רשת ביטחון" (אף מועמד לא מתחת ליעד השבועי) — מפזרים את החריגה
-        // הבלתי-נמנעת בין כמה אנשים: מי שכבר חרג הכי פחות מהיעד מנצח את התור, כדי לא
-        // להעמיס שוב ושוב על אותו עובד "גמיש" רק בגלל שהוא מנקד הכי גבוה
-        const best = pool.slice().sort((a, b) => {
-          if (weeklyCapForced) {
-            const aAlready = (weekCounts[wk0] || {})[a.id] || 0;
-            const bAlready = (weekCounts[wk0] || {})[b.id] || 0;
-            if (aAlready !== bAlready) return aAlready - bAlready;
-          }
-          return score(b) - score(a);
-        })[0];
+        const best = pool.slice().sort((a, b) => score(b) - score(a))[0];
         const restViolation = !clean.includes(best);
 
         schedule[dStr][shift.id] = [...alreadyIn, best.id];
@@ -1609,9 +1613,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           (shabbatWeeks[wk] = shabbatWeeks[wk] || new Set()).add(best.id);
         }
         if (isWeekendShort(wdShift, shift.id)) lastWeekendShort[best.id] = dStr;
-        if (wdShift >= 0 && wdShift <= 4) {
-          (weekCounts[wk] = weekCounts[wk] || {})[best.id] = (weekCounts[wk][best.id] || 0) + 1;
-        }
+        recordWeek(dStr, best.id, shift.id);
 
         const av = D.availabilityOn(best.id, dStr, shift.id);
         if (restViolation) addLog('decision', `שובץ ${best.name} ל${shift.name} ב־${D.shortDate(dStr)} בחריגת מנוחה — אין חלופה`);
@@ -1629,13 +1631,32 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     });
 
     // מעבר שני: כל שאר המשמרות — מדולג לגמרי אם shabbatOnly (כפתור "🕯️ שבץ שבתות בלבד"),
-    // כדי לאפשר למשבץ לבדוק/לתקן ידנית את שיבוץ השבתות לפני שממשיכים לשאר המשמרות
+    // כדי לאפשר למשבץ לבדוק/לתקן ידנית את שיבוץ השבתות לפני שממשיכים לשאר המשמרות.
+    // בתוך כל שבוע ממלאים תמיד קודם את המשמרת עם הכי מעט מועמדים כשירים — לא לפי סדר
+    // התאריכים, אחרת תחילת השבוע "גומרת" את מכסת השבוע של כולם וסוף השבוע נשאר ריק.
     if (!shabbatOnly) {
+      const byWeek = {};
       dates.forEach((dStr) => {
         D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
           if (shift.continuation || shift.id === 'shabbat') return;
-          assignOne(dStr, shift);
+          (byWeek[weekKeyOf(dStr)] = byWeek[weekKeyOf(dStr)] || []).push({ dStr, shift });
         });
+      });
+      const left = (s) => (s.shift.required || 1) - (schedule[s.dStr][s.shift.id] || []).length;
+      Object.keys(byWeek).sort().forEach((wk) => {
+        byWeek[wk].forEach((s) => assignOne(s.dStr, s.shift, 'iron'));
+        let open = byWeek[wk].filter((s) => left(s) > 0);
+        while (open.length) {
+          let pick = null; let pickSlack = Infinity;
+          open.forEach((s) => {
+            const slack = assignOne(s.dStr, s.shift, 'count') - left(s);
+            if (slack < pickSlack) { pick = s; pickSlack = slack; }
+          });
+          const before = left(pick);
+          assignOne(pick.dStr, pick.shift, 'one');
+          if (left(pick) === before) pick.dead = true;
+          open = open.filter((s) => !s.dead && left(s) > 0);
+        }
       });
     }
 
@@ -5408,6 +5429,7 @@ function CriteriaGateModal({ gate, onProceed, onCancel }) {
 function SchedulingRulesScreen({ ruleToggles, onToggle }) {
   const HARD = [
     { key: 'unavailable', t: 'עובד סימן "לא יכול"', d: 'משמרת/יום שסומנו unavailable — לעולם לא ישובצו שם אוטומטית.' },
+    { key: null, t: 'משמרות חופפות (תמיד פעיל)', d: 'עובד לעולם לא ישובץ אוטומטית לשתי משמרות שחופפות בזמן (למשל "יום" ו"יום קצר" באותו יום).' },
     { key: 'multiOptionFallback', t: 'שימוש בטיוטות שיבוץ משניות למילוי חורים', d: 'אם לעובד יש כמה "טיוטות בקשה" (עד 3, נוצרות באפליקציית העובד) — משמרת שחסומה לפי הטיוטה הבכירה (1) אבל פתוחה לפי טיוטה משנית (2/3) לא תיחסם אוטומטית; העובד עדיין נחשב מועמד, אך בניקוד נמוך משמעותית ממי שמתאים לפי הטיוטה הבכירה שלו — כך שהמנוע מעדיף קודם למלא לפי מה שהעובד באמת ביקש, ופונה לטיוטות המשניות רק כדי לסתום משמרות שנשארות פתוחות.' },
     { key: 'maxQuota', t: 'מכסה חודשית', d: 'לא משבצים עובד שכבר הגיע למכסת המשמרות החודשית שלו (שדה "מכסה" בכרטיס העובד).' },
     { key: 'wantsFridayShort', t: 'עושה שישי קצר', d: 'עובד שסימן שאינו עושה "שישי קצר" (09:00–15:00) לא ישובץ אליה. עצמאי משלוש המשמרות האחרות בסוף השבוע.' },
@@ -5418,6 +5440,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'shabbatWeeklyCap', t: 'שבת ארוכה מפחיתה משמרת חול באותו שבוע', d: 'עובד ששובץ ל"שבת ארוכה" בשבוע מסוים מוגבל, באותו שבוע, למשמרת חול אחת פחות מיעד המשמרות/שבוע הרגיל שלו. לדוגמה: יעד 2 + שבת ארוכה באותו שבוע ⇐ לכל היותר משמרת חול אחת נוספת באותו שבוע.' },
     { key: 'noThursdayIfShabbat', t: 'ללא בוקר בחמישי אם יש שבת ארוכה', d: 'העדפה אישית (מוגדרת בכרטיס העובד) — עובד שסימן זאת לא ישובץ למשמרת בוקר/בוקר קצר ביום חמישי, באם שובץ ל"שבת ארוכה" באותו שבוע. משפיע רק על עובד שהוגדר לו.' },
     { key: 'crossMonthRest', t: 'מנוחה מול המשמרת האחרונה בחודש הקודם', d: 'פחות מ-8 שעות מנוחה מהמשמרת האחרונה שהעובד עשה בסוף החודש הקודם — חוסם לגמרי, בלי חריגה אוטומטית.' },
+    { key: 'weeklyTargetCap', t: 'תקרת משמרות/שבוע', d: 'עובד לא ישובץ אוטומטית מעבר ליעד המשמרות/שבוע האישי שלו (מכרטיס העובד). נספרות כל המשמרות בשבוע א׳-ש׳, כולל שישי, שבת ארוכה ומוצאי שבת. משמרת שאין מי שימלא אותה בלי חריגה נשארת פתוחה ומסומנת כדילמה, והמשבץ מחליט ידנית. המנוע ממלא בכל שבוע קודם את המשמרות עם הכי מעט מועמדים, כדי שסוף השבוע לא יישאר ריק.' },
     { key: 'canWhitelist', t: 'רשימת "יכול" חודשית', d: 'עובד שהגיש רשימת "יכול" (can) מצומצמת לחודש הנוכחי לא ישובץ מחוץ לרשימה שהגיש, גם אם יש לו זמינות אחרת.' },
     { key: 'ironStanding', t: '🔒 משמרת ברזל (קבועה)', d: 'משמרת קבועה שהמשבץ סימן כ"ברזל" (מכרטיס הבקשות של העובד) משובצת כמעט תמיד באופן אוטומטי, לפני כל שאר המועמדים — עדיין בכפוף לתנאים הקשיחים האחרים (מכסה, מנוחה וכו׳), וניתנת לביטול לתאריך ספציפי ע"י העובד עצמו (בדיוק כמו ביטול בקשה קבועה רגילה). אם יש יותר עובדי ברזל ממקום פנוי במשמרת, זה מוצג כאזהרה למשבץ לפני ההרצה.' },
   ];
@@ -5425,8 +5448,8 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'biasHighCan', t: 'עדיפות גבוהה / יכול', d: 'עובד שסימן "מעדיף" למשמרת מסוימת מקבל ניקוד גבוה יותר ממי שסימן "יכול" בלבד.' },
     { key: 'biasNightOwl', t: 'Night owl', d: 'עובד שמסומן ככזה מקבל עדיפות למשמרות לילה.' },
     { key: 'biasLoadBalance', t: 'איזון עומס', d: 'ככל שעובד שובץ ליותר משמרות (החודש ובחודשיים האחרונים) הניקוד שלו יורד, כדי לפזר עומס שווה יותר.' },
-    { key: 'biasWeeklyTarget', t: 'יעד משמרות/שבוע בימי חול', d: 'הטיה רכה בלבד (לא חוסמת) — עובד רחוק מהיעד שלו מקבל ניקוד גבוה יותר למשמרות חול, ועובד שכבר עבר את היעד מקבל ניקוד נמוך יותר.' },
-    { key: 'weeklyTargetCap', t: 'תקרת יעד משמרות/שבוע — מועדף מאוד', d: 'משלים את "יעד משמרות/שבוע": עובד שכבר הגיע ליעד האישי שלו (בימי חול, א׳-ה׳) לא ייבחר למשמרת חול נוספת באותו שבוע — מועדף מאוד, לא חוסם לגמרי. אם אין אף מועמד אחר מתחת ליעד לאותה משבצת, המנוע יחרוג כמוצא אחרון. נועד למנוע שבועות "ריקים" לסירוגין עם שבועות עמוסים לאותו עובד.' },
+    { key: 'biasWeeklyTarget', t: 'יעד משמרות/שבוע', d: 'עובד רחוק יותר מהיעד השבועי שלו (כל סוגי המשמרות, כולל שישי/שבת) מקבל ניקוד גבוה יותר.' },
+    { key: 'biasShiftMix', t: 'איזון יום/לילה', d: 'היעד הוא משמרת יום ומשמרת לילה בשבוע: עובד שכבר קיבל יותר משמרות יום (השבוע, ובמשקל קטן יותר בחודש כולו) מקבל עדיפות למשמרת לילה, ולהפך. לא חל על מי שמסומן "ללא משמרות לילה". "שבת ארוכה" לא נספרת. בקשות "מעדיף" של העובד עדיין גוברות.' },
     { key: 'biasShabbatFrequency', t: 'תדירות שבת ארוכה אישית', d: 'ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה ל"שבת ארוכה" ביחס ליעד האישי שלו (ברירת מחדל 45 יום), כך גובר הניקוד שלו למשמרת הבאה.' },
     { key: 'shabbatMinGap', t: 'מרחק מינימלי בין שבתות ארוכות', d: 'עובד לא ייבחר לשבת ארוכה נוספת אם עברו פחות מ-14 יום (או מחצית מיעד התדירות האישי שלו, הגבוה מביניהם) מאז השבת האחרונה שלו — מועדף מאוד, לא חוסם לגמרי: אם באמת אין אף מועמד אחר לאותה משבצת, המנוע יחרוג כמוצא אחרון.' },
     { key: 'biasWeekendShortFrequency', t: 'תדירות משמרת קצרה בסופ״ש אישית', d: 'משפיע רק על עובד שהוגדר לו יעד אישי בכרטיסו (רשות, כבוי כברירת מחדל). ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה למשמרת קצרה בסופ״ש (שישי קצר או בוקר שבת) ביחס ליעד שלו, כך גובר הניקוד שלו למשמרת הבאה מהסוג הזה.' },
@@ -5440,10 +5463,12 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
           <div style={{fontWeight:700,fontSize:'13px',marginBottom:3}}>{item.t}</div>
           <div style={{fontSize:'12px',color:'var(--ink-2)',lineHeight:1.5}}>{item.d}</div>
         </div>
-        <label className="toggle-switch" style={{flexShrink:0,marginTop:2}}>
-          <input type="checkbox" checked={on} onChange={(e) => onToggle(item.key, e.target.checked)} />
-          <span className="toggle-slider"></span>
-        </label>
+        {item.key ? (
+          <label className="toggle-switch" style={{flexShrink:0,marginTop:2}}>
+            <input type="checkbox" checked={on} onChange={(e) => onToggle(item.key, e.target.checked)} />
+            <span className="toggle-slider"></span>
+          </label>
+        ) : <span style={{flexShrink:0,fontSize:11,color:'var(--ink-3)',marginTop:3}}>קבוע</span>}
       </div>
     );
   };
@@ -5459,7 +5484,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
         <div>
           <div className="settings-sec-title" style={{marginBottom:10}}>🚫 חוקים קשיחים — חוסמים לגמרי בשיבוץ האוטומטי</div>
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
-            {HARD.map((r) => <Item key={r.key} item={r} />)}
+            {HARD.map((r) => <Item key={r.key || r.t} item={r} />)}
           </div>
         </div>
         <div>
@@ -5933,7 +5958,7 @@ function App() {
     wantsFridayShort: true, wantsFridayLong: true, wantsShabbatLong: true, wantsSaturdayShort: true,
     noWeekdayNights: true, shabbatWeeklyCap: true, noThursdayIfShabbat: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
     biasHighCan: true, biasNightOwl: true, biasLoadBalance: true,
-    biasWeeklyTarget: true, weeklyTargetCap: true, biasShabbatFrequency: true, shabbatMinGap: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
+    biasWeeklyTarget: true, biasShiftMix: true, weeklyTargetCap: true, biasShabbatFrequency: true, shabbatMinGap: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
   };
   const [ruleToggles, setRuleToggles] = React.useState(() => ({ ...DEFAULT_RULE_TOGGLES, ...(saved?.ruleToggles || {}) }));
   // "שיבוץ חופשי" — הפעלה זמנית (לא נשמרת בין רענונים, בכוונה — כדי שלא תישאר דלוקה בטעות)

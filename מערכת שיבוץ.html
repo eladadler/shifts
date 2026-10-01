@@ -3066,11 +3066,40 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
 
   const isNightHour = (t) => { const h = parseInt((t || '00').split(':')[0], 10); return h >= 19 || h < 6; };
 
+  // משמרת אחרת של העובד שחופפת או צמודה (פחות ממנוחת המינימום, לפני או אחרי) למשמרת הנבחרת
+  const restClash = (emp, shift) => {
+    const t = PD.shiftTimes(selectedDate, shift);
+    for (const dStr of Object.keys(schedule)) {
+      const types = PD.shiftTypesFor(dStr, shiftSettings);
+      for (const [sid, ids] of Object.entries(schedule[dStr] || {})) {
+        if (!(ids || []).includes(emp.id) || (dStr === selectedDate && sid === shift.id)) continue;
+        const sh = types.find((s) => s.id === sid && !s.continuation);
+        if (!sh) continue;
+        const o = PD.personTimes(dStr, sh, emp.id);
+        const gap = o.end <= t.start ? PE.gapHours(o.end, t.start) : o.start >= t.end ? PE.gapHours(t.end, o.start) : -1;
+        if (gap < PE.MIN_REST_H) return true;
+      }
+    }
+    return false;
+  };
+
   const isEligible = (emp, shift) => {
-    if (PD.availabilityOn(emp.id, selectedDate) === 'unavailable') return false;
+    if (PD.availabilityOn(emp.id, selectedDate, shift.id) === 'unavailable') return false;
     if (isNightHour(shift.start) && prefs?.[emp.id]?.no_weekday_nights) return false;
     if (PE.countShifts(schedule, emp.id) >= emp.max) return false;
+    if (restClash(emp, shift)) return false;
     return true;
+  };
+
+  // כמה משמרות (כל הסוגים) יש לעובד בשבוע א׳-ש׳ של היום הנבחר, מול היעד השבועי שלו
+  const weekLoad = (emp) => {
+    const sun = PD.addDays(selectedDate, -PD.weekdayOf(selectedDate));
+    let n = 0;
+    for (let i = 0; i < 7; i++) {
+      Object.values(schedule[PD.addDays(sun, i)] || {}).forEach((ids) => { if ((ids || []).includes(emp.id)) n++; });
+    }
+    const target = prefs?.[emp.id]?.weekday_shifts_per_week ?? PD.empById(emp.id)?.weekdayShiftsPerWeek ?? 2;
+    return { n, target };
   };
 
   // האם השיבוץ בפועל של העובד סותר את מה שסימן שהוא רוצה (שישי/שבת) — לא בודק
@@ -3104,7 +3133,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
       out[s.id] = PD.EMPLOYEES.filter(e => isEligible(e, s)).length;
     });
     return out;
-  }, [dayShifts, schedule, selectedDate]);
+  }, [dayShifts, schedule, selectedDate, shiftSettings, prefs]);
 
   const isAssigned = (emp, shiftId) => {
     if (!selectedDate || !shiftId || shiftId === 'all') return false;
@@ -3132,7 +3161,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
       });
     }
     return emps;
-  }, [employees, tab, shiftFilter, selectedDate, schedule, shiftSettings]);
+  }, [employees, tab, shiftFilter, selectedDate, schedule, shiftSettings, prefs]);
 
   return (
     <aside className="side-panel">
@@ -3180,6 +3209,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
           <div className="emp-list">
             {list.map((emp) => {
               const assigned = tab === 'available' && shiftFilter !== 'all' && isAssigned(emp, shiftFilter);
+              const wl = tab === 'available' && selectedDate ? weekLoad(emp) : null;
               return (
                 <div key={emp.id} style={assigned ? {opacity:0.45} : undefined}>
                   <EmployeeCard emp={emp} schedule={schedule}
@@ -3187,6 +3217,12 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
                     onDragEmpStart={onDragEmpStart} onDragEnd={onDragEnd} editable={editable}
                     extraBadge={<>
                       {assigned && <span className="assigned-badge">משובץ ✓</span>}
+                      {wl && (
+                        <span title="משמרות בשבוע הזה (א׳-ש׳, כל הסוגים) מול היעד השבועי של העובד"
+                          style={{fontSize:10.5,fontWeight:700,color: wl.n >= wl.target ? 'var(--danger)' : 'var(--ink-3)'}}>
+                          השבוע {wl.n}/{wl.target}
+                        </span>
+                      )}
                       {managerNotes?.[emp.id] && <span title={'הערה למשבץ: ' + managerNotes[emp.id]} style={{fontSize:11}}>📌</span>}
                       {responses?.[emp.id]?.approved && (
                         <span title={'אישר.ה את הסידור' + (responses[emp.id].respondedAt ? (' · ' + new Date(responses[emp.id].respondedAt).toLocaleString('he-IL')) : '')}

@@ -6580,6 +6580,7 @@ function App() {
     setGeneratingId(id);
     const ts = () => new Date().toISOString();
     const smartLog = [];
+    let algoSaved = false;
 
     try {
       // --- שלב א׳: מחשב עם היסטוריה ---
@@ -6608,6 +6609,7 @@ function App() {
 
       // --- שלב ב׳: AI ממטב חורים ---
       smartLog.push({ timestamp: ts(), type: 'info', message: `שלב ב׳: AI ממטב ${holes.length} חורים שנותרו` });
+      algoSaved = true;
       setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: algoResult.schedule, log: smartLog } : d));
 
       const empList = AD.EMPLOYEES.map(e => ({
@@ -6673,7 +6675,7 @@ ${JSON.stringify(emptySlots, null, 2)}
 6. can לא ריק → שבץ רק ב-can∪high. עדיף חור ריק על שיבוץ בכוח.
 7. blockedEmpIds במשבצת → אסור לשבץ עובדים אלה שם (מנוחה מהמשמרת האחרונה בחודש הקודם). עדיף חור ריק.
 
-## פורמט תגובה — התחל מיד עם {
+## פורמט תגובה — התחל מיד עם { ללא הסברים. log: עד 5 שורות קצרות בלבד (רק דילמות חשובות)
 {"assignments":{"YYYY-MM-DD":{"shiftId":["empId1"]}},"log":[{"type":"info|decision|dilemma","msg":"קצר"}]}`;
 
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -6686,7 +6688,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
+          max_tokens: 16000,
           system: 'ענה באובייקט JSON אחד בלבד — ללא טקסט לפני או אחרי, וללא גדרות קוד.',
           messages: [{ role: 'user', content: prompt }],
         }),
@@ -6712,7 +6714,7 @@ ${JSON.stringify(emptySlots, null, 2)}
 
     } catch (err) {
       console.error('runSmart error:', err);
-      alert(`שגיאה בשיבוץ חכם:\n${err.message}`);
+      alert(`שגיאה בשיבוץ חכם:\n${err.message}${algoSaved ? '\n\nהשיבוץ האלגוריתמי (שלב א׳) נשמר; רק מילוי החורים ע"י AI לא בוצע.' : ''}`);
       smartLog.push({ timestamp: ts(), type: 'dilemma', message: `שגיאה: ${err.message}` });
       setDrafts(ds => ds.map(d => d.id === id ? { ...d, log: smartLog } : d));
     } finally {
@@ -6794,7 +6796,7 @@ ${JSON.stringify(emptySlots, null, 2)}
 7. nightOwl:true → עדיפות לשיבוץ לילה
 8. can לא ריק → שבץ רק ב-can∪high. עדיף חור ריק על שיבוץ בכוח.
 
-## פורמט תגובה — התחל מיד עם { ללא הסברים
+## פורמט תגובה — התחל מיד עם { ללא הסברים. log: עד 5 שורות קצרות בלבד (רק דילמות חשובות)
 {"assignments":{"YYYY-MM-DD":{"shiftId":["empId1"]}},"log":[{"type":"info|decision|dilemma","msg":"קצר"}]}`;
 
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -6807,7 +6809,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 8192,
+          max_tokens: 16000,
           system: 'ענה באובייקט JSON אחד בלבד — ללא טקסט לפני או אחרי, וללא גדרות קוד.',
           messages: [{ role: 'user', content: prompt }],
         }),

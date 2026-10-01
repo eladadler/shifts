@@ -105,6 +105,7 @@
   .st-draft { background: color-mix(in oklab, var(--accent) 12%, transparent); color: var(--accent); }
   .st-final { background: var(--ok-bg); color: var(--ok); }
   .st-open  { background: color-mix(in oklab, oklch(0.65 0.15 200) 12%, transparent); color: oklch(0.38 0.14 200); }
+  .app-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 400; max-width: min(560px, calc(100vw - 32px)); background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 10px; font-size: 13px; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,0.25); cursor: pointer; }
   .conflict-count { font-size: 12px; font-weight: 600; color: var(--danger); background: var(--danger-bg); padding: 3px 10px; border-radius: 999px; }
   .topbar-actions { display: flex; align-items: center; gap: 8px; }
 
@@ -1396,6 +1397,55 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       ((weekMix[wk] = weekMix[wk] || {})[empId] = weekMix[wk][empId] || { day: 0, night: 0 })[kind] += 1;
       (monthMix[empId] = monthMix[empId] || { day: 0, night: 0 })[kind] += 1;
     };
+    // fresh = שיבוצים שנעשו בהרצה הזו (לא קיימים מקודם, לא ברזל) — רק אותם מותר לשלב התיקון להזיז
+    const fresh = new Set();
+    const keyOf = (d, sid, id) => d + '|' + sid + '|' + id;
+    const placeAt = (d, shift, empId, isFresh) => {
+      schedule[d][shift.id] = [...(schedule[d][shift.id] || []), empId];
+      counts[empId] = (counts[empId] || 0) + 1;
+      markBusy(empId, D.shiftTimes(d, shift));
+      if (shift.id === 'shabbat') {
+        lastShabbat[empId] = d;
+        (shabbatWeeks[weekKeyOf(d)] = shabbatWeeks[weekKeyOf(d)] || new Set()).add(empId);
+      }
+      if (isWeekendShort(D.weekdayOf(d), shift.id)) lastWeekendShort[empId] = d;
+      recordWeek(d, empId, shift.id);
+      if (isFresh) fresh.add(keyOf(d, shift.id, empId));
+    };
+    // הפעולה ההפוכה ל-placeAt, למשמרת שאינה "שבת ארוכה" (שלב התיקון לא מזיז שבתות)
+    const unplaceAt = (d, shift, empId) => {
+      schedule[d][shift.id] = (schedule[d][shift.id] || []).filter((x) => x !== empId);
+      counts[empId] -= 1;
+      const t = D.shiftTimes(d, shift);
+      const i = (busy[empId] || []).findIndex((iv) => +iv.start === +t.start && +iv.end === +t.end);
+      if (i >= 0) busy[empId].splice(i, 1);
+      const wk = weekKeyOf(d);
+      weekTotal[wk][empId] -= 1;
+      if (D.weekdayOf(d) <= 4) weekCounts[wk][empId] -= 1;
+      const kind = shift.id === 'night' ? 'night' : 'day';
+      weekMix[wk][empId][kind] -= 1;
+      monthMix[empId][kind] -= 1;
+      fresh.delete(keyOf(d, shift.id, empId));
+    };
+    // האם לעובד יש בכלל זמינות למשמרת מסוג kind ('day'/'night') בשבוע שמתחיל ב-wk (יום ראשון)
+    const kindCache = {};
+    const canDoKindInWeek = (e, wk, kind) => {
+      const key = e.id + '|' + wk + '|' + kind;
+      if (key in kindCache) return kindCache[key];
+      const r = D.reqOf(e.id);
+      let ok = false;
+      for (let i = 0; i < 7 && !ok; i++) {
+        const d = D.addDays(wk, i);
+        if (!dates.includes(d)) continue;
+        const whitelist = on('canWhitelist') && (r?.can || []).some((v) => v.startsWith(d.slice(0, 7)));
+        ok = D.shiftTypesFor(d, shiftSettings).some((s) => {
+          if (s.continuation || s.id === 'shabbat' || (s.id === 'night') !== (kind === 'night')) return false;
+          const av = D.availabilityOn(e.id, d, s.id);
+          return av !== 'unavailable' && (!whitelist || av === 'can' || av === 'high');
+        });
+      }
+      return (kindCache[key] = ok);
+    };
     // shabbatWeeks[weekKey] = Set של מי ששובץ ל"שבת ארוכה" באותו שבוע — תנאי קשיח:
     // מי שיש לו שבת ארוכה באותו שבוע מקבל משמרת חול אחת פחות מהיעד הרגיל שלו (ראו תנאי #8 במסך "תנאי שיבוץ")
     const shabbatWeeks = {};
@@ -1494,17 +1544,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return false;
       };
 
-      const place = (empId) => {
-        schedule[dStr][shift.id] = [...(schedule[dStr][shift.id] || []), empId];
-        counts[empId] = (counts[empId] || 0) + 1;
-        markBusy(empId, t);
-        if (shift.id === 'shabbat') {
-          lastShabbat[empId] = dStr;
-          (shabbatWeeks[wk0] = shabbatWeeks[wk0] || new Set()).add(empId);
-        }
-        if (isWeekendShort(wdShift0, shift.id)) lastWeekendShort[empId] = dStr;
-        recordWeek(dStr, empId, shift.id);
-      };
+      const place = (empId, isFresh = true) => placeAt(dStr, shift, empId, isFresh);
 
       if (mode === 'count') {
         const inNow = schedule[dStr][shift.id] || [];
@@ -1533,7 +1573,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             addLog('dilemma', `עובד ברזל ${e.name} לא ניתן לשיבוץ ל${shift.name} ב־${D.shortDate(dStr)} — נחסם ע"י תנאי אחר`);
             return;
           }
-          place(empId);
+          place(empId, false);
           addLog('info', `שובץ ${e.name} ל${shift.name} ב־${D.shortDate(dStr)} — משמרת ברזל קבועה`);
         });
       }
@@ -1559,6 +1599,19 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             return daysSince >= minGap;
           });
           if (spaced.length) pool = spaced;
+        }
+        // איזון יום/לילה בשבוע: עובד לא מקבל יותר ממחצית היעד השבועי שלו (מעוגל למעלה) מאותו סוג,
+        // אם יש לו זמינות לסוג השני באותו שבוע ויש מועמד אחר למשבצת. מי שזמין רק לסוג אחד — לא מוגבל.
+        if (on('biasShiftMix') && shift.id !== 'shabbat') {
+          const kind = shift.id === 'night' ? 'night' : 'day';
+          const other = kind === 'night' ? 'day' : 'night';
+          const balanced = pool.filter((e) => {
+            if (e.noWeekdayNights) return true;
+            const m = weekMix[wk0]?.[e.id] || { day: 0, night: 0 };
+            if (m[kind] < Math.ceil((e.weekdayShiftsPerWeek ?? 2) / 2)) return true;
+            return !canDoKindInWeek(e, wk0, other);
+          });
+          if (balanced.length) pool = balanced;
         }
         if (!pool.length) {
           if (alreadyIn.length === 0) addLog('dilemma', `אין עובד זמין למשמרת ${shift.name} ב־${D.shortDate(dStr)}`);
@@ -1627,6 +1680,84 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       }
     }
 
+    // שלב תיקון לאיזון יום/לילה: המילוי הוא חמדני (משבצת אחר משבצת), ולפעמים עובד נשאר עם שתי
+    // משמרות מאותו סוג בשבוע. כאן מנסים, לכל עובד כזה: (1) החלפה עם עובד אחר באותו שבוע שמשפרת את
+    // האיזון של שניהם; (2) מסירת המשמרת לעובד שיש לו מקום, והעברת העובד למשבצת פתוחה מהסוג השני
+    // (ממלא חור). כל מהלך עובר את כל החסימות הקשיחות; זזים רק שיבוצים שנעשו בהרצה הזו.
+    function repairShiftMix() {
+      const kindOf = (sid) => (sid === 'night' ? 'night' : 'day');
+      const otherKind = (k) => (k === 'night' ? 'day' : 'night');
+      const capOf = (e) => Math.ceil((e.weekdayShiftsPerWeek ?? 2) / 2);
+      const imbalance = (e, wk) => {
+        if (!e || e.noWeekdayNights) return 0;
+        const m = weekMix[wk]?.[e.id] || { day: 0, night: 0 };
+        let s = 0;
+        ['day', 'night'].forEach((k) => { if (m[k] > capOf(e) && canDoKindInWeek(e, wk, otherKind(k))) s += m[k] - capOf(e); });
+        return s;
+      };
+      const freshIn = (wk) => [...fresh].map((k) => { const [d, sid, id] = k.split('|'); return { d, sid, id }; })
+        .filter((x) => x.sid !== 'shabbat' && weekKeyOf(x.d) === wk);
+      const shiftOf = (d, sid) => D.shiftTypesFor(d, shiftSettings).find((s) => s.id === sid && !s.continuation);
+      const openIn = (wk, kind) => dates.filter((d) => weekKeyOf(d) === wk).flatMap((d) => D.shiftTypesFor(d, shiftSettings)
+        .filter((s) => !s.continuation && s.id !== 'shabbat' && kindOf(s.id) === kind && (schedule[d][s.id] || []).length < (s.required || 1))
+        .map((s) => ({ d, shift: s })));
+
+      const trySwap = (A, a, B, b, wk) => {
+        const sa = shiftOf(a.d, a.sid); const sb = shiftOf(b.d, b.sid);
+        const before = imbalance(A, wk) + imbalance(B, wk);
+        unplaceAt(a.d, sa, A.id); unplaceAt(b.d, sb, B.id);
+        const ok1 = assignOne(a.d, sa, 'propose', B.id);
+        const ok2 = ok1 && assignOne(b.d, sb, 'propose', A.id);
+        if (ok2 && imbalance(A, wk) + imbalance(B, wk) < before) return true;
+        if (ok2) unplaceAt(b.d, sb, A.id);
+        if (ok1) unplaceAt(a.d, sa, B.id);
+        placeAt(a.d, sa, A.id, true); placeAt(b.d, sb, B.id, true);
+        return false;
+      };
+      const tryHandoff = (A, a, wk, kind) => {
+        const sa = shiftOf(a.d, a.sid);
+        const beforeA = imbalance(A, wk);
+        for (const o of openIn(wk, otherKind(kind))) {
+          unplaceAt(a.d, sa, A.id);
+          if (!assignOne(o.d, o.shift, 'propose', A.id)) { placeAt(a.d, sa, A.id, true); continue; }
+          if (imbalance(A, wk) < beforeA) {
+            for (const C of D.EMPLOYEES) {
+              if (C.id === A.id) continue;
+              const beforeC = imbalance(C, wk);
+              if (!assignOne(a.d, sa, 'propose', C.id)) continue;
+              if (imbalance(C, wk) <= beforeC) return true;
+              unplaceAt(a.d, sa, C.id);
+            }
+          }
+          unplaceAt(o.d, o.shift, A.id);
+          placeAt(a.d, sa, A.id, true);
+        }
+        return false;
+      };
+
+      for (let iter = 0; iter < 200; iter++) {
+        let moved = false;
+        for (const A of D.EMPLOYEES) {
+          for (const wk of Object.keys(weekMix)) {
+            if (!imbalance(A, wk)) continue;
+            const m = weekMix[wk][A.id];
+            const kind = m.day > capOf(A) ? 'day' : 'night';
+            // קודם מזיזים משמרת שהעובד לא ביקש בעדיפות גבוהה
+            const mine = freshIn(wk).filter((x) => x.id === A.id && kindOf(x.sid) === kind)
+              .sort((x, y) => (D.availabilityOn(A.id, x.d, x.sid) === 'high') - (D.availabilityOn(A.id, y.d, y.sid) === 'high'));
+            for (const a of mine) {
+              const others = freshIn(wk).filter((x) => x.id !== A.id && kindOf(x.sid) === otherKind(kind));
+              moved = others.some((b) => trySwap(A, a, D.empById(b.id), b, wk)) || tryHandoff(A, a, wk, kind);
+              if (moved) break;
+            }
+            if (moved) break;
+          }
+          if (moved) break;
+        }
+        if (!moved) break;
+      }
+    }
+
     // הצעות חיצוניות (AI): כל הצעה עוברת את אותן חסימות בדיוק כמו שיבוץ אלגוריתמי, לפי הסדר;
     // הצעה שמפרה תנאי (או משבצת שכבר מלאה) נדחית ומוחזרת ב-rejected. בלי מעברי המילוי הרגילים.
     if (proposals) {
@@ -1675,6 +1806,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           open = open.filter((s) => !s.dead && left(s) > 0);
         }
       });
+      if (on('biasShiftMix')) repairShiftMix();
     }
 
     const total = Object.values(schedule).reduce((n, day) => n + Object.values(day).filter((a) => a.length).length, 0);
@@ -2640,7 +2772,7 @@ Object.assign(window, { Avatar, ShiftChip, ShiftSlot, DayCard, MonthView });
 const PD = window.ShiftData;
 const PE = window.ShiftEngine;
 
-function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, editable, extraBadge, focused, onFocus, onMaxChange }) {
+function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, editable, extraBadge, focused, onFocus, onAdjustShifts }) {
   const count = PE.countShifts(schedule, emp.id);
   const req = PD.reqOf(emp.id);
   const overMax = count > emp.max;
@@ -2677,11 +2809,11 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
         </div>
       </div>
       <div className="emp-side">
-        {onMaxChange ? (
-          <div className="emp-max-stepper" title="משמרות בפועל / מכסה חודשית">
-            <button className="emp-max-btn" onClick={(e) => { e.stopPropagation(); onMaxChange(emp.id, Math.max(1, emp.max - 1)); }}>−</button>
+        {onAdjustShifts ? (
+          <div className="emp-max-stepper" title="משמרות בטיוטה / מכסה חודשית. + ממלא משמרת פתוחה בעובד, − מעביר אחת ממשמרותיו לעובד אחר">
+            <button className="emp-max-btn" title="להוריד משמרת לעובד" onClick={(e) => { e.stopPropagation(); onAdjustShifts(emp.id, -1); }}>−</button>
             <span className={'emp-count' + (overMax ? ' emp-count-over' : '')}>{count} / {emp.max}</span>
-            <button className="emp-max-btn" onClick={(e) => { e.stopPropagation(); onMaxChange(emp.id, emp.max + 1); }}>+</button>
+            <button className="emp-max-btn" title="להוסיף משמרת לעובד" onClick={(e) => { e.stopPropagation(); onAdjustShifts(emp.id, 1); }}>+</button>
           </div>
         ) : (
           <span className={'emp-count' + (overMax ? ' emp-count-over' : '')} title="משמרות החודש / מכסה">{count} / {emp.max}</span>
@@ -3050,7 +3182,7 @@ ${editable ? '' : 'שים לב: הסידור נעול כרגע לעריכה — 
 }
 
 // ---- חלונית צד ראשית ----
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey, employees, onEmployeesChange, onAssign, onRemove, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs }) {
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey, employees, onEmployeesChange, onAssign, onRemove, onAdjustShifts, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
   const [shiftFilter, setShiftFilter] = React.useState('all');
@@ -3237,7 +3369,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
                     </>}
                     focused={focusedEmpId === emp.id}
                     onFocus={(id) => onFocusEmpChange && onFocusEmpChange(focusedEmpId === id ? null : id)}
-                    onMaxChange={onEmployeesChange ? (empId, newMax) => onEmployeesChange(prev => prev.map(e => e.id === empId ? { ...e, max: newMax } : e)) : null} />
+                    onAdjustShifts={editable && onAdjustShifts ? onAdjustShifts : null} />
                 </div>
               );
             })}
@@ -5506,7 +5638,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'biasNightOwl', t: 'Night owl', d: 'עובד שמסומן ככזה מקבל עדיפות למשמרות לילה.' },
     { key: 'biasLoadBalance', t: 'איזון עומס', d: 'ככל שעובד שובץ ליותר משמרות (החודש ובחודשיים האחרונים) הניקוד שלו יורד, כדי לפזר עומס שווה יותר.' },
     { key: 'biasWeeklyTarget', t: 'יעד משמרות/שבוע', d: 'עובד רחוק יותר מהיעד השבועי שלו (כל סוגי המשמרות, כולל שישי/שבת) מקבל ניקוד גבוה יותר.' },
-    { key: 'biasShiftMix', t: 'איזון יום/לילה', d: 'היעד הוא משמרת יום ומשמרת לילה בשבוע: עובד שכבר קיבל יותר משמרות יום (השבוע, ובמשקל קטן יותר בחודש כולו) מקבל עדיפות למשמרת לילה, ולהפך. לא חל על מי שמסומן "ללא משמרות לילה". "שבת ארוכה" לא נספרת. בקשות "מעדיף" של העובד עדיין גוברות.' },
+    { key: 'biasShiftMix', t: 'איזון יום/לילה', d: 'היעד הוא משמרת יום ומשמרת לילה בשבוע (בכל סוג — עד מחצית מהיעד השבועי, מעוגל למעלה). עובד שכבר הגיע לכך באחד הסוגים לא ייבחר לעוד משמרת מאותו סוג באותו שבוע אם יש מועמד אחר; בסוף השיבוץ המנוע גם מנסה החלפות בין עובדים כדי לתקן שבועות לא מאוזנים. לא חל על מי שמסומן "ללא משמרות לילה" או שאין לו בכלל זמינות לסוג השני באותו שבוע. "שבת ארוכה" לא נספרת.' },
     { key: 'biasShabbatFrequency', t: 'תדירות שבת ארוכה אישית', d: 'ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה ל"שבת ארוכה" ביחס ליעד האישי שלו (ברירת מחדל 45 יום), כך גובר הניקוד שלו למשמרת הבאה.' },
     { key: 'shabbatMinGap', t: 'מרחק מינימלי בין שבתות ארוכות', d: 'עובד לא ייבחר לשבת ארוכה נוספת אם עברו פחות מ-14 יום (או מחצית מיעד התדירות האישי שלו, הגבוה מביניהם) מאז השבת האחרונה שלו — מועדף מאוד, לא חוסם לגמרי: אם באמת אין אף מועמד אחר לאותה משבצת, המנוע יחרוג כמוצא אחרון.' },
     { key: 'biasWeekendShortFrequency', t: 'תדירות משמרת קצרה בסופ״ש אישית', d: 'משפיע רק על עובד שהוגדר לו יעד אישי בכרטיסו (רשות, כבוי כברירת מחדל). ככל שעבר יותר זמן מאז שהעובד שובץ לאחרונה למשמרת קצרה בסופ״ש (שישי קצר או בוקר שבת) ביחס ליעד שלו, כך גובר הניקוד שלו למשמרת הבאה מהסוג הזה.' },
@@ -6643,6 +6775,91 @@ function App() {
     return { schedule: res.schedule, rejectedLog };
   };
 
+  const [toast, setToast] = React.useState(null);
+  React.useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // + / − בכרטיס העובד: + ממלא בעובד משמרת פתוחה (מותר לחרוג רק מהיעד השבועי — זו ההחלטה הידנית
+  // של המשבץ; חפיפה, מנוחה ו"לא יכול" נאכפים), − מעביר אחת ממשמרותיו לעובד אחר שעומד בכל התנאים,
+  // ואם אין כזה — מוריד אותה ומשאיר חור (עם הודעה)
+  const adjustEmpShifts = (empId, delta) => {
+    const draft = currentDraft;
+    const emp = AD.empById(empId);
+    if (!draft?.range?.start || !editable || !emp) return;
+    const sched = draft.schedule || {};
+    const base = {
+      startDate: draft.range.start, endDate: draft.range.end, excluded: draft.excluded || [], shiftSettings,
+      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(),
+    };
+    const tryPlace = (schedule, dStr, shiftId, id, toggles) => {
+      const r = AE.generate({ ...base, ruleToggles: toggles, existingSchedule: schedule, proposals: [{ dStr, shiftId, empId: id }] });
+      return r.rejected.length ? null : r.schedule;
+    };
+    const weekOf = (d) => AD.addDays(d, -AD.weekdayOf(d));
+    const kindOf = (sid) => (sid === 'night' ? 'night' : sid === 'shabbat' ? 'shabbat' : 'day');
+    const weekStats = (schedule, id, wk) => {
+      const st = { total: 0, day: 0, night: 0, shabbat: 0 };
+      for (let i = 0; i < 7; i++) {
+        Object.entries(schedule[AD.addDays(wk, i)] || {}).forEach(([sid, ids]) => {
+          if ((ids || []).includes(id)) { st.total++; st[kindOf(sid)]++; }
+        });
+      }
+      return st;
+    };
+    const targetOf = (e) => e.weekdayShiftsPerWeek ?? 2;
+    const avScore = (id, d, sid) => ({ high: 2, can: 1 })[AD.availabilityOn(id, d, sid)] || 0;
+    const lex = (ra, rb) => { for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i]; return 0; };
+    const label = (d, sid) => `${AD.shiftNameOf(sid, shiftSettings)} ב־${AD.dayLabel(d)} ${AD.shortDate(d)}`;
+    const apply = (schedule) => setDrafts(ds => ds.map(x => x.id === draft.id ? { ...x, schedule } : x));
+    const slots = [];
+    datesForDraft(draft).forEach(d => AD.shiftTypesFor(d, shiftSettings).forEach(s => { if (!s.continuation) slots.push({ d, s }); }));
+
+    if (delta > 0) {
+      const toggles = { ...ruleToggles, weeklyTargetCap: false };
+      const cands = slots
+        .filter(({ d, s }) => { const ids = sched[d]?.[s.id] || []; return ids.length < (s.required || 1) && !ids.includes(empId); })
+        .map(({ d, s }) => ({ d, sid: s.id, next: tryPlace(sched, d, s.id, empId, toggles) }))
+        .filter(c => c.next);
+      if (!cands.length) {
+        setToast(`לא נמצאה משמרת פתוחה ש${emp.name} יכול/ה למלא בלי חפיפה, משמרת צמודה או "לא יכול" — מספר המשמרות לא השתנה.`);
+        return;
+      }
+      const rank = (c) => { const w = weekStats(sched, empId, weekOf(c.d)); return [w.total, w[kindOf(c.sid)], -avScore(empId, c.d, c.sid)]; };
+      cands.sort((a, b) => lex(rank(a), rank(b)) || a.d.localeCompare(b.d));
+      apply(cands[0].next);
+      setToast(`${emp.name} שובצ/ה ל${label(cands[0].d, cands[0].sid)}`);
+      return;
+    }
+
+    const mine = slots.filter(({ d, s }) => (sched[d]?.[s.id] || []).includes(empId)).map(({ d, s }) => ({ d, sid: s.id }));
+    if (!mine.length) return;
+    // קודם מהשבוע הכי עמוס של העובד, מהסוג שיש לו יותר ממנו, ומשמרת שלא ביקש בעדיפות גבוהה
+    const rankMine = (m) => {
+      const w = weekStats(sched, empId, weekOf(m.d));
+      return [targetOf(emp) - w.total, -w[kindOf(m.sid)], AD.availabilityOn(empId, m.d, m.sid) === 'high' ? 1 : 0];
+    };
+    mine.sort((a, b) => lex(rankMine(a), rankMine(b)) || a.d.localeCompare(b.d));
+    const without = (m) => ({ ...sched, [m.d]: { ...sched[m.d], [m.sid]: (sched[m.d][m.sid] || []).filter(x => x !== empId) } });
+    for (const m of mine) {
+      const rest = without(m);
+      const takers = AD.EMPLOYEES.filter(e => e.id !== empId)
+        .map(e => ({ e, next: tryPlace(rest, m.d, m.sid, e.id, ruleToggles) }))
+        .filter(t => t.next);
+      if (!takers.length) continue;
+      const rankT = (t) => { const w = weekStats(rest, t.e.id, weekOf(m.d)); return [w.total - targetOf(t.e), w[kindOf(m.sid)], -avScore(t.e.id, m.d, m.sid)]; };
+      takers.sort((a, b) => lex(rankT(a), rankT(b)));
+      apply(takers[0].next);
+      setToast(`${label(m.d, m.sid)} עבר/ה מ${emp.name} ל${takers[0].e.name}`);
+      return;
+    }
+    const m = mine[0];
+    apply(without(m));
+    alert(`נפתח חור: ${label(m.d, m.sid)}.\n\nאין עובד אחר שיכול לקחת את המשמרת של ${emp.name} בלי לחרוג מתנאי השיבוץ, ולכן היא הוסרה ממנו ונשארה פתוחה.`);
+  };
+
   // שיבוץ חכם: שלב א׳ מחשב עם היסטוריה → שלב ב׳ AI ממטב חורים
   const runSmartImpl = async () => {
     if (!currentDraft) { alert('לא נמצאה טיוטה פעילה — בחר טיוטה ונסה שוב.'); return; }
@@ -7292,7 +7509,7 @@ ${JSON.stringify(emptySlots, null, 2)}
               schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
               onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
               apiKey={anthropicKey} employees={employees} onEmployeesChange={setEmployees}
-              onAssign={assign} onRemove={remove}
+              onAssign={assign} onRemove={remove} onAdjustShifts={adjustEmpShifts}
               focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift}
               managerNotes={Object.fromEntries(employees.map(e => [e.id, requests[e.id]?.[currentMonth]?.managerNote || '']).filter(([, n]) => n))}
               responses={Object.fromEntries(employees.map(e => [e.id, scheduleResponses[e.id]?.[currentMonth]]).filter(([, r]) => r))}
@@ -7352,6 +7569,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       <window.CriteriaGateModal gate={criteriaGate}
         onCancel={() => setCriteriaGate(null)}
         onProceed={() => { const fn = criteriaGate?.proceed; setCriteriaGate(null); if (fn) fn(); }} />
+      {toast && <div className="app-toast" role="status" onClick={() => setToast(null)}>{toast}</div>}
       {publishModalOpen && (
         <PublishFinalAtModal
           onClose={() => setPublishModalOpen(false)}

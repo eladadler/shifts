@@ -439,6 +439,13 @@
   .add-shift-btn { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; background: none; border: 1px dashed var(--line); border-radius: 8px; color: var(--ink-3); font-size: 12.5px; font-family: inherit; cursor: pointer; margin-top: 4px; }
   .add-shift-btn:hover { border-color: var(--accent); color: var(--accent); }
   .slot-partial .slot-dot { background: var(--warn); }
+  /* משמרת שלא אוישה במלואה — בולטת בלוח ברגע שיש בטיוטה שיבוצים כלשהם */
+  .board-has-assignments .slot-empty, .board-has-assignments .slot-partial { border: 1.5px dashed var(--warn); background: color-mix(in oklab, var(--warn) 13%, var(--surface)); }
+  .slot-missing { flex-shrink: 0; font-size: 10.5px; font-weight: 700; color: var(--warn); background: var(--warn-bg); border: 1px solid color-mix(in oklab, var(--warn) 45%, transparent); padding: 0 6px; border-radius: 999px; white-space: nowrap; }
+  .open-count { white-space: nowrap; flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--warn); background: var(--warn-bg); padding: 3px 10px; border-radius: 999px; border: none; font-family: inherit; cursor: pointer; }
+  .open-count:hover { box-shadow: 0 0 0 2px color-mix(in oklab, var(--warn) 40%, transparent); }
+  .slot-flash { animation: slot-flash 1.6s ease-out; }
+  @keyframes slot-flash { 0%, 55% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--warn) 75%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
 
   /* ---------- בקשות עובדים ---------- */
   .req-panel { flex: 1; overflow-y: auto; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -2302,7 +2309,9 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
         )}
       </div>
       {emps.length === 0 ? (
-        <div className="slot-placeholder">{editable ? 'גררו עובד לכאן' : 'לא מאויש'}</div>
+        <div className="slot-placeholder">
+          <span className="slot-missing">חסר {required}</span> {editable ? 'גררו עובד לכאן' : 'לא מאויש'}
+        </div>
       ) : (
         <div className="slot-chips">
           {emps.map((id) => {
@@ -2313,6 +2322,7 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
                 onDragChipStart={onDragChipStart} onDragEnd={onDragEnd} />
             );
           })}
+          {!atCapacity && <div className="slot-placeholder"><span className="slot-missing">חסר {required - emps.length}</span></div>}
         </div>
       )}
     </div>
@@ -6432,6 +6442,31 @@ function App() {
     return out;
   };
 
+  // משמרות שלא אוישו במלואן — מוצגות בולט בלוח ובצ'יפ בכותרת (רק אחרי שהתחיל שיבוץ בטיוטה)
+  const draftHasAssignments = !!currentDraft && Object.values(currentDraft.schedule || {})
+    .some((day) => Object.values(day || {}).some((ids) => (ids || []).length));
+  const openSlotCount = React.useMemo(() => {
+    if (!currentDraft) return 0;
+    let n = 0;
+    datesForDraft(currentDraft).forEach((d) => AD.shiftTypesFor(d, shiftSettings).forEach((s) => {
+      if (s.continuation) return;
+      if ((currentDraft.schedule?.[d]?.[s.id] || []).length < (s.required || 1)) n++;
+    }));
+    return n;
+  }, [currentDraft, shiftSettings]);
+  const openJumpIdx = React.useRef(0);
+  const jumpToNextOpenSlot = () => {
+    const els = [...document.querySelectorAll('.board-has-assignments .slot-empty, .board-has-assignments .slot-partial')]
+      .filter((el) => !el.classList.contains('slot-continuation'));
+    if (!els.length) return;
+    const el = els[openJumpIdx.current % els.length];
+    openJumpIdx.current += 1;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.remove('slot-flash');
+    void el.offsetWidth;
+    el.classList.add('slot-flash');
+  };
+
   // מחשב אילו עובדים משובצים בכפייה ("ברזל") לכל תאריך/משמרת בטווח נתון, מתוך
   // employee_recurring_requests — בלי תלות בהגשת בקשה חודשית של אף עובד. עובד
   // שביטל מופע ספציפי (סימן "לא זמין" לתאריך/משמרת הזו בבקשה שהגיש) מוחרג משם.
@@ -7035,6 +7070,11 @@ ${JSON.stringify(emptySlots, null, 2)}
             {conflictCount > 0 && status !== 'preview' && (
               <span className="conflict-count">{conflictCount} קונפליקטים</span>
             )}
+            {draftHasAssignments && openSlotCount > 0 && (
+              <button className="open-count" onClick={jumpToNextOpenSlot} title="לחיצה קופצת למשמרת הפתוחה הבאה בלוח">
+                ⚠ {openSlotCount} חסרות
+              </button>
+            )}
           </div>
         )}
         {screen !== 'calendar' && <div style={{flex:1}} />}
@@ -7188,7 +7228,7 @@ ${JSON.stringify(emptySlots, null, 2)}
                   </div>
                 </div>
               ) : (
-                <div className="board-inner">
+                <div className={'board-inner' + (draftHasAssignments ? ' board-has-assignments' : '')}>
                   <MonthView range={currentDraft.range} excluded={currentDraft.excluded} schedule={currentDraft.schedule}
                     conflicts={conflicts} editable={editable} draggingEmp={draggingEmp} focusedEmpId={focusedEmpId} selectedDate={selectedDate}
                     onSelectDate={(d, shiftId) => {

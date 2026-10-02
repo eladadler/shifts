@@ -896,7 +896,6 @@ function App() {
   const [claimSessionUser, setClaimSessionUser] = React.useState(null);
   const [published, setPublished] = React.useState({});      // { 'YYYY-MM': row }
   const [globalSettings, setGlobalSettings] = React.useState(null); // הגדרות משמרות עדכניות מהמשבץ
-  const [anthropicKey, setAnthropicKey] = React.useState('');      // מפתח Anthropic — נטען מ-Supabase
   const [serverReqs, setServerReqs] = React.useState({});    // { 'YYYY-MM': row } — הבקשות שלי מהשרת
   // { 'YYYY-MM': { marks, note, dirty } } — נטען מ-localStorage כדי ששינויים שלא נשלחו (עדיין)
   // לא ייעלמו ברענון/סגירה בטעות; ראו אפקט השמירה החוזרת בהמשך
@@ -1044,7 +1043,6 @@ function App() {
       setMgrEmps((stateData.employees || []).map(e => ({ ...e, no_weekday_nights: noNightsById[e.id] || false })));
       setSwapSettings(s => ({ ...s, ...(stateData.swapSettings || {}) }));
       setCriteria(c => ({ ...c, ...(stateData.requestCriteria || {}) }));
-      setAnthropicKey(prev => prev || stateData.anthropicKey || '');
       // PWA: auto-subscribe only if user hasn't explicitly opted out
       if (stateData.vapidPublicKey && mine.id && window.subscribeToPush
           && !localStorage.getItem('push-opted-out')) {
@@ -1254,7 +1252,7 @@ function App() {
         myResponses={myResponses} onSaveResponse={saveResponse}
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
-        serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast} anthropicKey={anthropicKey}
+        serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast}
         recurring={recurring} criteria={criteria} mgrEmps={mgrEmps} myPrefs={myPrefs} goRecurring={() => setRecurringOpen(true)} />}
       {tab === 'swaps' && <SwapsTab me={me} empNames={empNames} published={published} swaps={swaps} onRefresh={refreshSwaps} showToast={showToast} swapSettings={swapSettings} />}
       {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} myPrefs={myPrefs} onSavePref={saveMyPref} />}
@@ -2743,7 +2741,7 @@ function RecurringRequestsScreen({ me, TM, globalSettings, recurring, onClose, o
   );
 }
 
-function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, anthropicKey, recurring, criteria, mgrEmps, myPrefs, goRecurring }) {
+function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, recurring, criteria, mgrEmps, myPrefs, goRecurring }) {
   // הקריטריונים הכלליים, נדרסים ע"י קריטריונים אישיים שהמשבץ הגדיר לעובד הזה (emp.reqCriteria) אם יש
   const myCriteria = React.useMemo(() => {
     const base = criteria || DEFAULT_REQUEST_CRITERIA;
@@ -3220,12 +3218,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
 
   const analyzeText = async () => {
     const text = (local.note || '').trim();
-    if (!text || !anthropicKey || analyzing) return;
-    const keyTrimmed = anthropicKey.trim();
-    if (!keyTrimmed.startsWith('sk-ant-')) {
-      setAiError(`מפתח לא תקין (${keyTrimmed.slice(0, 12)}…) — המנהל צריך ללחוץ ☁ שמור לענן בהגדרות`);
-      return;
-    }
+    if (!text || analyzing) return;
     setAnalyzing(true); setAiError(null);
     try {
       const scheduleLabel = openRange
@@ -3299,15 +3292,14 @@ ${shiftsDesc}
       const callApi = async (msgs, sys) => {
         const body = { model: 'claude-sonnet-4-6', max_tokens: 1024, messages: msgs };
         if (sys) body.system = sys;
-        const r = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': keyTrimmed,
-            'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify(body),
-        });
-        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${r.status}`); }
-        const d = await r.json();
-        return d.content?.find(b => b.type === 'text')?.text || '';
+        // דרך פונקציית השרת ai — מפתח ה-API שמור בשרת בלבד, והפונקציה מאמתת שהמשתמש המחובר הוא עובד
+        const { data: d, error } = await sb.functions.invoke('ai', { body: { action: 'messages', body } });
+        if (error) {
+          let msg = error.message;
+          try { const j = await error.context.json(); if (j?.error) msg = j.error; } catch (e) {}
+          throw new Error(msg);
+        }
+        return d?.content?.find(b => b.type === 'text')?.text || '';
       };
 
       const extractJson = (raw) => {
@@ -3706,7 +3698,6 @@ ${shiftsDesc}
           <textarea placeholder='כתבו בקשה בשפה חופשית — למשל "לא יכול ימי שני לילה, מעדיף רביעי בוקר"' value={local.note}
             onChange={e => { setLocal({ note: e.target.value, dirty: true }); setAiError(null); }}
             style={{ border: `1.5px solid ${INK}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 80 }} />
-          {anthropicKey ? (
             <div onClick={!analyzing && local.note?.trim() ? analyzeText : undefined} style={{
               background: analyzing || !local.note?.trim() ? '#F1EFEB' : TEAL,
               color: analyzing || !local.note?.trim() ? '#A09C94' : '#FFF',
@@ -3714,9 +3705,6 @@ ${shiftsDesc}
               cursor: analyzing || !local.note?.trim() ? 'default' : 'pointer', transition: 'background 0.2s' }}>
               {analyzing ? '⏳ מנתח…' : '⚡ נתח עם AI — עדכן יומן'}
             </div>
-          ) : (
-            <div style={{ fontSize: 12, color: '#A09C94', textAlign: 'center', padding: '8px 0' }}>ניתוח AI לא זמין — המנהל לא הגדיר מפתח</div>
-          )}
           {aiError && <div style={{ fontSize: 12, fontWeight: 600, color: 'oklch(0.5 0.18 25)', background: 'oklch(0.97 0.03 25)', borderRadius: 8, padding: '8px 12px' }}>{aiError}</div>}
           {IMPERSONATE_ID && lastAiResult && (
             <div style={{ background: 'oklch(0.97 0.015 80)', border: '1px solid oklch(0.88 0.04 80)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -744,6 +744,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         // Merge with existing row so keys managed elsewhere (VAPID, Anthropic) are not overwritten
         const { data: existing } = await client.from(TABLE).select('data').eq('id', ROW).maybeSingle();
         const merged = { ...(existing?.data || {}), ...state };
+        delete merged.anthropicKey;
         const { error } = await client.from(TABLE).upsert({ id: ROW, data: merged, updated_at: new Date().toISOString() });
         if (error) throw error;
         return true;
@@ -923,16 +924,41 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return true;
       } catch (e) { console.warn('rejectPendingEmployee failed:', e.message); return false; }
     },
-    async saveAnthropicKey(key) {
-      if (!client) return false;
-      try {
-        const { data } = await client.from('mishmarot_state').select('data').eq('id', 'main').single();
-        const merged = { ...(data?.data || {}), anthropicKey: key };
-        const { error } = await client.from('mishmarot_state').upsert({ id: 'main', data: merged, updated_at: new Date().toISOString() });
-        if (error) throw error;
-        return true;
-      } catch (e) { console.warn('saveAnthropicKey failed:', e.message); return false; }
+    // Claude דרך פונקציית השרת ai — המפתח נשמר כסוד ב-Supabase בלבד, והפונקציה מאמתת
+    // שהמשתמש המחובר הוא משבץ (MANAGER_EMAILS) לפני שהיא משתמשת בו
+    async callClaude(body) {
+      if (!client) throw new Error('אין חיבור לשרת');
+      const { data, error } = await client.functions.invoke('ai', { body: { action: 'messages', body } });
+      if (error) {
+        let msg = error.message;
+        try { const j = await error.context.json(); if (j?.error) msg = j.error; } catch (e) {}
+        throw new Error(msg);
+      }
+      return data;
     },
+    async aiWhoami() {
+      const { data, error } = await client.functions.invoke('ai', { body: { action: 'whoami' } });
+      if (error) {
+        let msg = error.message;
+        try { const j = await error.context.json(); if (j?.error) msg = j.error; } catch (e) {}
+        const err = new Error(msg); err.status = error.context?.status; throw err;
+      }
+      return data;
+    },
+    async getSession() {
+      if (!client) return null;
+      const { data } = await client.auth.getSession();
+      return data?.session || null;
+    },
+    onAuthChange(cb) {
+      if (!client) return () => {};
+      const { data } = client.auth.onAuthStateChange((_e, session) => cb(session));
+      return () => data?.subscription?.unsubscribe();
+    },
+    signInWithGoogle() {
+      return client?.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.href.split('?')[0].split('#')[0] } });
+    },
+    signOut() { return client?.auth.signOut(); },
     async saveVapidKeys(publicKey, privateKeyJwk) {
       // Use admin client if available, fall back to anon client (mishmarot_state has open RLS)
       const c = client || supabase.createClient(URL, KEY);
@@ -2928,7 +2954,7 @@ function SettingsPanel({ settings, onChange }) {
 }
 
 // ---- צ׳אט AI ----
-function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, onAssign, onRemove, editable }) {
+function AIChat({ schedule, selectedDate, aiOn, employees, onEmployeesChange, onAssign, onRemove, editable }) {
   const [open, setOpen] = React.useState(false);
   const [msgs, setMsgs] = React.useState([{ from: 'ai', text: 'שלום! אני יכול לענות על שאלות, לערוך עובדים ולשבץ במשמרות.' }]);
   const [input, setInput] = React.useState('');
@@ -3072,8 +3098,8 @@ function AIChat({ schedule, selectedDate, apiKey, employees, onEmployeesChange, 
     setInput('');
     setMsgs(prev => [...prev, { from: 'user', text: q }]);
 
-    if (!apiKey) {
-      setMsgs(prev => [...prev, { from: 'ai', text: 'כדי להשתמש בצ׳אט יש להזין מפתח API בהגדרות (⚙).' }]);
+    if (!aiOn) {
+      setMsgs(prev => [...prev, { from: 'ai', text: 'הצ׳אט זמין רק למשבץ מחובר, אחרי שהוגדר מפתח ה-AI בשרת.' }]);
       return;
     }
 
@@ -3112,27 +3138,13 @@ ${editable ? '' : 'שים לב: הסידור נעול כרגע לעריכה — 
       let finalReply = '';
 
       for (let i = 0; i < 10; i++) {
-        const resp = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey.trim(),
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
+        const data = await window.__db.callClaude({
             model: 'claude-sonnet-4-6',
             max_tokens: 2048,
             system: systemPrompt,
             tools: TOOLS,
             messages: loopMsgs,
-          }),
-        });
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(err.error?.message || `HTTP ${resp.status}`);
-        }
-        const data = await resp.json();
+          });
 
         if (data.stop_reason === 'tool_use') {
           loopMsgs.push({ role: 'assistant', content: data.content });
@@ -3182,7 +3194,7 @@ ${editable ? '' : 'שים לב: הסידור נעול כרגע לעריכה — 
 }
 
 // ---- חלונית צד ראשית ----
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, apiKey, employees, onEmployeesChange, onAssign, onRemove, onAdjustShifts, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs }) {
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, aiOn, employees, onEmployeesChange, onAssign, onRemove, onAdjustShifts, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
   const [shiftFilter, setShiftFilter] = React.useState('all');
@@ -3380,7 +3392,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
 
       {nav === 'requests' && <RequestsPanel />}
 
-      <AIChat schedule={schedule} selectedDate={selectedDate} apiKey={apiKey} employees={employees} onEmployeesChange={onEmployeesChange}
+      <AIChat schedule={schedule} selectedDate={selectedDate} aiOn={aiOn} employees={employees} onEmployeesChange={onEmployeesChange}
         onAssign={onAssign} onRemove={onRemove} editable={editable} />
     </aside>
   );
@@ -3782,16 +3794,12 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 }
 
 // ---- SettingsDrawer ----
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKeyChange, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange, hiddenButtons, onHiddenButtonsChange, toolbarButtonDefs }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange, hiddenButtons, onHiddenButtonsChange, toolbarButtonDefs }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
-  const [showKey, setShowKey] = React.useState(false);
   const [showAdminKey, setShowAdminKey] = React.useState(false);
   const [adminDraft, setAdminDraft] = React.useState(adminKey || '');
   const [adminSaved, setAdminSaved] = React.useState(false);
-  const [cloudSaving, setCloudSaving] = React.useState(false);
-  const [cloudSaved, setCloudSaved] = React.useState(false);
-  const [cloudErr, setCloudErr] = React.useState(false);
   const [newAdminEmail, setNewAdminEmail] = React.useState('');
   const [vapidGenerating, setVapidGenerating] = React.useState(false);
   const [vapidMsg, setVapidMsg] = React.useState(null);
@@ -3800,15 +3808,6 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
     onAdminKeyChange(adminDraft.trim());
     setAdminSaved(true);
     setTimeout(() => setAdminSaved(false), 2500);
-  };
-
-  const saveKeyToCloud = async () => {
-    if (!apiKey || cloudSaving) return;
-    setCloudSaving(true); setCloudSaved(false); setCloudErr(false);
-    const ok = await window.__db?.saveAnthropicKey(apiKey.trim());
-    setCloudSaving(false);
-    if (ok) { setCloudSaved(true); setTimeout(() => setCloudSaved(false), 3000); }
-    else setCloudErr(true);
   };
 
   return (
@@ -3854,40 +3853,18 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, apiKey, onApiKey
               </div>
             </div>
             <div>
-              <div className="settings-sec-title">✦ שיבוץ AI — מפתח Anthropic</div>
-              <div style={{marginTop:10,fontSize:'12px',color:'var(--ink-3)',marginBottom:8,lineHeight:1.5}}>
-                נדרש לשיבוץ האוטומטי ולאפליקציית העובדים. לאחר הזנה לחצו ☁ שמור לענן.{' '}
-                <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{color:'var(--accent)'}}>קבל מפתח</a>
+              <div className="settings-sec-title">✦ AI וחשבון משבץ</div>
+              <div style={{marginTop:10,fontSize:'12px',color:'var(--ink-3)',lineHeight:1.6}}>
+                מפתח ה-AI שמור כסוד בשרת (Supabase → Edge Functions → Secrets → <code>ANTHROPIC_API_KEY</code>) ולא בדפדפן.
+                משבצים מורשים מוגדרים בסוד <code>MANAGER_EMAILS</code>.
               </div>
-              <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                <input
-                  type={showKey ? 'text' : 'password'}
-                  value={apiKey}
-                  onChange={e => onApiKeyChange(e.target.value)}
-                  placeholder="sk-ant-..."
-                  style={{
-                    flex:1, border:'1px solid var(--line)', borderRadius:7,
-                    padding:'7px 10px', fontSize:'13px', background:'var(--surface)',
-                    color:'var(--ink)', font:'inherit', outline:'none',
-                    fontFamily:'monospace',
-                  }}
-                />
-                <button className="btn" style={{padding:'6px 10px',fontSize:'12px',flexShrink:0}}
-                  onClick={() => setShowKey(v => !v)}>
-                  {showKey ? 'הסתר' : 'הצג'}
-                </button>
+              <div style={{marginTop:8,fontSize:'12px'}}>
+                מחובר/ת: <b>{auth?.email || '—'}</b>{' · '}
+                <span style={{color: auth?.role === 'manager' ? 'var(--ok)' : 'var(--danger)'}}>
+                  {auth?.role === 'manager' ? 'AI פעיל' : (auth?.aiError || 'AI לא פעיל')}
+                </span>
               </div>
-              {apiKey && (
-                <div style={{marginTop:8,display:'flex',flexDirection:'column',gap:6}}>
-                  <div style={{fontSize:'11px',color:'var(--ok)'}}>✓ מפתח שמור בדפדפן בלבד</div>
-                  <button className="btn btn-primary" style={{fontSize:'12px',width:'100%'}}
-                    disabled={cloudSaving} onClick={saveKeyToCloud}>
-                    {cloudSaving ? 'שומר…' : '☁ שמור מפתח לענן (לאפליקציית העובדים)'}
-                  </button>
-                  {cloudSaved && <div style={{fontSize:'11px',color:'var(--ok)'}}>✓ המפתח נשמר ל-Supabase — העובדים יכולים להשתמש ב-AI</div>}
-                  {cloudErr && <div style={{fontSize:'11px',color:'var(--danger)'}}>שגיאה בשמירה לענן — בדקו חיבור לרשת</div>}
-                </div>
-              )}
+              <button className="btn" style={{marginTop:8,fontSize:'12px',width:'100%'}} onClick={() => window.__db.signOut()}>התנתקות</button>
             </div>
             <div>
               <div className="settings-sec-title">🔑 חשבונות עובדים — מפתח אדמין</div>
@@ -4427,7 +4404,7 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, vac
 }
 
 // ---- RequestDetailPanel ----
-function RequestDetailPanel({ emp, entry, altOptions, scheduleResponse, month, openRange, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, apiKey, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
+function RequestDetailPanel({ emp, entry, altOptions, scheduleResponse, month, openRange, onUpdate, onAnalyze, onChatRefine, onClearEntry, onSend, aiOn, shiftSettings, analyzing, chatHistory, chatBusy, sendBusy, sendOk, error }) {
   const SD = window.ShiftData;
   const SE = window.ShiftEngine;
   const [brush, setBrush] = React.useState('view');
@@ -4844,7 +4821,7 @@ function RequestDetailPanel({ emp, entry, altOptions, scheduleResponse, month, o
                 rows={2}
                 style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'7px 9px',fontSize:'12px',background:'var(--bg)',color:'var(--ink)',font:'inherit',outline:'none',resize:'none'}} />
               <button className="btn btn-primary" style={{fontSize:'11.5px',whiteSpace:'nowrap',flexShrink:0,padding:'7px 10px'}}
-                disabled={analyzing || !text.trim() || !apiKey}
+                disabled={analyzing || !text.trim() || !aiOn}
                 onClick={() => onAnalyze(emp)}>
                 {analyzing ? <><span className="spin">↻</span></> : (analyzed ? '✦ שוב' : '✦ נתח')}
               </button>
@@ -4963,7 +4940,7 @@ function RequestDetailPanel({ emp, entry, altOptions, scheduleResponse, month, o
 // "בקשות" (RequestDetailPanel, כפי שהיה במסך "בקשות" הנפרד) ו"פרטי עובד"
 // (EmployeeProfileForm, כפי שהיה במסך "עובדים" הנפרד) — כדי לא לקפוץ בין שני מסכים
 // עם שתי רשימות עובדים נפרדות כדי לעשות שתי פעולות שקשורות לאותו עובד.
-function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, altRequests, scheduleResponses, initialMonth, apiKey, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria }) {
+function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, altRequests, scheduleResponses, initialMonth, aiOn, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria }) {
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
   const [refreshing, setRefreshing] = React.useState(false);
   const refresh = async () => {
@@ -5050,7 +5027,7 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
     const entry = entryOf(emp.id);
     const text = (entry?.text || '').trim();
     if (!text) return;
-    if (!apiKey) { setErrors(e => ({ ...e, [emp.id]: 'יש להזין מפתח API בהגדרות (⚙) כדי לנתח' })); return; }
+    if (!aiOn) { setErrors(e => ({ ...e, [emp.id]: 'ניתוח AI זמין רק למשבץ מחובר, אחרי שהוגדר מפתח ה-AI בשרת' })); return; }
     setAnalyzing(a => ({ ...a, [emp.id]: true }));
     setErrors(e => ({ ...e, [emp.id]: null }));
     try {
@@ -5103,25 +5080,11 @@ ${shiftsDesc}
 - כל התאריכים חייבים להיות מהרשימה למעלה (בין ${rangeStart} ל-${rangeEnd})
 - העדפה כללית שלא ניתנת לתרגום לתאריכים או משמרות — כלול אותה ב-note בלבד`;
 
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey.trim(),
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const data = await window.__db.callClaude({
           model: 'claude-sonnet-4-6',
           max_tokens: 1024,
           messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error?.message || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
+        });
       const raw = data.content?.find(b => b.type === 'text')?.text || '';
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('לא התקבל JSON תקין מהמודל');
@@ -5160,18 +5123,7 @@ ${shiftsDesc}
     setChatBusy(b => ({...b, [emp.id]: true}));
     const newHistory = [...history, { role: 'user', content: userMsg }];
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey.trim(),
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1024, messages: newHistory }),
-      });
-      if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error?.message || `HTTP ${resp.status}`); }
-      const data = await resp.json();
+      const data = await window.__db.callClaude({ model: 'claude-sonnet-4-6', max_tokens: 1024, messages: newHistory });
       const raw = data.content?.find(b => b.type === 'text')?.text || '';
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('לא התקבל JSON תקין מהמודל');
@@ -5374,7 +5326,7 @@ ${shiftsDesc}
                   onChatRefine={chatRefine}
                   onClearEntry={clearEntry}
                   onSend={sendToSupabase}
-                  apiKey={apiKey}
+                  aiOn={aiOn}
                   shiftSettings={shiftSettings}
                   analyzing={!!analyzing[selectedEmp.id]}
                   chatHistory={chatHistories[selectedEmp.id] || []}
@@ -6104,7 +6056,7 @@ function DraftTab({ draft, isActive, onSelect, onRename, onDelete }) {
   );
 }
 
-function App() {
+function App({ auth }) {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const saved = React.useMemo(loadState, []);
 
@@ -6114,7 +6066,8 @@ function App() {
   const [shiftSettings, setShiftSettings] = React.useState(() => mergeSettings(saved?.shiftSettings));
   const [editTimes, setEditTimes] = React.useState(null);  // { dStr, shiftId, empId } — דיאלוג שעות משמרת
   const [generatingId, setGeneratingId] = React.useState(null);
-  const [anthropicKey, setAnthropicKey] = React.useState(() => localStorage.getItem('anthropic-api-key') || '');
+  const aiOn = auth?.role === 'manager';
+  React.useEffect(() => { try { localStorage.removeItem('anthropic-api-key'); } catch (e) {} }, []);
   const [adminKey, setAdminKey] = React.useState(() => localStorage.getItem('supabase-admin-key') || '');
   const [employees, setEmployees] = React.useState(() => {
     return normalizeMax(saved?.employees || [...AD.EMPLOYEES], saved?.empMaxV);
@@ -6252,13 +6205,9 @@ function App() {
           setEmployees(normalizeMax(remote.employees, remote.empMaxV));
         }
         setRequests(remote.requests || {});
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+        const { anthropicKey: _dropKey, ...remoteNoKey } = remote;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteNoKey));
         loadedEmployees = remote.employees || [];
-        // טען מפתח Anthropic מהענן אם אין ב-localStorage
-        if (remote.anthropicKey && !localStorage.getItem('anthropic-api-key')) {
-          setAnthropicKey(remote.anthropicKey);
-          localStorage.setItem('anthropic-api-key', remote.anthropicKey);
-        }
         // טען מפתח VAPID ציבורי
         if (remote.vapidPublicKey) setVapidPublicKey(remote.vapidPublicKey);
         if (remote.swapSettings) setSwapSettings(s => ({ ...s, ...remote.swapSettings }));
@@ -6277,9 +6226,6 @@ function App() {
       refreshEmployeePrefs();
       refreshAllRecurring();
       refreshScheduleResponses();
-      // סנכרון מפתח Anthropic ל-Supabase אם קיים ב-localStorage (למען אפליקציית העובדים)
-      const existingKey = localStorage.getItem('anthropic-api-key');
-      if (existingKey) window.__db.saveAnthropicKey(existingKey);
     }).catch(() => { setSyncStatus('error'); isFirstLoad.current = false; });
   }, []);
 
@@ -6390,7 +6336,7 @@ function App() {
     if (generatingId) return;
     if (isFirstLoad.current) return;
     if (employees.length === 0) return; // אל תכתוב רשימת עובדים ריקה — שמור על נתוני Supabase
-    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, anthropicKey, admins, swapSettings, requestCriteria, ruleToggles, hiddenButtons, empMaxV: EMP_MAX_V };
+    const state = { currentMonth, drafts, activeDraftId, shiftSettings, employees, requests, admins, swapSettings, requestCriteria, ruleToggles, hiddenButtons, empMaxV: EMP_MAX_V };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (!dbAvailable.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -6887,9 +6833,9 @@ function App() {
 
       // בדוק אם נשארו חורים (dilemmas)
       const holes = algoResult.log.filter(l => l.type === 'dilemma');
-      if (holes.length === 0 || !anthropicKey.trim()) {
+      if (holes.length === 0 || !aiOn) {
         if (holes.length === 0) smartLog.push({ timestamp: ts(), type: 'info', message: 'אין חורים — שלב AI לא נדרש' });
-        else smartLog.push({ timestamp: ts(), type: 'info', message: 'אין מפתח AI — שיבוץ אלגוריתמי בלבד' });
+        else smartLog.push({ timestamp: ts(), type: 'info', message: 'AI לא זמין (נדרש משבץ מחובר ומפתח בשרת) — שיבוץ אלגוריתמי בלבד' });
         setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: algoResult.schedule, log: smartLog } : d));
         setSmartSummary(buildSmartSummary(algoResult.schedule, currentDraft, shiftSettings, false));
         return;
@@ -6966,26 +6912,12 @@ ${JSON.stringify(emptySlots, null, 2)}
 ## פורמט תגובה — התחל מיד עם { ללא הסברים. log: עד 5 שורות קצרות בלבד (רק דילמות חשובות)
 {"assignments":{"YYYY-MM-DD":{"shiftId":["empId1"]}},"log":[{"type":"info|decision|dilemma","msg":"קצר"}]}`;
 
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicKey.trim(),
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const data = await window.__db.callClaude({
           model: 'claude-sonnet-4-6',
           max_tokens: 16000,
           system: 'ענה באובייקט JSON אחד בלבד — ללא טקסט לפני או אחרי, וללא גדרות קוד.',
           messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        throw new Error(errBody.error?.message || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
+        });
       const rawText = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error(`AI לא החזיר JSON (stop_reason: ${data.stop_reason})`);
@@ -7020,8 +6952,8 @@ ${JSON.stringify(emptySlots, null, 2)}
       alert('לטיוטה אין טווח תאריכים — צור טיוטה חדשה.');
       return;
     }
-    if (!anthropicKey.trim()) {
-      alert('כדי להריץ שיבוץ אוטומטי יש להזין מפתח API של Anthropic.\nפתח הגדרות (⚙) → "שיבוץ AI — מפתח Anthropic" והזן את המפתח.');
+    if (!aiOn) {
+      alert('שיבוץ AI זמין רק למשבץ מחובר, אחרי שהוגדר מפתח ה-AI בשרת.\nפרטים בהגדרות (⚙) → "AI וחשבון משבץ".');
       setSettingsDrawerOpen(true);
       return;
     }
@@ -7087,26 +7019,12 @@ ${JSON.stringify(emptySlots, null, 2)}
 ## פורמט תגובה — התחל מיד עם { ללא הסברים. log: עד 5 שורות קצרות בלבד (רק דילמות חשובות)
 {"assignments":{"YYYY-MM-DD":{"shiftId":["empId1"]}},"log":[{"type":"info|decision|dilemma","msg":"קצר"}]}`;
 
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicKey.trim(),
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
+      const data = await window.__db.callClaude({
           model: 'claude-sonnet-4-6',
           max_tokens: 16000,
           system: 'ענה באובייקט JSON אחד בלבד — ללא טקסט לפני או אחרי, וללא גדרות קוד.',
           messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        throw new Error(errBody.error?.message || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
+        });
       const rawText = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
       console.log('[AI response stop_reason]', data.stop_reason);
       console.log('[AI response text]', rawText.slice(0, 300));
@@ -7460,7 +7378,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       <ShiftSettingsCtx.Provider value={shiftSettings}>
         {screen === 'requests' && <PeopleScreen employees={employees} onEmployeesChange={setEmployees}
           requests={requests} onRequestsChange={setRequests} altRequests={altRequests} scheduleResponses={scheduleResponses}
-          initialMonth={currentMonth} apiKey={anthropicKey} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth}
+          initialMonth={currentMonth} aiOn={aiOn} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth}
           adminKey={adminKey} requestCriteria={requestCriteria}
           prefs={prefs} onSavePref={(empId, patch) => {
             setPrefs(p => ({ ...p, [empId]: { ...(p[empId] || {}), ...patch, updated_at: new Date().toISOString() } }));
@@ -7508,7 +7426,7 @@ ${JSON.stringify(emptySlots, null, 2)}
             <EmployeesSidePanel
               schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
               onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
-              apiKey={anthropicKey} employees={employees} onEmployeesChange={setEmployees}
+              aiOn={aiOn} employees={employees} onEmployeesChange={setEmployees}
               onAssign={assign} onRemove={remove} onAdjustShifts={adjustEmpShifts}
               focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift}
               managerNotes={Object.fromEntries(employees.map(e => [e.id, requests[e.id]?.[currentMonth]?.managerNote || '']).filter(([, n]) => n))}
@@ -7527,8 +7445,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         settings={shiftSettings} onChange={setShiftSettings} />
       <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
         tweaks={t} onTweakChange={setTweak}
-        apiKey={anthropicKey}
-        onApiKeyChange={key => { setAnthropicKey(key); localStorage.setItem('anthropic-api-key', key); }}
+        auth={auth}
         adminKey={adminKey}
         onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }}
         admins={admins} onAdminsChange={setAdmins}
@@ -7602,7 +7519,62 @@ ${JSON.stringify(emptySlots, null, 2)}
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+// כניסת משבץ: התחברות עם Google, ובדיקה מול פונקציית השרת ai שהחשבון ברשימת המשבצים
+// (MANAGER_EMAILS). כל עוד הרשימה לא הוגדרה או השרת לא זמין — נכנסים בלי AI, כדי לא לנעול
+// את המשבץ מחוץ לאפליקציה בזמן ההקמה.
+function ManagerGate() {
+  const [session, setSession] = React.useState(undefined);
+  const [auth, setAuth] = React.useState(null);
+  const offline = !window.supabase;
+
+  React.useEffect(() => {
+    if (offline) return;
+    window.__db.getSession().then(setSession);
+    return window.__db.onAuthChange(setSession);
+  }, []);
+
+  React.useEffect(() => {
+    if (!session) { setAuth(null); return; }
+    const email = session.user?.email || '';
+    let cancelled = false;
+    window.__db.aiWhoami()
+      .then((r) => { if (!cancelled) setAuth({ email, role: r.role, aiError: r.managersConfigured ? null : 'רשימת המשבצים (MANAGER_EMAILS) לא הוגדרה בשרת', blocked: r.managersConfigured && r.role !== 'manager' }); })
+      .catch((e) => { if (!cancelled) setAuth({ email, role: 'none', aiError: 'שרת ה-AI לא זמין: ' + e.message, blocked: false }); });
+    return () => { cancelled = true; };
+  }, [session?.access_token]);
+
+  if (offline) return <App auth={null} />;
+  const box = { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: 16 };
+  const card = { background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 14, padding: '28px 26px', maxWidth: 380, width: '100%', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 14 };
+  if (session === undefined || (session && !auth)) return <div style={box} dir="rtl"><div style={{ color: 'var(--ink-3)' }}>טוען…</div></div>;
+  if (!session) {
+    return (
+      <div style={box} dir="rtl">
+        <div style={card}>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>⧉ משמרות — כניסת משבץ</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>יש להתחבר עם חשבון Google של משבץ מורשה.</div>
+          <button className="btn btn-primary btn-lg" onClick={() => window.__db.signInWithGoogle()}>התחברות עם Google</button>
+        </div>
+      </div>
+    );
+  }
+  if (auth.blocked) {
+    return (
+      <div style={box} dir="rtl">
+        <div style={card}>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>אין הרשאת משבץ</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+            החשבון <b>{auth.email}</b> אינו ברשימת המשבצים. אפליקציית העובדים נמצאת בכתובת נפרדת.
+          </div>
+          <button className="btn" onClick={() => window.__db.signOut()}>התנתקות והחלפת חשבון</button>
+        </div>
+      </div>
+    );
+  }
+  return <App auth={auth} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<ManagerGate />);
 </script>
 </body>
 </html>

@@ -281,3 +281,28 @@ create policy "open access" on schedule_responses
 -- 17. מועד אחרון (רשות) לתגובת עובדים לסידור, נקבע ע"י המשבץ בעת "אישור ופרסום" —
 --     נשמר בתוך published_schedules.shift_settings._finalAt (ISO timestamp או null),
 --     לא עמודה נפרדת. מוצג לעובד כספירה לאחור במסך הבית באפליקציה שלו.
+
+-- 18. נעילת גישה: רק משתמשים מחוברים (Supabase Auth). מבטל את "open access" שאפשר לכל מי
+--     שיש לו את המפתח הציבורי (הוא גלוי בקוד הדף) לקרוא ולשנות הכל. שתי האפליקציות פועלות
+--     רק אחרי התחברות, ופונקציות השרת משתמשות במפתח service_role שעוקף את הכללים האלה.
+--     הסקריפט מוחק כל כלל קיים על 12 הטבלאות של האפליקציה (בלי תלות בשם שלו) ויוצר
+--     כלל אחד: "משתמש מחובר — הכל". טבלאות אחרות בפרויקט לא נגעות.
+do $$
+declare t text; p record;
+begin
+  foreach t in array array['mishmarot_state','app_employees','employee_requests','published_schedules',
+    'push_subscriptions','pending_notifications','pending_employees','ai_feedback','shift_swap_requests',
+    'employee_recurring_requests','employee_prefs','schedule_responses']
+  loop
+    if to_regclass('public.' || t) is null then continue; end if;
+    for p in select policyname from pg_policies where schemaname = 'public' and tablename = t loop
+      execute format('drop policy %I on public.%I', p.policyname, t);
+    end loop;
+    execute format('alter table public.%I enable row level security', t);
+    execute format('create policy "logged in only" on public.%I for all to authenticated using (true) with check (true)', t);
+  end loop;
+end $$;
+
+-- הרשמת עובד חדש (מייל+סיסמה) כותבת לכאן לפני שאימת את המייל, כלומר עוד בלי התחברות —
+-- כתיבה בלבד, בלי קריאה, כדי שזרים לא יראו את רשימת הנרשמים.
+create policy "signup insert" on public.pending_employees for insert to anon with check (true);

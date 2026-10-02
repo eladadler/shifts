@@ -667,7 +667,9 @@ function LoginScreen({ onError }) {
     setBusy(true); setErr(false);
     const { error } = await sb.auth.signUp({ email: email.trim(), password, options: { data: { name: name.trim() } } });
     if (!error) {
-      await sb.from('pending_employees').upsert({ email: email.trim().toLowerCase(), name: name.trim() }, { onConflict: 'email' });
+      // insert בלבד (לא upsert): לפני אימות המייל אין התחברות, והרשאת אנונימי על הטבלה היא כתיבה בלבד.
+      // אם הבקשה כבר קיימת (הרשמה חוזרת) — השגיאה על כפילות לא משנה דבר
+      await sb.from('pending_employees').insert({ email: email.trim().toLowerCase(), name: name.trim() });
       setBusy(false);
       setRegistered(true);
       return;

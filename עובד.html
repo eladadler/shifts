@@ -2481,7 +2481,9 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, myRespons
   const [view, setView] = React.useState('grid');
   const [onlyMine, setOnlyMine] = React.useState(false);
   const ym = months[Math.min(mi, months.length - 1)];
-  const pub = published[ym] || null;
+  // חודש במצב "פתוח לבקשות" (_status='open') עוד לא פורסם — השורה קיימת רק כדי לפתוח הגשת בקשות
+  const pubRow = published[ym] || null;
+  const pub = pubRow && pubRow.shift_settings?._status !== 'open' ? pubRow : null;
   const today = todayStr();
   const todayNum = ym === TM ? Number(today.split('-')[2]) : null;
 

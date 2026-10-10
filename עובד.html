@@ -3052,7 +3052,7 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     const nextRank = Math.max(...activeRanks) + 1;
     setLocalReqs(prev => ({ ...prev, [rankKey(nextRank)]: { ...(prev[draftKey] || DEFAULT_DRAFT), dirty: true } }));
     setSelectedRank(nextRank);
-    showToast && showToast(`טיוטה ${nextRank} נוצרה כעותק של טיוטה ${selectedRank} ✓`);
+    showToast && showToast(`עדיפות ${nextRank} נוצרה כעותק של עדיפות ${selectedRank} ✓`);
   };
 
   // מחיקת טיוטה משנית (לא ניתן למחוק את #1) — כולל מחיקה בשרת אם כבר נשלחה, כדי
@@ -3062,12 +3062,12 @@ function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, set
     const key = rankKey(rank);
     if (serverReqs[key]) {
       const { error } = await sb.from('employee_requests').delete().match({ emp_id: me.id, month: ym, option_rank: rank });
-      if (error) { showToast && showToast('שגיאה במחיקת הטיוטה — נסו שוב'); return; }
+      if (error) { showToast && showToast('שגיאה במחיקת העדיפות — נסו שוב'); return; }
     }
     setLocalReqs(prev => { const next = { ...prev }; delete next[key]; return next; });
     setServerReqs(prev => { const next = { ...prev }; delete next[key]; return next; });
     if (selectedRank === rank) setSelectedRank(1);
-    showToast && showToast(`טיוטה ${rank} נמחקה`);
+    showToast && showToast(`עדיפות ${rank} נמחקה`);
   };
 
   const resetMonth = () => {
@@ -3502,7 +3502,7 @@ ${shiftsDesc}
 
       {/* בורר טיוטות ("אפשרויות שיבוץ") — כולן לוח מלא ונפרד לאותו חודש, מדורגות בעדיפות.
           #1 היא הבכירה; האלגוריתם מנסה למלא אותה קודם, ועובר לבאות רק אם משמרת נשארת פתוחה. */}
-      <AdminPart id="drafts" label="בורר טיוטות" ui={ui} when={editable || activeRanks.length > 1}><>
+      <AdminPart id="drafts" label="בורר עדיפויות" ui={ui} when={editable || activeRanks.length > 1}><>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {activeRanks.map(rank => {
             const active = rank === selectedRank;
@@ -3511,21 +3511,21 @@ ${shiftsDesc}
                 display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
                 background: active ? INK : '#FFF', color: active ? '#FFF' : '#6B6760',
                 border: active ? `1.5px solid ${INK}` : '1.5px solid #D8D4CE', fontSize: 12.5, fontWeight: 800 }}>
-                <span>טיוטה {rank}</span>
+                <span>עדיפות {rank}</span>
                 {rank > 1 && editable && (
                   <span onClick={(e) => { e.stopPropagation(); removeDraft(rank); }}
-                    title="מחיקת הטיוטה הזו" style={{ opacity: 0.7, fontSize: 11 }}>✕</span>
+                    title="מחיקת העדיפות הזו" style={{ opacity: 0.7, fontSize: 11 }}>✕</span>
                 )}
               </div>
             );
           })}
           {editable && activeRanks.length < 3 && (
             <div onClick={addDraft} style={{ padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontSize: 12.5, fontWeight: 800,
-              color: TEAL_DARK, border: `1.5px dashed ${TEAL}`, background: '#FFF' }}>+ טיוטה נוספת</div>
+              color: TEAL_DARK, border: `1.5px dashed ${TEAL}`, background: '#FFF' }}>+ עדיפות נוספת</div>
           )}
         </div>
         {editable && activeRanks.length > 1 && (
-          <div style={{ fontSize: 11.5, color: '#8A867F' }}>טיוטה 1 בכירה על השאר — האלגוריתם מנסה למלא אותה קודם, ופונה לטיוטות הבאות רק אם משמרת נשארת פתוחה.</div>
+          <div style={{ fontSize: 11.5, color: '#8A867F' }}>עדיפות 1 בכירה על השאר — האלגוריתם מנסה למלא אותה קודם, ופונה לעדיפויות הבאות רק אם משמרת נשארת פתוחה.</div>
         )}
       </></AdminPart>
 
@@ -3534,7 +3534,7 @@ ${shiftsDesc}
           {prevMarks && Object.keys(prevMarks).length > 0 && (
             <span onClick={restoreFromLastMonth} style={{ fontSize: 12.5, fontWeight: 700, color: TEAL_DARK, cursor: 'pointer' }}>↻ שחזור מ{monthName(prevYm)}</span>
           )}
-          {hasMarks && <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס הטיוטה</span>}
+          {hasMarks && <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס הסימונים</span>}
         </div>
       </AdminPart>
       <AdminPart id="criteria" label="מה מצופה ממני בהגשה" ui={ui} when={editable && myCriteriaLines.length > 0}>
@@ -3658,7 +3658,7 @@ ${shiftsDesc}
           <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(selDs.slice(0, 7))}</div>
           {effectiveMarks[selDs] === 'vacation' ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: MARK_STATUS.vacation.bg, border: MARK_STATUS.vacation.bd, borderRadius: 10, padding: '9px 12px' }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: MARK_STATUS.vacation.fg }}>🏖️ יום חופשה — לא ניתן לשיבוץ (בכל הטיוטות)</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: MARK_STATUS.vacation.fg }}>🏖️ יום חופשה — לא ניתן לשיבוץ (בכל העדיפויות)</span>
               {editable && (
                 <span onClick={() => setVacation(selDs, false)} style={{ fontSize: 11.5, fontWeight: 700, color: MARK_STATUS.vacation.fg, textDecoration: 'underline', cursor: 'pointer', flexShrink: 0 }}>ביטול</span>
               )}
@@ -3756,7 +3756,7 @@ ${shiftsDesc}
       {editable && (<>
         <AdminPart id="freeText" label="בקשה חופשית + ניתוח AI" ui={ui}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>בקשה חופשית{activeRanks.length > 1 ? ` (טיוטה ${selectedRank})` : ''}</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>בקשה חופשית{activeRanks.length > 1 ? ` (עדיפות ${selectedRank})` : ''}</div>
           <textarea placeholder='כתבו בקשה בשפה חופשית — למשל "לא יכול ימי שני לילה, מעדיף רביעי בוקר"' value={local.note}
             onChange={e => { setLocal({ note: e.target.value, dirty: true }); setAiError(null); }}
             style={{ border: `1.5px solid ${INK}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 80 }} />
@@ -3811,7 +3811,7 @@ ${shiftsDesc}
         {/* הערה למשבץ — נפרדת מהטקסט ל-AI, לא מתפרשת לתאריכים, רק מוצגת למשבץ כפי שהיא */}
         <AdminPart id="mgrNote" label="הערה למשבץ" ui={ui}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>הערה למשבץ (רשות){activeRanks.length > 1 ? ` (טיוטה ${selectedRank})` : ''}</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>הערה למשבץ (רשות){activeRanks.length > 1 ? ` (עדיפות ${selectedRank})` : ''}</div>
           <div style={{ fontSize: 11.5, color: '#8A867F', marginTop: -4 }}>לא מתורגמת אוטומטית לתאריכים — תוצג למשבץ כפי שהיא, ליד השם שלך.</div>
           <textarea placeholder='למשל: "יש לי אירוע משפחתי בסוף החודש, אשמח לגמישות" או בקשה מיוחדת אחרת'
             value={local.mgrNote || ''}
@@ -3838,7 +3838,7 @@ ${shiftsDesc}
           <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
             {server?.is_draft ? 'נשמרה טיוטה' : 'עודכן לאחרונה'}: {sentAt}
             {(local.dirty || server?.is_draft) ? ' · טרם נשלח סופית למשבץ' : ''}
-            {activeRanks.length > 1 ? ` · טיוטה ${selectedRank}` : ''}
+            {activeRanks.length > 1 ? ` · עדיפות ${selectedRank}` : ''}
           </div>
         )}
       </>)}
@@ -3866,7 +3866,7 @@ ${shiftsDesc}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {criteriaGateOpen.map(({ rank, warnings }) => (
                 <div key={rank}>
-                  {activeRanks.length > 1 && <div style={{ fontWeight: 800, marginBottom: 3 }}>טיוטה {rank}:</div>}
+                  {activeRanks.length > 1 && <div style={{ fontWeight: 800, marginBottom: 3 }}>עדיפות {rank}:</div>}
                   {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
                 </div>
               ))}

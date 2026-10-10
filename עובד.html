@@ -616,6 +616,29 @@ function ShiftRow({ sh, myId, empNames, blocked, onOpen }) {
   );
 }
 
+// עטיפה לרכיב במסך הבקשות שאדמין יכול להסתיר מכל העובדים. עובד רגיל: רכיב מוסתר פשוט
+// לא מוצג, ורכיב גלוי מוצג בדיוק כמו קודם (בלי עטיפה). אדמין במצב עריכה: פס קטן מעל
+// הרכיב עם "מוצג/מוסתר", ורכיב מוסתר נשאר גלוי לו בשקיפות כדי שיוכל להחזיר אותו.
+function AdminPart({ id, label, ui, when = true, children }) {
+  if (!when) return null;
+  const hidden = !!ui?.hidden?.includes(id);
+  if (!ui?.edit) return hidden ? null : children;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 6, borderRadius: 10,
+      border: `1.5px dashed ${hidden ? 'oklch(0.7 0.15 25)' : '#D8D4CE'}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 11, fontWeight: 800 }}>
+        <span style={{ color: '#8A867F' }}>🛠 {label}</span>
+        <span onClick={() => ui.toggle(id)} style={{ cursor: 'pointer', padding: '3px 9px', borderRadius: 999,
+          background: hidden ? 'oklch(0.95 0.05 25)' : 'oklch(0.94 0.05 160)',
+          color: hidden ? 'oklch(0.45 0.18 25)' : 'oklch(0.38 0.12 160)' }}>
+          {hidden ? '🚫 מוסתר מעובדים — הצג' : '👁 מוצג לעובדים — הסתר'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, opacity: hidden ? 0.4 : 1 }}>{children}</div>
+    </div>
+  );
+}
+
 function MonthSwitcher({ label, onPrev, onNext, canPrev, canNext }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#F1EFEB', borderRadius: 12, padding: 6 }}>
@@ -888,6 +911,11 @@ function NewPasswordScreen({ onDone }) {
 /* ============ האפליקציה הראשית ============ */
 function App() {
   const [session, setSession] = React.useState(undefined);   // undefined=בטעינה, null=לא מחובר
+  // אדמין = ברשימת "👑 אדמינים" בהגדרות אפליקציית המשבץ (mishmarot_state.data.admins), או eladadler@gmail.com
+  const [adminEmails, setAdminEmails] = React.useState([]);
+  // רכיבי מסך הבקשות שאדמין הסתיר מכל העובדים — שורה נפרדת 'worker_ui' ב-mishmarot_state
+  const [reqUiHidden, setReqUiHidden] = React.useState([]);
+  const [reqUiEdit, setReqUiEdit] = React.useState(true);
   const [recovery, setRecovery] = React.useState(false);
   const [me, setMe] = React.useState(null);                  // רשומת העובד מ-app_employees
   const [meStatus, setMeStatus] = React.useState('loading'); // loading | ok | notfound | error | pending | claim
@@ -1017,7 +1045,7 @@ function App() {
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
 
-      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }, { data: recurRows }, { data: prefRow }, { data: allPrefRows }, { data: respRows }] = await Promise.all([
+      const [{ data: pubs, error: e2 }, { data: reqs, error: e3 }, settingsRes, { data: swapRows }, { data: recurRows }, { data: prefRow }, { data: allPrefRows }, { data: respRows }, uiRes] = await Promise.all([
         sb.from('published_schedules').select('*'),
         sb.from('employee_requests').select('*'),
         sb.from('mishmarot_state').select('data').eq('id', 'main').maybeSingle(),
@@ -1026,6 +1054,7 @@ function App() {
         sb.from('employee_prefs').select('*').eq('emp_id', mine.id).maybeSingle(),
         sb.from('employee_prefs').select('emp_id,no_weekday_nights'),
         sb.from('schedule_responses').select('*').eq('emp_id', mine.id),
+        sb.from('mishmarot_state').select('data').eq('id', 'worker_ui').maybeSingle(),
       ]);
       if (e2) throw e2;
       if (e3) throw e3;
@@ -1038,6 +1067,8 @@ function App() {
       // הגדרות המשמרות + מפתח Anthropic (נשמר ע"י המשבץ)
       const stateData = settingsRes?.data?.data || {};
       setGlobalSettings(stateData.shiftSettings || null);
+      setAdminEmails((stateData.admins || []).map(e => String(e).toLowerCase()));
+      setReqUiHidden(uiRes?.data?.data?.requestsHidden || []);
       // ממזג "ללא משמרות לילה" מ-employee_prefs (של כל עובד, לא רק שלי) לתוך רשימת
       // העובדים מהמשבץ — נדרש כדי לסנן מועמדים למשמרת לילה במסך חילופי משמרות
       const noNightsById = {};
@@ -1232,6 +1263,16 @@ function App() {
 
   const firstName = (me.name || '').split(' ')[0];
   const emailForOps = IMPERSONATE_ID ? 'admin' : (session?.user?.email || '');
+  const sessionEmail = (session?.user?.email || '').toLowerCase();
+  const isAdmin = sessionEmail === 'eladadler@gmail.com' || adminEmails.includes(sessionEmail);
+  const toggleReqUiPart = async (id) => {
+    const prev = reqUiHidden;
+    const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+    setReqUiHidden(next);
+    const { error } = await sb.from('mishmarot_state').upsert({ id: 'worker_ui', data: { requestsHidden: next }, updated_at: new Date().toISOString() });
+    if (error) { setReqUiHidden(prev); showToast('שמירת הגדרת התצוגה נכשלה — נסו שוב'); }
+  };
+  const reqUi = { hidden: reqUiHidden, edit: isAdmin && reqUiEdit, isAdmin, toggle: toggleReqUiPart, setEdit: setReqUiEdit, editOn: reqUiEdit };
 
   return frame(<>
     {IMPERSONATE_ID && (
@@ -1255,7 +1296,7 @@ function App() {
         onOpenShift={(ym, ds, shiftId) => setDetail({ ym, ds, shiftId })} />}
       {tab === 'requests' && <RequestsTab me={me} email={emailForOps} published={published} TM={TM} globalSettings={globalSettings}
         serverReqs={serverReqs} setServerReqs={setServerReqs} localReqs={localReqs} setLocalReqs={setLocalReqs} showToast={showToast}
-        recurring={recurring} criteria={criteria} mgrEmps={mgrEmps} myPrefs={myPrefs} goRecurring={() => setRecurringOpen(true)} />}
+        recurring={recurring} criteria={criteria} mgrEmps={mgrEmps} myPrefs={myPrefs} goRecurring={() => setRecurringOpen(true)} ui={reqUi} />}
       {tab === 'swaps' && <SwapsTab me={me} empNames={empNames} published={published} swaps={swaps} onRefresh={refreshSwaps} showToast={showToast} swapSettings={swapSettings} />}
       {tab === 'settings' && <SettingsTab me={me} email={emailForOps} onLogout={IMPERSONATE_ID ? () => window.close() : logout} myPrefs={myPrefs} onSavePref={saveMyPref} />}
     </Shell>
@@ -2743,7 +2784,7 @@ function RecurringRequestsScreen({ me, TM, globalSettings, recurring, onClose, o
   );
 }
 
-function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, recurring, criteria, mgrEmps, myPrefs, goRecurring }) {
+function RequestsTab({ me, email, published, TM, globalSettings, serverReqs, setServerReqs, localReqs, setLocalReqs, showToast, recurring, criteria, mgrEmps, myPrefs, goRecurring, ui }) {
   // הקריטריונים הכלליים, נדרסים ע"י קריטריונים אישיים שהמשבץ הגדיר לעובד הזה (emp.reqCriteria) אם יש
   const myCriteria = React.useMemo(() => {
     const base = criteria || DEFAULT_REQUEST_CRITERIA;
@@ -3448,12 +3489,20 @@ ${shiftsDesc}
   return (
     <div style={{ padding: '16px 16px 24px', display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.25s' }}>
       <div style={{ fontSize: 24, fontWeight: 900 }}>הגשת בקשות</div>
+      {ui?.isAdmin && (
+        <div onClick={() => ui.setEdit(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          padding: '8px 12px', borderRadius: 10, cursor: 'pointer', fontSize: 12, fontWeight: 800,
+          background: ui.editOn ? 'oklch(0.95 0.04 250)' : '#F1EFEB', color: ui.editOn ? 'oklch(0.4 0.14 250)' : '#6B6760' }}>
+          <span>🛠 אדמין — עריכת רכיבי המסך לכל העובדים{ui.hidden.length ? ` · ${ui.hidden.length} מוסתרים` : ''}</span>
+          <span>{ui.editOn ? 'לתצוגת עובד ←' : 'לעריכה ←'}</span>
+        </div>
+      )}
       <MonthSwitcher label={monthLabel(ym)} canPrev={mi > 0} canNext={mi < months.length - 1}
         onPrev={() => setMi(mi - 1)} onNext={() => setMi(mi + 1)} />
 
       {/* בורר טיוטות ("אפשרויות שיבוץ") — כולן לוח מלא ונפרד לאותו חודש, מדורגות בעדיפות.
           #1 היא הבכירה; האלגוריתם מנסה למלא אותה קודם, ועובר לבאות רק אם משמרת נשארת פתוחה. */}
-      {(editable || activeRanks.length > 1) && (
+      <AdminPart id="drafts" label="בורר טיוטות" ui={ui} when={editable || activeRanks.length > 1}><>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {activeRanks.map(rank => {
             const active = rank === selectedRank;
@@ -3475,20 +3524,20 @@ ${shiftsDesc}
               color: TEAL_DARK, border: `1.5px dashed ${TEAL}`, background: '#FFF' }}>+ טיוטה נוספת</div>
           )}
         </div>
-      )}
-      {editable && activeRanks.length > 1 && (
-        <div style={{ fontSize: 11.5, color: '#8A867F' }}>טיוטה 1 בכירה על השאר — האלגוריתם מנסה למלא אותה קודם, ופונה לטיוטות הבאות רק אם משמרת נשארת פתוחה.</div>
-      )}
+        {editable && activeRanks.length > 1 && (
+          <div style={{ fontSize: 11.5, color: '#8A867F' }}>טיוטה 1 בכירה על השאר — האלגוריתם מנסה למלא אותה קודם, ופונה לטיוטות הבאות רק אם משמרת נשארת פתוחה.</div>
+        )}
+      </></AdminPart>
 
-      {editable && (hasMarks || (prevMarks && Object.keys(prevMarks).length > 0)) && (
+      <AdminPart id="restoreReset" label="שחזור / איפוס" ui={ui} when={editable && (hasMarks || (prevMarks && Object.keys(prevMarks).length > 0))}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14 }}>
           {prevMarks && Object.keys(prevMarks).length > 0 && (
             <span onClick={restoreFromLastMonth} style={{ fontSize: 12.5, fontWeight: 700, color: TEAL_DARK, cursor: 'pointer' }}>↻ שחזור מ{monthName(prevYm)}</span>
           )}
           {hasMarks && <span onClick={resetMonth} style={{ fontSize: 12.5, fontWeight: 700, color: '#A09C94', cursor: 'pointer' }}>↺ איפוס הטיוטה</span>}
         </div>
-      )}
-      {editable && myCriteriaLines.length > 0 && (
+      </AdminPart>
+      <AdminPart id="criteria" label="מה מצופה ממני בהגשה" ui={ui} when={editable && myCriteriaLines.length > 0}>
         <details style={{ background: 'color-mix(in oklab, oklch(0.65 0.15 200) 8%, #FFF)', border: '1px solid color-mix(in oklab, oklch(0.65 0.15 200) 25%, transparent)', borderRadius: 10, padding: '9px 14px' }}>
           <summary style={{ fontSize: 12.5, fontWeight: 700, color: 'oklch(0.38 0.14 200)', cursor: 'pointer' }}>📋 מה מצופה ממני בהגשה החודשית</summary>
           <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -3500,9 +3549,10 @@ ${shiftsDesc}
             ))}
           </div>
         </details>
-      )}
+      </AdminPart>
       {editable ? (<>
         {/* בחירת מצב הגשה */}
+        <AdminPart id="mode" label="מצב הגשה (חסימות / זמינות)" ui={ui}>
         <div style={{ display: 'flex', gap: 8 }}>
           {[
             { id: 'block', label: 'מסמן חסימות', sub: 'שאר הימים = יכול' },
@@ -3519,6 +3569,8 @@ ${shiftsDesc}
             );
           })}
         </div>
+        </AdminPart>
+        <AdminPart id="brushes" label="כפתורי סימון" ui={ui}><>
         <div style={{ fontSize: 12, color: '#8A867F' }}>{brush ? '1. בוחרים סימון · 2. מקישים על הימים בלוח' : 'לחצו על יום לצפייה — בחרו סימון כדי לערוך'}</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
           {BRUSHES.map(c => {
@@ -3531,6 +3583,7 @@ ${shiftsDesc}
             );
           })}
         </div>
+        </></AdminPart>
       </>) : (
         <div style={{ background: '#F1EFEB', borderRadius: 10, padding: '11px 14px', fontSize: 13, fontWeight: 700, color: '#56524C' }}>
           הסידור לחודש זה כבר פורסם — הבקשות מוצגות לקריאה בלבד.
@@ -3538,6 +3591,7 @@ ${shiftsDesc}
       )}
 
       {(editable || hasMarks) && (<>
+        <AdminPart id="calendar" label="לוח החודש" ui={ui}><>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
           {['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'].map(l => <div key={l} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#A09C94' }}>{l}</div>)}
         </div>
@@ -3596,8 +3650,10 @@ ${shiftsDesc}
             ) : null;
           })()}
         </div>
+        </></AdminPart>
 
         {/* כרטיס פירוט היום הנבחר — דיוק ברמת משמרת */}
+        <AdminPart id="dayCard" label="פירוט היום הנבחר" ui={ui}>
         <div style={{ background: '#FFF', borderRadius: 14, border: '1px solid #EAE7E1', padding: 14, display: 'flex', flexDirection: 'column', gap: 9 }}>
           <div style={{ fontSize: 14, fontWeight: 900 }}>יום {HEB_DAYS[weekdayOf(selDs)]}, {sel} {inMonthLabel(selDs.slice(0, 7))}</div>
           {effectiveMarks[selDs] === 'vacation' ? (
@@ -3688,13 +3744,17 @@ ${shiftsDesc}
             {!dayShifts.length && !contShifts.length && <div style={{ fontSize: 12, color: '#A09C94' }}>לא הוגדרו משמרות ליום זה.</div>}
           </>)}
         </div>
+        </AdminPart>
       </>)}
 
+      <AdminPart id="recurring" label="קישור לבקשות קבועות" ui={ui}>
       <span onClick={goRecurring} style={{ alignSelf: 'flex-start', fontSize: 13, fontWeight: 800, color: TEAL_DARK, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
         🔁 בקשות קבועות{recurring?.filter(r => r.active).length > 0 ? ` (${recurring.filter(r => r.active).length})` : ''}
       </span>
+      </AdminPart>
 
       {editable && (<>
+        <AdminPart id="freeText" label="בקשה חופשית + ניתוח AI" ui={ui}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>בקשה חופשית{activeRanks.length > 1 ? ` (טיוטה ${selectedRank})` : ''}</div>
           <textarea placeholder='כתבו בקשה בשפה חופשית — למשל "לא יכול ימי שני לילה, מעדיף רביעי בוקר"' value={local.note}
@@ -3746,8 +3806,10 @@ ${shiftsDesc}
             </div>
           )}
         </div>
+        </AdminPart>
 
         {/* הערה למשבץ — נפרדת מהטקסט ל-AI, לא מתפרשת לתאריכים, רק מוצגת למשבץ כפי שהיא */}
+        <AdminPart id="mgrNote" label="הערה למשבץ" ui={ui}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: '#56524C' }}>הערה למשבץ (רשות){activeRanks.length > 1 ? ` (טיוטה ${selectedRank})` : ''}</div>
           <div style={{ fontSize: 11.5, color: '#8A867F', marginTop: -4 }}>לא מתורגמת אוטומטית לתאריכים — תוצג למשבץ כפי שהיא, ליד השם שלך.</div>
@@ -3756,6 +3818,7 @@ ${shiftsDesc}
             onChange={e => setLocal({ mgrNote: e.target.value, dirty: true })}
             style={{ border: '1.5px solid #D8D4CE', borderRadius: 10, padding: '12px 14px', fontSize: 13, background: '#FFF', color: INK, resize: 'none', height: 64, font: 'inherit' }} />
         </div>
+        </AdminPart>
 
         <div onClick={anyNeedSend ? trySubmit : undefined} style={{
           background: anyNeedSend ? INK : '#FFF', color: anyNeedSend ? '#FFF' : TEAL_DARK,
@@ -3764,13 +3827,13 @@ ${shiftsDesc}
           opacity: saving ? 0.6 : 1, transition: 'background 0.2s, color 0.2s' }}>
           {saving ? 'שולח…' : anyNeedSend ? (anySentBefore ? 'שליחת עדכון' : 'שליחת בקשות') : 'הבקשות נשלחו ✓'}
         </div>
-        {anyNeedSend && (
+        <AdminPart id="saveDraftLink" label="שמירה ללא שליחה" ui={ui} when={anyNeedSend}>
           <div onClick={saving ? undefined : saveWithoutSending} style={{
             textAlign: 'center', fontSize: 12.5, fontWeight: 700, color: '#8A867F',
             cursor: saving ? 'default' : 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}>
             שמירה ללא שליחה
           </div>
-        )}
+        </AdminPart>
         {sentAt && (
           <div style={{ fontSize: 12, fontWeight: 600, color: '#8A867F', textAlign: 'center' }}>
             {server?.is_draft ? 'נשמרה טיוטה' : 'עודכן לאחרונה'}: {sentAt}

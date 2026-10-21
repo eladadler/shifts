@@ -766,6 +766,25 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       }
     },
     // תגובות עובדים לסידור שפורסם (✓ אישור + הערה חופשית אחת לחודש) — העובד כותב, המשבץ קורא בלבד
+    // היסטוריית "שבת ארוכה" שהוזנה ידנית (סופי שבוע ששובצו מחוץ למערכת) — שורה נפרדת
+    // 'shabbat_history' ב-mishmarot_state: { entries: [{ date: 'YYYY-MM-DD' (יום שישי), names: [...] }] }
+    async fetchShabbatHistory() {
+      if (!client) return null;
+      try {
+        const { data, error } = await client.from(TABLE).select('data').eq('id', 'shabbat_history').maybeSingle();
+        if (error) throw error;
+        return data?.data?.entries || [];
+      } catch (e) {
+        console.warn('DB fetchShabbatHistory failed:', e.message);
+        return null;
+      }
+    },
+    async saveShabbatHistory(entries) {
+      if (!client) return false;
+      const { error } = await client.from(TABLE).upsert({ id: 'shabbat_history', data: { entries }, updated_at: new Date().toISOString() });
+      if (error) { console.warn('DB saveShabbatHistory failed:', error.message); return false; }
+      return true;
+    },
     async fetchScheduleResponses() {
       if (!client) return null;
       try {
@@ -3794,7 +3813,73 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 }
 
 // ---- SettingsDrawer ----
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange, hiddenButtons, onHiddenButtonsChange, toolbarButtonDefs }) {
+// היסטוריית "שבת ארוכה" ידנית: רשימה + הדבקת שורות "YYYY-MM-DD: שם, שם" (תאריך יום שישי).
+// שורה עם תאריך קיים מחליפה אותו. שמות שלא תואמים לאף עובד מסומנים — הם לא נספרים בתור.
+function ShabbatHistoryEditor({ entries, employees, onSave }) {
+  const [text, setText] = React.useState('');
+  const [msg, setMsg] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const known = new Set(employees.map(e => (e.name || '').trim()));
+  const fmt = (d) => d.split('-').reverse().join('.');
+  const save = async (next, okText) => {
+    setBusy(true);
+    const ok = await onSave(next.slice().sort((a, b) => a.date.localeCompare(b.date)));
+    setBusy(false);
+    setMsg(ok ? { ok: true, t: okText } : { ok: false, t: 'השמירה נכשלה — בדקו חיבור ונסו שוב' });
+  };
+  const add = () => {
+    const byDate = Object.fromEntries(entries.map(e => [e.date, e]));
+    const bad = []; let added = 0;
+    text.split('\n').map(l => l.trim()).filter(Boolean).forEach(line => {
+      const m = line.match(/^(\d{4}-\d{2}-\d{2})\s*[:\-–]\s*(.+)$/);
+      const names = m ? m[2].split(',').map(x => x.trim()).filter(Boolean) : [];
+      if (!m || !names.length || isNaN(new Date(m[1] + 'T00:00:00'))) { bad.push(line); return; }
+      byDate[m[1]] = { date: m[1], names };
+      added++;
+    });
+    if (!added) { setMsg({ ok: false, t: 'לא נמצאו שורות תקינות. פורמט: 2026-09-04: חיים, עזרא' }); return; }
+    setText('');
+    save(Object.values(byDate), `נשמרו ${added} סופי שבוע` + (bad.length ? ` · ${bad.length} שורות לא תקינות דולגו` : ''));
+  };
+  const sorted = entries.slice().sort((a, b) => b.date.localeCompare(a.date));
+  return (
+    <div>
+      <div className="settings-sec-title">🕯️ היסטוריית שבתות ארוכות</div>
+      <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:8,lineHeight:1.5}}>
+        מי עשה "שבת ארוכה" בסופי שבוע ששובצו מחוץ למערכת. האלגוריתם מחשב לפיה את התור לשבתות (כל ~45 יום, מרחק מינימלי בין שבתות), וסופ״ש שמופיע כאן גובר על מה שרשום בטיוטות. התאריך הוא יום שישי.
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:220,overflowY:'auto'}}>
+        {sorted.length === 0 && <div style={{fontSize:'12px',color:'var(--ink-3)'}}>אין עדיין רשומות.</div>}
+        {sorted.map(e => {
+          const fri = new Date(e.date + 'T00:00:00').getDay() === 5;
+          return (
+            <div key={e.date} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 9px',borderRadius:7,background:'var(--bg)',border:'1px solid var(--line)',fontSize:'12px'}}>
+              <span style={{fontWeight:700,flexShrink:0}} title={fri ? '' : 'התאריך אינו יום שישי'}>{fmt(e.date)}{fri ? '' : ' ⚠'}</span>
+              <span style={{flex:1,minWidth:0}}>
+                {e.names.map((n, i) => (
+                  <span key={i} style={known.has(n.trim()) ? undefined : {color:'var(--danger)',fontWeight:700}} title={known.has(n.trim()) ? '' : 'אין עובד בשם הזה — לא נספר בתור'}>
+                    {i ? ', ' : ''}{n}{known.has(n.trim()) ? '' : ' ⚠'}
+                  </span>
+                ))}
+              </span>
+              <span onClick={() => !busy && save(entries.filter(x => x.date !== e.date), `${fmt(e.date)} הוסר`)}
+                style={{cursor:'pointer',color:'var(--danger)',fontWeight:900,fontSize:15,lineHeight:1,opacity:0.75}}>×</span>
+            </div>
+          );
+        })}
+      </div>
+      <textarea value={text} onChange={e => setText(e.target.value)} rows={4}
+        placeholder={'שורה לכל סופ״ש, למשל:\n2026-09-04: חיים, עזרא'}
+        style={{marginTop:8,width:'100%',boxSizing:'border-box',border:'1px solid var(--line)',borderRadius:7,padding:'7px 9px',fontSize:'12px',background:'var(--surface)',color:'var(--ink)',font:'inherit',resize:'vertical'}} />
+      <button className="btn" disabled={busy || !text.trim()} style={{marginTop:6,width:'100%',fontSize:'12px'}} onClick={add}>
+        {busy ? 'שומר…' : 'הוסף / עדכן'}
+      </button>
+      {msg && <div style={{marginTop:6,fontSize:'11px',color: msg.ok ? 'var(--ok)' : 'var(--danger)'}}>{msg.t}</div>}
+    </div>
+  );
+}
+
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, shabbatHistory, onShabbatHistoryChange, employees, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange, hiddenButtons, onHiddenButtonsChange, toolbarButtonDefs }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showAdminKey, setShowAdminKey] = React.useState(false);
@@ -3964,6 +4049,7 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, adminKey, 
                 ))}
               </div>
             </div>
+            <ShabbatHistoryEditor entries={shabbatHistory || []} employees={employees || []} onSave={onShabbatHistoryChange} />
             <div>
               <div className="settings-sec-title">👑 אדמינים</div>
               <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:10,lineHeight:1.5}}>
@@ -6082,6 +6168,7 @@ function App({ auth }) {
   // תגובות עובדים לסידור שפורסם: { [empId]: { [month]: { approved, note, respondedAt } } } —
   // קריאה בלבד כאן, לא נשמר ב-mishmarot_state, תמיד נטען מחדש מ-schedule_responses
   const [scheduleResponses, setScheduleResponses] = React.useState({});
+  const [shabbatHistory, setShabbatHistory] = React.useState([]);
   // העדפות עובד (employee_prefs) — יעד משמרות/שבוע בימי חול, ואילו משמרות סוף שבוע העובד עושה.
   // חי בטבלה ייעודית, לא ב-state הכללי, כדי שעריכה מהעובד לא תיחסם ע"י שמירה חוזרת מהמשבץ
   const [prefs, setPrefs] = React.useState({});
@@ -6226,6 +6313,7 @@ function App({ auth }) {
       refreshEmployeePrefs();
       refreshAllRecurring();
       refreshScheduleResponses();
+      refreshShabbatHistory();
     }).catch(() => { setSyncStatus('error'); isFirstLoad.current = false; });
   }, []);
 
@@ -6305,6 +6393,17 @@ function App({ auth }) {
     const rows = await window.__db.fetchAllRecurringRequests();
     setAllRecurring(rows || []);
   }, []);
+
+  const refreshShabbatHistory = React.useCallback(async () => {
+    if (!dbAvailable.current || !window.__db.fetchShabbatHistory) return;
+    const entries = await window.__db.fetchShabbatHistory();
+    if (entries) setShabbatHistory(entries);
+  }, []);
+  const saveShabbatHistory = async (entries) => {
+    const ok = await window.__db.saveShabbatHistory(entries);
+    if (ok) setShabbatHistory(entries);
+    return ok;
+  };
 
   // תגובות עובדים לסידור שפורסם (✓ אישור + הערה) — קריאה בלבד, העובד כותב מהאפליקציה שלו
   const refreshScheduleResponses = React.useCallback(async () => {
@@ -6503,18 +6602,36 @@ function App({ auth }) {
       if (pm <= 0) { pm += 12; py -= 1; }
       pastMonths.push(`${py}-${String(pm).padStart(2, '0')}`);
     }
-    const last = {};
+    const byDate = {};
     pastMonths.forEach(pm => {
       const ds = drafts.filter(d => d.month === pm && d.schedule);
       const d = ds.find(x => x.status === 'final') || ds[ds.length - 1];
       if (!d) return;
       Object.entries(d.schedule).forEach(([dStr, dayShifts]) => {
-        (dayShifts.shabbat || []).forEach(empId => {
-          if (!last[empId] || dStr > last[empId]) last[empId] = dStr;
-        });
+        if ((dayShifts.shabbat || []).length) byDate[dStr] = dayShifts.shabbat;
       });
     });
+    // היסטוריה ידנית גוברת על הטיוטה באותו סופ״ש (סופי שבוע ששובצו מחוץ למערכת). רק לפני
+    // היום הראשון שמשובץ עכשיו — כדי שסופ״ש עתידי לא יעוות את התור.
+    const firstDate = (currentDraft && datesForDraft(currentDraft)[0]) || `${currentMonth}-01`;
+    shabbatHistory.forEach(h => {
+      if (!h?.date || h.date >= firstDate) return;
+      const ids = resolveHistoryNames(h.names).ids;
+      if (ids.length) byDate[h.date] = ids;
+    });
+    const last = {};
+    Object.entries(byDate).forEach(([dStr, ids]) => ids.forEach(empId => {
+      if (!last[empId] || dStr > last[empId]) last[empId] = dStr;
+    }));
     return last;
+  };
+  const resolveHistoryNames = (names) => {
+    const ids = []; const missing = [];
+    (names || []).forEach(n => {
+      const e = employees.find(x => (x.name || '').trim() === String(n).trim());
+      if (e) ids.push(e.id); else missing.push(n);
+    });
+    return { ids, missing };
   };
 
   // תאריך המשמרת האחרונה שכל עובד שובץ למשמרת קצרה בסופ״ש (שישי קצר או בוקר שבת) —
@@ -7446,6 +7563,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
         tweaks={t} onTweakChange={setTweak}
         auth={auth}
+        shabbatHistory={shabbatHistory} onShabbatHistoryChange={saveShabbatHistory} employees={employees}
         adminKey={adminKey}
         onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }}
         admins={admins} onAdminsChange={setAdmins}

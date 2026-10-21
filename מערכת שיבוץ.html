@@ -767,21 +767,22 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     },
     // תגובות עובדים לסידור שפורסם (✓ אישור + הערה חופשית אחת לחודש) — העובד כותב, המשבץ קורא בלבד
     // היסטוריית "שבת ארוכה" שהוזנה ידנית (סופי שבוע ששובצו מחוץ למערכת) — שורה נפרדת
-    // 'shabbat_history' ב-mishmarot_state: { entries: [{ date: 'YYYY-MM-DD' (יום שישי), names: [...] }] }
+    // 'shabbat_history' ב-mishmarot_state: { entries: [{ date: 'YYYY-MM-DD' (יום שישי), names: [...] }],
+    //   monthly: [שמות עובדים שעושים שבת קבועה פעם בחודש, מחוץ לתור] }
     async fetchShabbatHistory() {
       if (!client) return null;
       try {
         const { data, error } = await client.from(TABLE).select('data').eq('id', 'shabbat_history').maybeSingle();
         if (error) throw error;
-        return data?.data?.entries || [];
+        return { entries: data?.data?.entries || [], monthly: data?.data?.monthly || [] };
       } catch (e) {
         console.warn('DB fetchShabbatHistory failed:', e.message);
         return null;
       }
     },
-    async saveShabbatHistory(entries) {
+    async saveShabbatHistory(hist) {
       if (!client) return false;
-      const { error } = await client.from(TABLE).upsert({ id: 'shabbat_history', data: { entries }, updated_at: new Date().toISOString() });
+      const { error } = await client.from(TABLE).upsert({ id: 'shabbat_history', data: { entries: hist.entries || [], monthly: hist.monthly || [] }, updated_at: new Date().toISOString() });
       if (error) { console.warn('DB saveShabbatHistory failed:', error.message); return false; }
       return true;
     },
@@ -3823,7 +3824,7 @@ function ShabbatHistoryEditor({ entries, employees, onSave }) {
   const fmt = (d) => d.split('-').reverse().join('.');
   const save = async (next, okText) => {
     setBusy(true);
-    const ok = await onSave(next.slice().sort((a, b) => a.date.localeCompare(b.date)));
+    const ok = await onSave({ entries: next.slice().sort((a, b) => a.date.localeCompare(b.date)) });
     setBusy(false);
     setMsg(ok ? { ok: true, t: okText } : { ok: false, t: 'השמירה נכשלה — בדקו חיבור ונסו שוב' });
   };
@@ -3844,9 +3845,9 @@ function ShabbatHistoryEditor({ entries, employees, onSave }) {
   const sorted = entries.slice().sort((a, b) => b.date.localeCompare(a.date));
   return (
     <div>
-      <div className="settings-sec-title">🕯️ היסטוריית שבתות ארוכות</div>
+      <div className="settings-sec-title">✎ הזנה ידנית (סופי שבוע ששובצו מחוץ למערכת)</div>
       <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:8,lineHeight:1.5}}>
-        מי עשה "שבת ארוכה" בסופי שבוע ששובצו מחוץ למערכת. האלגוריתם מחשב לפיה את התור לשבתות (כל ~45 יום, מרחק מינימלי בין שבתות), וסופ״ש שמופיע כאן גובר על מה שרשום בטיוטות. התאריך הוא יום שישי.
+        סופ״ש שמופיע כאן גובר על מה שרשום בסידורים, וגם האלגוריתם מחשב לפיו את התור לשבתות. התאריך הוא יום שישי.
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:220,overflowY:'auto'}}>
         {sorted.length === 0 && <div style={{fontSize:'12px',color:'var(--ink-3)'}}>אין עדיין רשומות.</div>}
@@ -3879,7 +3880,7 @@ function ShabbatHistoryEditor({ entries, employees, onSave }) {
   );
 }
 
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, shabbatHistory, onShabbatHistoryChange, employees, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange, hiddenButtons, onHiddenButtonsChange, toolbarButtonDefs }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange, hiddenButtons, onHiddenButtonsChange, toolbarButtonDefs }) {
   if (!open) return null;
   const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showAdminKey, setShowAdminKey] = React.useState(false);
@@ -4049,7 +4050,6 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, shabbatHis
                 ))}
               </div>
             </div>
-            <ShabbatHistoryEditor entries={shabbatHistory || []} employees={employees || []} onSave={onShabbatHistoryChange} />
             <div>
               <div className="settings-sec-title">👑 אדמינים</div>
               <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:10,lineHeight:1.5}}>
@@ -5471,6 +5471,9 @@ function HamburgerMenu({ screen, onNavigate }) {
           <button className={'ham-item' + (screen === 'rules' ? ' active' : '')} onClick={() => nav('rules')}>
             📐 תנאי שיבוץ
           </button>
+          <button className={'ham-item' + (screen === 'shabbat' ? ' active' : '')} onClick={() => nav('shabbat')}>
+            🕯️ שבתות
+          </button>
         </div>
       )}
     </div>
@@ -5724,7 +5727,184 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
   );
 }
 
-Object.assign(window, { ShiftsDrawer, SettingsDrawer, PeopleScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal, CriteriaGateModal, SchedulingRulesScreen });
+// מסך "שבתות ארוכות": כל סופי השבוע עם שבת ארוכה (היסטוריה ידנית + סידורים מהמערכת), מצב כל
+// עובד בתור, והמלצה לחודש לפי סבב הוגן — מי שחיכה הכי הרבה קודם. עובד שלא עושה שבת ארוכה
+// (employee_prefs.wants_shabbat_long=false) לא בתור; "קבוע חודשי" מקבל סופ״ש אחד בחודש מחוץ לתור.
+function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSaveHistory }) {
+  const [month, setMonth] = React.useState(initialMonth);
+  const [busy, setBusy] = React.useState(false);
+  const entries = history?.entries || [];
+  const monthlyNames = new Set((history?.monthly || []).map(n => String(n).trim()));
+  const nm = (e) => (e?.name || '').trim();
+  const nameOf = (id) => nm(employees.find(e => e.id === id)) || id;
+  const dm = (d) => `${Number(d.slice(8))}.${Number(d.slice(5, 7))}`;
+  const weekendLabel = (fri) => { const sat = SD.addDays(fri, 1); return `${Number(fri.slice(8))}–${dm(sat)}`; };
+  const shiftMonth = (m, k) => { const [y, mo] = m.split('-').map(Number); const d = new Date(y, mo - 1 + k, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+  const daysBetween = (a, b) => Math.round((SD.parseDate(b) - SD.parseDate(a)) / 864e5);
+
+  // כל סופי השבוע: מהסידור של כל חודש (סופי, אחרת האחרון), והיסטוריה ידנית גוברת באותו תאריך
+  const weekends = React.useMemo(() => {
+    const map = {};
+    [...new Set(drafts.map(d => d.month))].sort().forEach(m => {
+      const ds = drafts.filter(d => d.month === m && d.schedule);
+      const d = ds.find(x => x.status === 'final') || ds[ds.length - 1];
+      if (!d) return;
+      Object.entries(d.schedule).forEach(([dStr, day]) => {
+        const ids = day?.shabbat || [];
+        if (ids.length) map[dStr] = { date: dStr, names: ids.map(nameOf), source: d.status === 'final' ? 'סידור סופי' : 'טיוטה' };
+      });
+    });
+    entries.forEach(h => { map[h.date] = { date: h.date, names: h.names, source: 'ידני' }; });
+    return Object.values(map).sort((a, b) => b.date.localeCompare(a.date));
+  }, [drafts, entries, employees]);
+
+  const monthStart = month + '-01';
+  const fridays = [];
+  for (let d = monthStart; d.slice(0, 7) === month; d = SD.addDays(d, 1)) if (SD.weekdayOf(d) === 5) fridays.push(d);
+
+  const stats = employees.map(e => {
+    const mine = weekends.filter(w => w.date < monthStart && w.names.some(n => String(n).trim() === nm(e)));
+    return { e, last: mine.length ? mine[0].date : null, count: mine.length,
+      wants: prefs?.[e.id]?.wants_shabbat_long !== false, monthly: monthlyNames.has(nm(e)) };
+  });
+  const queue = stats.filter(s => s.wants && !s.monthly).sort((a, b) =>
+    (a.last ? 1 : 0) - (b.last ? 1 : 0) || (a.last || '').localeCompare(b.last || '') || a.count - b.count || nm(a.e).localeCompare(nm(b.e), 'he'));
+
+  // זמינות ל"שבת ארוכה" לפי הבקשות שהעובד הגיש (כולל רשימת "יכול" חודשית — כמו במנוע)
+  const avail = (empId, fri) => {
+    const av = SD.availabilityOn(empId, fri, 'shabbat');
+    if (av === 'unavailable') return 'unavailable';
+    const r = SD.reqOf(empId);
+    if ((r?.can || []).some(v => v.startsWith(fri.slice(0, 7))) && av !== 'can' && av !== 'high') return 'unavailable';
+    return av || 'none';
+  };
+
+  const slots = Object.fromEntries(fridays.map(f => [f, []]));
+  const skipped = Object.fromEntries(fridays.map(f => [f, []]));
+  const lastOf = Object.fromEntries(stats.map(s => [s.e.id, s.last]));
+  // 1) קבוע חודשי — סופ״ש אחד בחודש: עדיף שביקש, אחרת הראשון שזמין בו
+  stats.filter(s => s.monthly && s.wants).forEach(s => {
+    const ok = fridays.filter(f => avail(s.e.id, f) !== 'unavailable' && slots[f].length < 2);
+    const pick = ok.find(f => avail(s.e.id, f) === 'high') || ok[0];
+    if (pick) { slots[pick].push({ id: s.e.id, name: nm(s.e), tag: 'קבוע חודשי' }); lastOf[s.e.id] = pick; }
+  });
+  // 2) תור הוגן — מי שחיכה הכי הרבה, זמין באותו סופ״ש, ולפחות 14 יום מהשבת הקודמת שלו
+  let order = queue.map(s => s.e);
+  fridays.forEach(f => {
+    while (slots[f].length < 2) {
+      const idx = order.findIndex(e => !slots[f].some(x => x.id === e.id) && avail(e.id, f) !== 'unavailable'
+        && !(lastOf[e.id] && daysBetween(lastOf[e.id], f) < 14));
+      if (idx < 0) break;
+      order.slice(0, idx).forEach(e => { if (avail(e.id, f) === 'unavailable' && !skipped[f].includes(nm(e))) skipped[f].push(nm(e)); });
+      const e = order[idx];
+      slots[f].push({ id: e.id, name: nm(e), tag: avail(e.id, f) === 'high' ? 'ביקש' : null });
+      lastOf[e.id] = f;
+      order = [...order.slice(0, idx), ...order.slice(idx + 1), e];
+    }
+  });
+  const monthDraft = (() => { const ds = drafts.filter(d => d.month === month && d.schedule); return ds.find(x => x.status === 'final') || ds[ds.length - 1]; })();
+
+  const toggleMonthly = async (e) => {
+    const next = monthlyNames.has(nm(e)) ? [...monthlyNames].filter(n => n !== nm(e)) : [...monthlyNames, nm(e)];
+    setBusy(true); await onSaveHistory({ monthly: next }); setBusy(false);
+  };
+
+  const card = { background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px' };
+  const chip = (bg) => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: bg });
+  const notIn = stats.filter(s => !s.wants || s.monthly);
+  return (
+    <div className="mgmt-screen">
+      <div className="mgmt-toolbar">
+        <h2 className="mgmt-title">🕯️ שבתות ארוכות</h2>
+      </div>
+      <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 860 }}>
+        <div style={{ fontSize: '12.5px', color: 'var(--ink-3)', lineHeight: 1.6 }}>
+          סבב הוגן: מי שחיכה הכי הרבה מאז השבת הארוכה האחרונה שלו מקבל ראשון. עובד שמסומן שאינו עושה שבת ארוכה לא בתור; "קבוע חודשי" מקבל סופ״ש אחד בכל חודש מחוץ לתור. ההמלצה מתחשבת בבקשות שהעובדים הגישו (לא יכול / רשימת יכול) ובמרחק של 14 יום לפחות בין שבתות.
+        </div>
+
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div className="settings-sec-title" style={{ margin: 0 }}>המלצה ל{SD.monthLabel ? SD.monthLabel(month) : month}</div>
+            <button className="btn" style={{ padding: '2px 10px' }} onClick={() => setMonth(m => shiftMonth(m, -1))}>›</button>
+            <button className="btn" style={{ padding: '2px 10px' }} onClick={() => setMonth(m => shiftMonth(m, 1))}>‹</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {fridays.map(f => {
+              const inDraft = (monthDraft?.schedule?.[f]?.shabbat || []).map(nameOf);
+              return (
+                <div key={f} style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontWeight: 800, minWidth: 70 }}>{weekendLabel(f)}</span>
+                  {slots[f].map(x => (
+                    <span key={x.id} style={chip('color-mix(in oklab, var(--accent) 14%, transparent)')}>
+                      {x.name}{x.tag && <span style={{ fontWeight: 600, fontSize: 11, color: 'var(--ink-3)' }}>· {x.tag}</span>}
+                    </span>
+                  ))}
+                  {slots[f].length < 2 && <span style={{ ...chip('var(--warn-bg)'), color: 'var(--warn)' }}>חסר {2 - slots[f].length} — אין מועמד זמין בתור</span>}
+                  {skipped[f].length > 0 && <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>דולגו (לא זמינים): {skipped[f].join(', ')}</span>}
+                  {inDraft.length > 0 && <span style={{ fontSize: 11.5, color: 'var(--ink-3)', marginInlineStart: 'auto' }}>בסידור כרגע: {inDraft.join(', ')}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div className="settings-sec-title" style={{ marginBottom: 10 }}>התור — לפני {SD.monthLabel ? SD.monthLabel(month) : month}</div>
+          <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+            {queue.map((s, i) => (
+              <div key={s.e.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 13 }}>
+                <span style={{ width: 22, color: 'var(--ink-3)', fontWeight: 700 }}>{i + 1}</span>
+                <span style={{ flex: 1, fontWeight: 700 }}>{nm(s.e)}</span>
+                <span style={{ width: 150, color: 'var(--ink-2)' }}>{s.last ? `אחרונה: ${weekendLabel(s.last)}` : 'עוד לא עשה/תה'}</span>
+                <span style={{ width: 90, color: 'var(--ink-3)' }}>{s.last ? `${daysBetween(s.last, monthStart)} ימים` : ''}</span>
+                <span style={{ width: 70, color: 'var(--ink-3)' }}>{s.count === 0 ? '' : s.count === 1 ? 'שבת אחת' : `${s.count} שבתות`}</span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--ink-3)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={false} disabled={busy} onChange={() => toggleMonthly(s.e)} /> קבוע חודשי
+                </label>
+              </div>
+            ))}
+          </div>
+          {notIn.length > 0 && (
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12.5 }}>
+              {notIn.map(s => (
+                <div key={s.e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ink-2)' }}>
+                  <b>{nm(s.e)}</b>
+                  {s.monthly ? (
+                    <span>— קבוע חודשי (סופ״ש אחד בחודש, מחוץ לתור){s.last ? ` · אחרונה: ${weekendLabel(s.last)}` : ''}
+                      <label style={{ marginInlineStart: 8, cursor: 'pointer' }}><input type="checkbox" checked disabled={busy} onChange={() => toggleMonthly(s.e)} /> קבוע חודשי</label>
+                    </span>
+                  ) : (
+                    <span>— מסומן שאינו עושה שבת ארוכה{s.count ? <span style={{ color: 'var(--danger)', fontWeight: 700 }}> · אבל עשה {s.count} — לבדוק את הסימון בכרטיס</span> : ''}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="settings-sec-title" style={{ marginBottom: 10 }}>כל השבתות הארוכות</div>
+          <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+            {weekends.length === 0 && <div style={{ padding: 12, fontSize: 12.5, color: 'var(--ink-3)' }}>אין עדיין נתונים.</div>}
+            {weekends.map((w, i) => (
+              <div key={w.date} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 13 }}>
+                <span style={{ width: 80, fontWeight: 800 }}>{weekendLabel(w.date)}{w.date.slice(0, 4) !== String(new Date().getFullYear()) ? '.' + w.date.slice(0, 4) : ''}</span>
+                <span style={{ flex: 1 }}>{w.names.join(', ')}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{w.source}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ maxWidth: 420 }}>
+          <ShabbatHistoryEditor entries={entries} employees={employees} onSave={onSaveHistory} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { ShiftsDrawer, SettingsDrawer, PeopleScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal, CriteriaGateModal, SchedulingRulesScreen, ShabbatScreen });
 </script>
 
 <!-- ============ GenerateDraftModal + לוג AI ============ -->
@@ -6168,7 +6348,7 @@ function App({ auth }) {
   // תגובות עובדים לסידור שפורסם: { [empId]: { [month]: { approved, note, respondedAt } } } —
   // קריאה בלבד כאן, לא נשמר ב-mishmarot_state, תמיד נטען מחדש מ-schedule_responses
   const [scheduleResponses, setScheduleResponses] = React.useState({});
-  const [shabbatHistory, setShabbatHistory] = React.useState([]);
+  const [shabbatHistory, setShabbatHistory] = React.useState({ entries: [], monthly: [] });
   // העדפות עובד (employee_prefs) — יעד משמרות/שבוע בימי חול, ואילו משמרות סוף שבוע העובד עושה.
   // חי בטבלה ייעודית, לא ב-state הכללי, כדי שעריכה מהעובד לא תיחסם ע"י שמירה חוזרת מהמשבץ
   const [prefs, setPrefs] = React.useState({});
@@ -6396,12 +6576,13 @@ function App({ auth }) {
 
   const refreshShabbatHistory = React.useCallback(async () => {
     if (!dbAvailable.current || !window.__db.fetchShabbatHistory) return;
-    const entries = await window.__db.fetchShabbatHistory();
-    if (entries) setShabbatHistory(entries);
+    const hist = await window.__db.fetchShabbatHistory();
+    if (hist) setShabbatHistory(hist);
   }, []);
-  const saveShabbatHistory = async (entries) => {
-    const ok = await window.__db.saveShabbatHistory(entries);
-    if (ok) setShabbatHistory(entries);
+  const saveShabbatHistory = async (patch) => {
+    const next = { ...shabbatHistory, ...patch };
+    const ok = await window.__db.saveShabbatHistory(next);
+    if (ok) setShabbatHistory(next);
     return ok;
   };
 
@@ -6614,7 +6795,7 @@ function App({ auth }) {
     // היסטוריה ידנית גוברת על הטיוטה באותו סופ״ש (סופי שבוע ששובצו מחוץ למערכת). רק לפני
     // היום הראשון שמשובץ עכשיו — כדי שסופ״ש עתידי לא יעוות את התור.
     const firstDate = (currentDraft && datesForDraft(currentDraft)[0]) || `${currentMonth}-01`;
-    shabbatHistory.forEach(h => {
+    (shabbatHistory.entries || []).forEach(h => {
       if (!h?.date || h.date >= firstDate) return;
       const ids = resolveHistoryNames(h.names).ids;
       if (ids.length) byDate[h.date] = ids;
@@ -7501,6 +7682,8 @@ ${JSON.stringify(emptySlots, null, 2)}
             setPrefs(p => ({ ...p, [empId]: { ...(p[empId] || {}), ...patch, updated_at: new Date().toISOString() } }));
             window.__db.saveEmployeePref?.(empId, patch);
           }} />}
+        {screen === 'shabbat'   && <ShabbatScreen employees={employees} prefs={prefs} drafts={drafts} initialMonth={currentMonth}
+          history={shabbatHistory} onSaveHistory={saveShabbatHistory} />}
         {screen === 'rules'     && <SchedulingRulesScreen ruleToggles={ruleToggles}
           onToggle={(key, val) => setRuleToggles(t => ({ ...t, [key]: val }))} />}
         {screen === 'calendar'  && (
@@ -7563,7 +7746,6 @@ ${JSON.stringify(emptySlots, null, 2)}
       <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
         tweaks={t} onTweakChange={setTweak}
         auth={auth}
-        shabbatHistory={shabbatHistory} onShabbatHistoryChange={saveShabbatHistory} employees={employees}
         adminKey={adminKey}
         onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }}
         admins={admins} onAdminsChange={setAdmins}

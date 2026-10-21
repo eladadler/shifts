@@ -5885,14 +5885,26 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
     const pick = ok.find(f => avail(s.e.id, f) === 'high') || ok[0];
     if (pick) { slots[pick].push({ id: s.e.id, name: nm(s.e), tag: 'קבוע חודשי' }); lastOf[s.e.id] = pick; }
   });
+  // למה עובד מהתור לא שובץ לסופ״ש הזה (null = אפשר לשבץ אותו)
+  const whyNot = (e, f) => {
+    if (SD.availabilityOn(e.id, f, 'shabbat') === 'unavailable') return 'חסם/ה';
+    if (avail(e.id, f) === 'unavailable') return 'סימן/ה "יכול" רק בתאריכים אחרים';
+    if (lastOf[e.id] && daysBetween(lastOf[e.id], f) < minGap(e)) return `שבת קרובה מדי (${weekendLabel(lastOf[e.id])})`;
+    return null;
+  };
+  const addSkip = (f, e) => {
+    const why = whyNot(e, f);
+    if (why && !skipped[f].some(x => x.name === nm(e))) skipped[f].push({ name: nm(e), why });
+  };
   // 2) תור הוגן — מי שחיכה הכי הרבה, זמין באותו סופ״ש, ולפחות 14 יום מהשבת הקודמת שלו
   let order = queue.map(s => s.e);
   fridays.forEach(f => {
     while (slots[f].length < 2) {
-      const idx = order.findIndex(e => submittedOf[e.id] && !slots[f].some(x => x.id === e.id) && avail(e.id, f) !== 'unavailable'
-        && !(lastOf[e.id] && daysBetween(lastOf[e.id], f) < minGap(e)));
+      const idx = order.findIndex(e => submittedOf[e.id] && !slots[f].some(x => x.id === e.id) && !whyNot(e, f));
+      // אין אף אחד — מציגים את הסיבה של כל מי שנשאר בתור
+      const passed = idx < 0 ? order : order.slice(0, idx);
+      passed.forEach(e => { if (submittedOf[e.id] && !slots[f].some(x => x.id === e.id)) addSkip(f, e); });
       if (idx < 0) break;
-      order.slice(0, idx).forEach(e => { if (submittedOf[e.id] && avail(e.id, f) === 'unavailable' && !skipped[f].includes(nm(e))) skipped[f].push(nm(e)); });
       const e = order[idx];
       slots[f].push({ id: e.id, name: nm(e), tag: avail(e.id, f) === 'high' ? 'ביקש' : null });
       lastOf[e.id] = f;
@@ -5956,8 +5968,8 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
                     </span>
                   ))}
                   {slots[f].length < 2 && <span style={{ ...chip('var(--warn-bg)'), color: 'var(--warn)' }}>חסר {2 - slots[f].length} — אין מועמד זמין בתור</span>}
-                  {skipped[f].length > 0 && <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>דולגו (לא זמינים): {skipped[f].join(', ')}</span>}
                   {inDraft.length > 0 && <span style={{ fontSize: 11.5, color: 'var(--ink-3)', marginInlineStart: 'auto' }}>בסידור כרגע: {inDraft.join(', ')}</span>}
+                  {skipped[f].length > 0 && <span style={{ fontSize: 11.5, color: 'var(--ink-3)', flexBasis: '100%' }}>דולגו: {skipped[f].map(x => `${x.name} — ${x.why}`).join(' · ')}</span>}
                 </div>
               );
             })}
@@ -5990,7 +6002,7 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
                       <label style={{ marginInlineStart: 8, cursor: 'pointer' }}><input type="checkbox" checked disabled={busy} onChange={() => toggleMonthly(s.e)} /> קבוע חודשי</label>
                     </span>
                   ) : (
-                    <span>— מסומן שאינו עושה שבת ארוכה{s.count ? <span style={{ color: 'var(--danger)', fontWeight: 700 }}> · אבל עשה {s.count} — לבדוק את הסימון בכרטיס</span> : ''}</span>
+                    <span>— מסומן שאינו עושה שבת ארוכה{s.count ? <span style={{ color: 'var(--ink-3)' }}> · {s.count === 1 ? 'עשה שבת אחת' : `עשה ${s.count} שבתות`} בתקופה שבטבלה</span> : ''}</span>
                   )}
                 </div>
               ))}

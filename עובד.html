@@ -348,6 +348,17 @@ const MARK_STATUS = {
 // מזהה עובד להתחזות (אדמין בלבד) — מוגדר כ-URL param ?impersonate=<id>
 const IMPERSONATE_ID = new URLSearchParams(window.location.search).get('impersonate') || null;
 
+// טיוטות בקשות שעוד לא נשלחו (סימונים + הערות) — נשמרות בדפדפן בנפרד לכל עובד
+const LEGACY_DRAFTS_KEY = 'mishmarot-draft-requests';
+const draftsKeyFor = (empId) => `${LEGACY_DRAFTS_KEY}:${empId}`;
+// המפתח הישן (המשותף לכל העובדים בדפדפן) נמחק ולא נקרא — אי אפשר לדעת של איזה עובד התוכן שבו
+const readDraftsFor = (empId) => {
+  try {
+    localStorage.removeItem(LEGACY_DRAFTS_KEY);
+    return JSON.parse(localStorage.getItem(draftsKeyFor(empId))) || {};
+  } catch { return {}; }
+};
+
 // Faded (implied) marks — dashed border, lighter fill, used in calendar for unmarked days
 const MARK_STATUS_FADED = {
   un:  { bg: 'oklch(0.975 0.025 25)',  bd: '1px dashed oklch(0.8 0.1 25)',   fg: 'oklch(0.72 0.1 25)' },
@@ -929,9 +940,11 @@ function App() {
   const [serverReqs, setServerReqs] = React.useState({});    // { 'YYYY-MM': row } — הבקשות שלי מהשרת
   // { 'YYYY-MM': { marks, note, dirty } } — נטען מ-localStorage כדי ששינויים שלא נשלחו (עדיין)
   // לא ייעלמו ברענון/סגירה בטעות; ראו אפקט השמירה החוזרת בהמשך
-  const [localReqs, setLocalReqs] = React.useState(() => {
-    try { return JSON.parse(localStorage.getItem('mishmarot-draft-requests')) || {}; } catch { return {}; }
-  });
+  // נשמר לפי עובד (mishmarot-draft-requests:<emp_id>) — אחרת ב"תצוגת עובד" של המשבץ (התחזות,
+  // כמה עובדים באותו דפדפן) עובד אחד היה רואה את ההערות/הסימונים שלא נשלחו של העובד הקודם.
+  // מתמלא ב-loadAll ברגע שידוע מי העובד; draftsOwnerRef = של מי התוכן שכרגע בזיכרון
+  const [localReqs, setLocalReqs] = React.useState({});
+  const draftsOwnerRef = React.useRef(null);
   const [allReqs, setAllReqs] = React.useState({});          // { 'YYYY-MM': { emp_id: row } } — כל העובדים
   const [swaps, setSwaps] = React.useState([]);               // כל בקשות החילוף (shift_swap_requests)
   const [myResponses, setMyResponses] = React.useState({});   // { 'YYYY-MM': { approved, note, respondedAt } } — התגובה שלי לסידור שפורסם
@@ -950,7 +963,9 @@ function App() {
   // שומר את השינויים הלא-שמורים ל-localStorage בכל עדכון, כדי שרענון/סגירה בטעות
   // (או חוסר קליטה) לא ימחקו סימונים שעוד לא נשלחו למשבץ בפועל
   React.useEffect(() => {
-    try { localStorage.setItem('mishmarot-draft-requests', JSON.stringify(localReqs)); } catch {}
+    const owner = draftsOwnerRef.current;
+    if (!owner) return;
+    try { localStorage.setItem(draftsKeyFor(owner), JSON.stringify(localReqs)); } catch {}
   }, [localReqs]);
 
   /* --- session --- */
@@ -1042,6 +1057,8 @@ function App() {
         setMeStatus('notfound');
         return;
       }
+      // הטיוטות המקומיות של *העובד הזה* — נקראות לפני setMe, כדי ששום כתיבה לא תדרוס אותן
+      const storedDrafts = readDraftsFor(mine.id);
       setMe({ ...mine, allEmployees: emps });
       setMeStatus('ok');
 
@@ -1102,8 +1119,11 @@ function App() {
       setAllReqs(allMap);
       // אתחול עריכות מקומיות מהשרת — בלי לדרוס שינויים שטרם נשלחו.
       // ערך "YYYY-MM-DD" = יום שלם (marks[day] מחרוזת), "YYYY-MM-DD@shiftId" = משמרת (marks[day] אובייקט)
+      // אותו עובד (רענון) — ממשיכים מהזיכרון; עובד אחר — רק מה ששמור עבורו, לעולם לא של הקודם
+      const sameOwner = draftsOwnerRef.current === mine.id;
+      draftsOwnerRef.current = mine.id;
       setLocalReqs(prev => {
-        const next = { ...prev };
+        const next = { ...(sameOwner ? prev : storedDrafts) };
         Object.entries(reqMap).forEach(([m, r]) => {
           if (next[m]?.dirty) return;
           const marks = {};

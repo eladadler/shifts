@@ -1401,13 +1401,15 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false, proposals = null }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false, proposals = null, submitted = null }) {
     // כל תנאי דלוק כברירת מחדל — כבוי רק אם המשבץ כיבה אותו במפורש במסך "תנאי שיבוץ"
     const on = (key) => ruleToggles[key] !== false;
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
     const schedule = {};
     const log = [];
     const counts = {}; const hist = {}; const busy = {};
+    // submitted = מזהי העובדים שהגישו בקשה לחודש המשובץ (או שיש להם משמרת קבועה פעילה); null = לא בודקים
+    const submittedSet = submitted ? new Set(submitted) : null;
     // counts = החודש הנוכחי בלבד, ומולו נבדקת המכסה החודשית.
     // hist = משמרות מחודשים קודמים, ומשמש לאיזון עומסים בניקוד בלבד — הזרקתו
     // למונה החודשי הייתה חוסמת לאלתר כל מי שעבד בחודש שעבר.
@@ -1548,6 +1550,8 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         if ((busy[e.id] || []).some((iv) => iv.start < t.end && t.start < iv.end)) return true;
         // מנוחה מינימלית (8 ש׳) לפני ואחרי כל משמרת אחרת של העובד — חוסם; עדיף חור פתוח
         if (on('biasMidMonthRest') && !restOk(e.id, t)) return true;
+        // מי שלא הגיש בקשה לחודש (או רק שמר טיוטה) לא משובץ אוטומטית — רק ידנית ע"י המשבץ
+        if (on('requireSubmission') && submittedSet && !submittedSet.has(e.id)) return true;
         // יעד משמרות/שבוע הוא תקרה: כל סוגי המשמרות נספרים (כולל שישי/שבת), שבוע = א׳-ש׳
         if (on('weeklyTargetCap') && (weekTotal[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return true;
         const av = D.availabilityOn(e.id, dStr, shift.id);
@@ -5671,6 +5675,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
     { key: 'noThursdayIfShabbat', t: 'ללא בוקר בחמישי אם יש שבת ארוכה', d: 'העדפה אישית (מוגדרת בכרטיס העובד) — עובד שסימן זאת לא ישובץ למשמרת בוקר/בוקר קצר ביום חמישי, באם שובץ ל"שבת ארוכה" באותו שבוע. משפיע רק על עובד שהוגדר לו.' },
     { key: 'crossMonthRest', t: 'מנוחה מול המשמרת האחרונה בחודש הקודם', d: 'פחות מ-8 שעות מנוחה מהמשמרת האחרונה שהעובד עשה בסוף החודש הקודם — חוסם לגמרי, בלי חריגה אוטומטית.' },
     { key: 'weeklyTargetCap', t: 'תקרת משמרות/שבוע', d: 'עובד לא ישובץ אוטומטית מעבר ליעד המשמרות/שבוע האישי שלו (מכרטיס העובד). נספרות כל המשמרות בשבוע א׳-ש׳, כולל שישי, שבת ארוכה ומוצאי שבת. משמרת שאין מי שימלא אותה בלי חריגה נשארת פתוחה ומסומנת כדילמה, והמשבץ מחליט ידנית. המנוע ממלא בכל שבוע קודם את המשמרות עם הכי מעט מועמדים, כדי שסוף השבוע לא יישאר ריק.' },
+    { key: 'requireSubmission', t: 'לא הגיש בקשות — לא משובץ אוטומטית', d: 'עובד שלא הגיש בקשה לחודש המשובץ (או רק שמר טיוטה בלי לשלוח) לא ישובץ בשיבוץ האוטומטי — מחשב, חכם ו-AI. עובד עם משמרת קבועה פעילה פטור. אפשר עדיין לשבץ אותו ידנית בגרירה או עם + בכרטיס שלו.' },
     { key: 'canWhitelist', t: 'רשימת "יכול" חודשית', d: 'עובד שהגיש רשימת "יכול" (can) מצומצמת לחודש הנוכחי לא ישובץ מחוץ לרשימה שהגיש, גם אם יש לו זמינות אחרת.' },
     { key: 'ironStanding', t: '🔒 משמרת ברזל (קבועה)', d: 'משמרת קבועה שהמשבץ סימן כ"ברזל" (מכרטיס הבקשות של העובד) משובצת כמעט תמיד באופן אוטומטי, לפני כל שאר המועמדים — עדיין בכפוף לתנאים הקשיחים האחרים (מכסה, מנוחה וכו׳), וניתנת לביטול לתאריך ספציפי ע"י העובד עצמו (בדיוק כמו ביטול בקשה קבועה רגילה). אם יש יותר עובדי ברזל ממקום פנוי במשמרת, זה מוצג כאזהרה למשבץ לפני ההרצה.' },
   ];
@@ -6364,7 +6369,7 @@ function App({ auth }) {
   const DEFAULT_RULE_TOGGLES = {
     unavailable: true, multiOptionFallback: true, maxQuota: true,
     wantsFridayShort: true, wantsFridayLong: true, wantsShabbatLong: true, wantsSaturdayShort: true,
-    noWeekdayNights: true, shabbatWeeklyCap: true, noThursdayIfShabbat: true, crossMonthRest: true, canWhitelist: true, ironStanding: true,
+    noWeekdayNights: true, shabbatWeeklyCap: true, noThursdayIfShabbat: true, crossMonthRest: true, canWhitelist: true, requireSubmission: true, ironStanding: true,
     biasHighCan: true, biasNightOwl: true, biasLoadBalance: true,
     biasWeeklyTarget: true, biasShiftMix: true, weeklyTargetCap: true, biasShabbatFrequency: true, shabbatMinGap: true, biasWeekendShortFrequency: true, biasMidMonthRest: true,
   };
@@ -6920,6 +6925,12 @@ function App({ auth }) {
     return conflicts;
   };
 
+  // מי "הגיש" לחודש של הטיוטה: בקשה שנשלחה (לא רק נשמרה כטיוטה), או משמרת קבועה פעילה
+  const submittedForDraft = (draft) => employees.filter(emp => {
+    const r = (requests[emp.id] || {})[draft?.month];
+    return (r && !r.isDraft) || allRecurring.some(x => x.emp_id === emp.id && x.active);
+  }).map(e => e.id);
+
   // בדיקת חריגות מקריטריוני הגשה, לפני הרצת שיבוץ אוטומטי — ראו runWithCriteriaGate
   const checkCriteriaViolationsForScheduling = () => {
     const dates = datesForDraft(currentDraft);
@@ -6935,12 +6946,12 @@ function App({ auth }) {
       // רשומה עם is_draft — "שמירה ללא שליחה" — לא נחשבת הגשה סופית, מאותה סיבה בדיוק.
       // לא מתריעים אם יש לו משמרת קבועה פעילה — כנראה שאינו צריך להגיש בקשה חודשית.
       const reqRow = (requests[emp.id] || {})[currentDraft.month];
-      const hasSubmitted = !!reqRow && !reqRow.is_draft;
+      const hasSubmitted = !!reqRow && !reqRow.isDraft;
       const hasRecurring = allRecurring.some(r => r.emp_id === emp.id && r.active);
       if (!hasSubmitted && !hasRecurring) {
-        violations.push(reqRow?.is_draft
-          ? 'שמר טיוטה בלבד ולא שלח בפועל — כברירת מחדל ייחשב חסום לגמרי ולא ישובץ לשום מקום'
-          : 'לא הגיש בקשה כלל החודש — כברירת מחדל ייחשב חסום לגמרי ולא ישובץ לשום מקום');
+        const blocked = ruleToggles.requireSubmission !== false;
+        violations.push((reqRow?.isDraft ? 'שמר טיוטה בלבד ולא שלח בפועל' : 'לא הגיש בקשה כלל החודש')
+          + (blocked ? ' — לא ישובץ אוטומטית (רק ידנית)' : ' — הכלל "לא הגיש בקשות" כבוי, ולכן ייחשב זמין לכל משמרת'));
       }
       if (violations.length) out.push({ empId: emp.id, name: emp.name, violations });
     });
@@ -6966,6 +6977,7 @@ function App({ auth }) {
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
       initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
+      submitted: submittedForDraft(currentDraft),
     });
     const ts = new Date().toISOString();
     const log = [
@@ -6988,6 +7000,7 @@ function App({ auth }) {
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
       initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
+      submitted: submittedForDraft(currentDraft),
       shabbatOnly: true,
     });
     const ts = new Date().toISOString();
@@ -7010,7 +7023,7 @@ function App({ auth }) {
       startDate: draft.range.start, endDate: draft.range.end, excluded: draft.excluded || [],
       existingSchedule: baseSchedule, shiftSettings, initialLastEnd: carryOverEnds,
       initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
-      proposals, ...extra,
+      proposals, submitted: submittedForDraft(draft), ...extra,
     });
     const rejectedLog = res.rejected.map((p) => ({
       type: 'decision',
@@ -7038,8 +7051,9 @@ function App({ auth }) {
       startDate: draft.range.start, endDate: draft.range.end, excluded: draft.excluded || [], shiftSettings,
       initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(),
     };
-    const tryPlace = (schedule, dStr, shiftId, id, toggles) => {
-      const r = AE.generate({ ...base, ruleToggles: toggles, existingSchedule: schedule, proposals: [{ dStr, shiftId, empId: id }] });
+    // + הוא החלטה ידנית על עובד מסוים — בלי בדיקת "הגיש"; − בוחר מחליף אוטומטית — עם הבדיקה
+    const tryPlace = (schedule, dStr, shiftId, id, toggles, submitted = null) => {
+      const r = AE.generate({ ...base, ruleToggles: toggles, existingSchedule: schedule, submitted, proposals: [{ dStr, shiftId, empId: id }] });
       return r.rejected.length ? null : r.schedule;
     };
     const weekOf = (d) => AD.addDays(d, -AD.weekdayOf(d));
@@ -7090,7 +7104,7 @@ function App({ auth }) {
     for (const m of mine) {
       const rest = without(m);
       const takers = AD.EMPLOYEES.filter(e => e.id !== empId)
-        .map(e => ({ e, next: tryPlace(rest, m.d, m.sid, e.id, ruleToggles) }))
+        .map(e => ({ e, next: tryPlace(rest, m.d, m.sid, e.id, ruleToggles, submittedForDraft(draft)) }))
         .filter(t => t.next);
       if (!takers.length) continue;
       const rankT = (t) => { const w = weekStats(rest, t.e.id, weekOf(m.d)); return [w.total - targetOf(t.e), w[kindOf(m.sid)], -avScore(t.e.id, m.d, m.sid)]; };
@@ -7126,6 +7140,7 @@ function App({ auth }) {
         shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds,
         initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
+        submitted: submittedForDraft(currentDraft),
       });
       algoResult.log.filter(l => l.type !== 'info').forEach(l => smartLog.push({ ...l, timestamp: ts() }));
 
@@ -7144,7 +7159,7 @@ function App({ auth }) {
       algoSaved = true;
       setDrafts(ds => ds.map(d => d.id === id ? { ...d, schedule: algoResult.schedule, log: smartLog } : d));
 
-      const empList = AD.EMPLOYEES.map(e => ({
+      const empList = AD.EMPLOYEES.filter(e => ruleToggles.requireSubmission === false || submittedForDraft(currentDraft).includes(e.id)).map(e => ({
         id: e.id, name: e.name, role: e.role, maxShifts: e.max,
         canDoNights: !e.noWeekdayNights, nightOwl: !!e.nightOwl,
         requests: AD.reqOf(e.id) || null,
@@ -7259,7 +7274,7 @@ ${JSON.stringify(emptySlots, null, 2)}
     const snap = JSON.parse(JSON.stringify(currentDraft));
     setGeneratingId(id);
     try {
-      const empList = AD.EMPLOYEES.map(e => ({
+      const empList = AD.EMPLOYEES.filter(e => ruleToggles.requireSubmission === false || submittedForDraft(currentDraft).includes(e.id)).map(e => ({
         id: e.id, name: e.name, role: e.role, maxShifts: e.max,
         canDoNights: !e.noWeekdayNights, nightOwl: !!e.nightOwl,
         requests: AD.reqOf(e.id) || null,
@@ -7340,6 +7355,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
         initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(snap)),
+        submitted: submittedForDraft(snap),
       });
 
       const ts = new Date().toISOString();

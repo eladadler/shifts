@@ -3386,7 +3386,7 @@ ${editable ? '' : 'שים לב: הסידור נעול כרגע לעריכה — 
 }
 
 // ---- חלונית צד ראשית ----
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, aiOn, employees, onEmployeesChange, onAssign, onRemove, onAdjustShifts, draftDates, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs }) {
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, aiOn, employees, onEmployeesChange, onAssign, onRemove, onAdjustShifts, draftDates, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs, hideRequests }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
   const [shiftFilter, setShiftFilter] = React.useState('all');
@@ -3397,8 +3397,10 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
 
   const NAV = [
     { id: 'employees', icon: '👥', label: 'עובדים' },
-    { id: 'requests',  icon: '📋', label: 'בקשות'  },
+    // לשונית "בקשות" ניתנת להסתרה (⚙ הגדרות → כפתורי סרגל כלים)
+    ...(hideRequests ? [] : [{ id: 'requests',  icon: '📋', label: 'בקשות'  }]),
   ];
+  React.useEffect(() => { if (hideRequests && nav === 'requests') setNav('employees'); }, [hideRequests]);
 
   const isNightHour = (t) => { const h = parseInt((t || '00').split(':')[0], 10); return h >= 19 || h < 6; };
 
@@ -3503,14 +3505,14 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
 
   return (
     <aside className="side-panel">
-      <div className="side-icon-nav">
+      {NAV.length > 1 && <div className="side-icon-nav">
         {NAV.map((item) => (
           <button key={item.id} className={'side-icon-btn' + (nav === item.id ? ' on' : '')} onClick={() => setNav(item.id)}>
             <span className="sib-icon">{item.icon}</span>
             <span>{item.label}</span>
           </button>
         ))}
-      </div>
+      </div>}
 
       {nav === 'employees' && (
         <>
@@ -3584,7 +3586,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
         </>
       )}
 
-      {nav === 'requests' && <RequestsPanel />}
+      {nav === 'requests' && !hideRequests && <RequestsPanel />}
 
       <AIChat schedule={schedule} selectedDate={selectedDate} aiOn={aiOn} employees={employees} onEmployeesChange={onEmployeesChange}
         onAssign={onAssign} onRemove={onRemove} editable={editable} />
@@ -4209,7 +4211,7 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, adminKey, 
             <div>
               <div className="settings-sec-title">🔘 כפתורי סרגל כלים</div>
               <div style={{marginTop:8,fontSize:'12px',color:'var(--ink-3)',marginBottom:10,lineHeight:1.5}}>
-                כיבוי מסתיר כפתור מהסרגל העליון בלוח השנה — לא משנה שום פונקציונליות, רק מה שמוצג. אפשר להחזיר כל כפתור בכל רגע.
+                כיבוי מסתיר כפתור מהסרגל העליון בלוח השנה (או לשונית ברשימת העובדים) — לא משנה שום פונקציונליות, רק מה שמוצג. אפשר להחזיר כל כפתור בכל רגע.
               </div>
               <div style={{display:'flex',flexDirection:'column',gap:9}}>
                 {toolbarButtonDefs.map(({ id, label }) => (
@@ -6622,12 +6624,21 @@ function App({ auth }) {
   // כפתורי סרגל כלים מוסתרים — ברירת מחדל: שבץ AI/ערוך טווח מוסתרים, ניתן להחזיר בהגדרות (⚙).
   // "השיבוץ החכם" ו"שיבוץ ללא AI" תמיד מוצגים — המשבץ בוחר ביניהם בכל הרצה
   const TOOLBAR_BUTTON_DEFS = [
+    { id: 'runSmart', label: '✦⚙ השיבוץ החכם (אלגוריתם + AI)' },
     { id: 'runAI', label: '✦ שבץ AI' },
     { id: 'runShabbatOnly', label: '🕯️ שבץ שבתות בלבד' },
     { id: 'editRange', label: '✎ ערוך טווח' },
+    { id: 'swaps', label: '⇄ חילופים' },
+    { id: 'aiLog', label: 'לוג AI' },
+    { id: 'scripts', label: '⚡ סקריפטים' },
+    { id: 'sidebarRequests', label: '📋 לשונית "בקשות" ברשימת העובדים' },
   ];
-  const DEFAULT_HIDDEN_BUTTONS = ['runAI', 'editRange'];
-  const [hiddenButtons, setHiddenButtons] = React.useState(() => saved?.hiddenButtons ?? DEFAULT_HIDDEN_BUTTONS);
+  // כפתורים שהוסתרו כברירת מחדל בגרסה 2 — מוסתרים פעם אחת גם אצל מי שכבר שמר רשימה (הסימון __v2
+  // ברשימה אומר שההגירה כבר בוצעה, כך שכפתור שהמשבץ החזיר אחר כך לא יוסתר שוב)
+  const HIDDEN_V2 = ['runSmart', 'swaps', 'aiLog', 'scripts', 'sidebarRequests'];
+  const migrateHidden = (list) => (list || []).includes('__v2') ? list : [...new Set([...(list || []), ...HIDDEN_V2, '__v2'])];
+  const DEFAULT_HIDDEN_BUTTONS = migrateHidden(['runAI', 'editRange']);
+  const [hiddenButtons, setHiddenButtons] = React.useState(() => saved?.hiddenButtons ? migrateHidden(saved.hiddenButtons) : DEFAULT_HIDDEN_BUTTONS);
   const [vapidPublicKey, setVapidPublicKey] = React.useState(() => saved?.vapidPublicKey || '');
   const [sendRemindersOpen, setSendRemindersOpen] = React.useState(false);
   // חריגות קריטריוני הגשה שהתגלו לפני הרצת שיבוץ אוטומטי — { violations, proceed } | null
@@ -6725,7 +6736,7 @@ function App({ auth }) {
         if (remote.swapSettings) setSwapSettings(s => ({ ...s, ...remote.swapSettings }));
         if (remote.requestCriteria) setRequestCriteria(c => ({ ...c, ...remote.requestCriteria }));
         if (remote.ruleToggles) setRuleToggles(t => ({ ...t, ...remote.ruleToggles }));
-        if (remote.hiddenButtons) setHiddenButtons(remote.hiddenButtons);
+        if (remote.hiddenButtons) setHiddenButtons(migrateHidden(remote.hiddenButtons));
       }
       setSyncStatus('saved');
       isFirstLoad.current = false;
@@ -7833,17 +7844,23 @@ ${JSON.stringify(emptySlots, null, 2)}
             onClick={() => { setSettingsDrawerOpen(o => !o); setShiftsDrawerOpen(false); }}>
             ⚙ הגדרות
           </button>
-          <button className="topbar-nav-btn" onClick={() => setScriptRunnerOpen(true)} title="הרצת סקריפטים">
-            ⚡ סקריפטים
-          </button>
-          <button className="topbar-nav-btn" onClick={() => setSwapDrawerOpen(true)} title="בקשות חילוף הממתינות לאישור">
-            ⇄ חילופים{swapQueue.length > 0 && <span className="btn-badge">{swapQueue.length}</span>}
-          </button>
+          {!hiddenButtons.includes('scripts') && (
+            <button className="topbar-nav-btn" onClick={() => setScriptRunnerOpen(true)} title="הרצת סקריפטים">
+              ⚡ סקריפטים
+            </button>
+          )}
+          {!hiddenButtons.includes('swaps') && (
+            <button className="topbar-nav-btn" onClick={() => setSwapDrawerOpen(true)} title="בקשות חילוף הממתינות לאישור">
+              ⇄ חילופים{swapQueue.length > 0 && <span className="btn-badge">{swapQueue.length}</span>}
+            </button>
+          )}
           {screen === 'calendar' && (
             <>
-              <button className="btn" onClick={() => setLogOpen(true)} disabled={!currentDraft}>
-                לוג AI{dilemmaCount > 0 && <span className="btn-badge">{dilemmaCount}</span>}
-              </button>
+              {!hiddenButtons.includes('aiLog') && (
+                <button className="btn" onClick={() => setLogOpen(true)} disabled={!currentDraft}>
+                  לוג AI{dilemmaCount > 0 && <span className="btn-badge">{dilemmaCount}</span>}
+                </button>
+              )}
               <button className="btn" onClick={() => AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth, shiftSettings)} disabled={!currentDraft || isGenerating}>
                 ייצוא
               </button>
@@ -7854,8 +7871,9 @@ ${JSON.stringify(emptySlots, null, 2)}
                     🕯️ שבץ שבתות בלבד
                   </button>
                 )}
-                <button className="btn btn-smart" onClick={runSmart} disabled={isGenerating} title="אלגוריתם + AI שממלא את המשבצות שנשארו פתוחות (הצעות AI שמפרות תנאי שיבוץ נדחות)">✦⚙ השיבוץ החכם</button>
-                <button className="btn" onClick={runAlgo} disabled={isGenerating} title="אלגוריתם בלבד — משבצות בלי מועמד מתאים נשארות פתוחות">⚙ שיבוץ ללא AI</button>
+                {!hiddenButtons.includes('runSmart') && (
+                  <button className="btn btn-smart" onClick={runSmart} disabled={isGenerating} title="אלגוריתם + AI שממלא את המשבצות שנשארו פתוחות (הצעות AI שמפרות תנאי שיבוץ נדחות)">✦⚙ השיבוץ החכם</button>
+                )}
                 {!hiddenButtons.includes('runAI') && (
                   <button className="btn btn-ai" onClick={runAI} disabled={isGenerating} title="AI בלבד">✦ שבץ AI</button>
                 )}
@@ -7885,6 +7903,10 @@ ${JSON.stringify(emptySlots, null, 2)}
               <button className="btn btn-primary" onClick={() => { setModalMode('create'); setModalOpen(true); }} disabled={isGenerating}>
                 ✦ צור טיוטה
               </button>
+              {/* "שיבוץ" (אלגוריתם בלבד) — הכפתור הראשי, בקצה השמאלי של הסרגל */}
+              {(status === 'draft' || status === 'open') && (
+                <button className="btn btn-smart" onClick={runAlgo} disabled={isGenerating} title="אלגוריתם בלבד — משבצות בלי מועמד מתאים נשארות פתוחות">⚙ שיבוץ</button>
+              )}
             </>
           )}
         </div>
@@ -8004,6 +8026,7 @@ ${JSON.stringify(emptySlots, null, 2)}
               aiOn={aiOn} employees={employees} onEmployeesChange={setEmployees}
               onAssign={assign} onRemove={remove} onAdjustShifts={adjustEmpShifts} draftDates={currentDraft ? datesForDraft(currentDraft) : []}
               focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift}
+              hideRequests={hiddenButtons.includes('sidebarRequests')}
               managerNotes={Object.fromEntries(employees.map(e => [e.id, requests[e.id]?.[currentMonth]?.managerNote || '']).filter(([, n]) => n))}
               responses={Object.fromEntries(employees.map(e => [e.id, scheduleResponses[e.id]?.[currentMonth]]).filter(([, r]) => r))}
               prefs={prefs} />

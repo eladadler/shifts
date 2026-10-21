@@ -793,6 +793,19 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return {};
       }
     },
+    // תמהיל משמרות חול אישי לשבוע — שורה 'shift_mix': { mix: { [emp_id]: { day, night } } }. עובד בלי רשומה —
+    // לפי יעד משמרות/שבוע הרגיל (employee_prefs) ואיזון יום/לילה כללי
+    async fetchShiftMix() {
+      if (!client) return {};
+      try {
+        const { data, error } = await client.from(TABLE).select('data').eq('id', 'shift_mix').maybeSingle();
+        if (error) throw error;
+        return data?.data?.mix || {};
+      } catch (e) {
+        console.warn('DB fetchShiftMix failed:', e.message);
+        return {};
+      }
+    },
     async saveExportColors(colors) {
       if (!client) return false;
       const { error } = await client.from(TABLE).upsert({ id: 'export_colors', data: { colors: colors || {} }, updated_at: new Date().toISOString() });
@@ -1628,6 +1641,11 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         // יעד משמרות/שבוע = משמרות חול (ראשון עד חמישי + מוצאי שבת) בלבד, והוא תקרה בשיבוץ האוטומטי.
         // שישי, שבת ארוכה ושבת קצרה באות בנוסף ליעד ולא נספרות בו
         if (on('weeklyTargetCap') && isWeekdayShift(wdShift0, shift.id) && (weekCounts[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return true;
+        // תמהיל אישי (e.shiftMix = { day, night } משמרות חול בשבוע) — תקרה נפרדת לכל סוג; היעד השבועי = הסכום
+        if (on('weeklyTargetCap') && e.shiftMix && isWeekdayShift(wdShift0, shift.id)) {
+          const kind = shift.id === 'night' ? 'night' : 'day';
+          if ((weekMix[wk0]?.[e.id]?.[kind] || 0) >= (e.shiftMix[kind] ?? 0)) return true;
+        }
         // חופשה חוסמת תמיד — משותפת לכל הטיוטות, טיוטה משנית (2/3) לא עוקפת אותה.
         // שבת ארוכה נמשכת עד מוצ״ש, לכן גם חופשה בשבת עצמה חוסמת אותה
         if (on('unavailable') && (D.isVacationOn(e.id, dStr)
@@ -1751,7 +1769,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           const balanced = pool.filter((e) => {
             if (e.noWeekdayNights) return true;
             const m = weekMix[wk0]?.[e.id] || { day: 0, night: 0 };
-            if (m[kind] < Math.ceil((e.weekdayShiftsPerWeek ?? 2) / 2)) return true;
+            if (m[kind] < (e.shiftMix ? (e.shiftMix[kind] ?? 0) : Math.ceil((e.weekdayShiftsPerWeek ?? 2) / 2))) return true;
             return !canDoKindInWeek(e, wk0, other);
           });
           if (balanced.length) pool = balanced;
@@ -1788,7 +1806,12 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             const target = e.weekdayShiftsPerWeek ?? 2;
             s += (target - already) * 1.2;
           }
-          if (on('biasShiftMix') && isWeekdayShift(wdShift, shift.id) && !e.noWeekdayNights) {
+          if (on('biasShiftMix') && isWeekdayShift(wdShift, shift.id) && e.shiftMix) {
+            // תמהיל אישי: עדיפות לפי כמה עוד חסר לו מהסוג הזה השבוע
+            const w = weekMix[wk]?.[e.id] || { day: 0, night: 0 };
+            const kind = shift.id === 'night' ? 'night' : 'day';
+            s += ((e.shiftMix[kind] ?? 0) - w[kind]) * 2.5;
+          } else if (on('biasShiftMix') && isWeekdayShift(wdShift, shift.id) && !e.noWeekdayNights) {
             // איזון יום/לילה (יעד: משמרת יום ומשמרת לילה בשבוע): מי שכבר קיבל יותר משמרות
             // מהסוג השני — השבוע, ובמשקל קטן יותר גם בחודש כולו — מקבל עדיפות לסוג הזה
             const w = weekMix[wk]?.[e.id] || { day: 0, night: 0 };
@@ -1836,12 +1859,12 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     function repairShiftMix() {
       const kindOf = (sid) => (sid === 'night' ? 'night' : 'day');
       const otherKind = (k) => (k === 'night' ? 'day' : 'night');
-      const capOf = (e) => Math.ceil((e.weekdayShiftsPerWeek ?? 2) / 2);
+      const capOf = (e, k) => e.shiftMix ? (e.shiftMix[k] ?? 0) : Math.ceil((e.weekdayShiftsPerWeek ?? 2) / 2);
       const imbalance = (e, wk) => {
         if (!e || e.noWeekdayNights) return 0;
         const m = weekMix[wk]?.[e.id] || { day: 0, night: 0 };
         let s = 0;
-        ['day', 'night'].forEach((k) => { if (m[k] > capOf(e) && canDoKindInWeek(e, wk, otherKind(k))) s += m[k] - capOf(e); });
+        ['day', 'night'].forEach((k) => { if (m[k] > capOf(e, k) && canDoKindInWeek(e, wk, otherKind(k))) s += m[k] - capOf(e, k); });
         return s;
       };
       const freshIn = (wk) => [...fresh].map((k) => { const [d, sid, id] = k.split('|'); return { d, sid, id }; })
@@ -1890,7 +1913,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           for (const wk of Object.keys(weekMix)) {
             if (!imbalance(A, wk)) continue;
             const m = weekMix[wk][A.id];
-            const kind = m.day > capOf(A) ? 'day' : 'night';
+            const kind = m.day > capOf(A, 'day') ? 'day' : 'night';
             // קודם מזיזים משמרת שהעובד לא ביקש בעדיפות גבוהה
             const mine = freshIn(wk).filter((x) => x.id === A.id && kindOf(x.sid) === kind)
               .sort((x, y) => (D.availabilityOn(A.id, x.d, x.sid) === 'high') - (D.availabilityOn(A.id, y.d, y.sid) === 'high'));
@@ -3587,7 +3610,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
         if ((i <= 4 || (i === 6 && sid === 'night')) && (ids || []).includes(emp.id)) n++;
       });
     }
-    const target = prefs?.[emp.id]?.weekday_shifts_per_week ?? PD.empById(emp.id)?.weekdayShiftsPerWeek ?? 2;
+    const target = PD.empById(emp.id)?.weekdayShiftsPerWeek ?? prefs?.[emp.id]?.weekday_shifts_per_week ?? 2;
     return { n, target };
   };
 
@@ -6821,6 +6844,9 @@ function App({ auth }) {
   const isFirstLoad = React.useRef(true);
   const dbAvailable = React.useRef(typeof window.__db !== 'undefined');
 
+  const [shiftMix, setShiftMix] = React.useState({});
+  React.useEffect(() => { window.__db?.fetchShiftMix?.().then(m => setShiftMix(m || {})).catch(() => {}); }, []);
+
   // סנכרון employees → window.ShiftData.EMPLOYEES
   // ממזג העדפות (employee_prefs) לתוך רשימת העובדים החיה, כך שהאלגוריתם רואה
   // weekdayShiftsPerWeek/noWeekdayNights/wants* (שישי קצר/ארוך, שבת ארוכה, בוקר שבת) בלי לשכפל אותן ברשומת העובד עצמה
@@ -6835,9 +6861,11 @@ function App({ auth }) {
         wantsFridayLong: p?.wants_friday_long ?? true,
         wantsShabbatLong: p?.wants_shabbat_long ?? true,
         wantsSaturdayShort: p?.wants_saturday_short ?? true,
+        // תמהיל אישי (יום/לילה בשבוע) גובר על היעד השבועי — היעד הוא הסכום
+        ...(shiftMix[e.id] ? { shiftMix: shiftMix[e.id], weekdayShiftsPerWeek: (shiftMix[e.id].day || 0) + (shiftMix[e.id].night || 0) } : {}),
       };
     });
-  }, [employees, prefs]);
+  }, [employees, prefs, shiftMix]);
 
   // סנכרון requests → window.ShiftData.REQUESTS (שטוח לפי עובד, כל החודשים יחד — לתאימות המנוע)
   React.useEffect(() => {

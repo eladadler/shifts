@@ -2277,36 +2277,39 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       }).join('');
       const hours = Array.from({ length: H1 - H0 }, (_, i) => `<div style="top:${i * ROW}%;height:${ROW}%">${(H0 + i) % 24}:00</div>`).join('');
       const hoursCol = `<div class="day hours"><div class="dh"><div class="date">&nbsp;</div><div class="dname">&nbsp;</div><div class="cnums"><span>&nbsp;</span></div></div><div class="dbody">${hours}</div></div>`;
-      return `<section class="page"><h1>${esc(title)}</h1><div class="grid">${hoursCol}${hoursCol}${dayHtml}</div></section>`;
+      return `<section class="page"><div class="sheet"><h1>${esc(title)}</h1><div class="gap"></div><div class="grid">${hoursCol}${hoursCol}${dayHtml}</div></div></section>`;
     };
 
     const css = `
-      @page { size: A4 landscape; margin: 6mm; }
+      /* פרופורציות של הסידורים המקוריים: שקופית 16:9, הטבלה ברוחב מלא ובכ-63% מהגובה, עם שוליים לבנים מעל ומתחת */
+      @page { size: 338.67mm 190.5mm; margin: 0; }
       * { box-sizing: border-box; }
       body { margin: 0; font-family: Calibri, 'Assistant', Arial, sans-serif; color: #000; background: #FFF; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .page { width: 285mm; height: 196mm; display: flex; flex-direction: column; page-break-after: always; break-after: page; }
+      .page { width: 338.67mm; height: 190.5mm; position: relative; overflow: hidden; page-break-after: always; break-after: page; }
       .page:last-child { page-break-after: auto; break-after: auto; }
-      h1 { text-align: center; font-size: 26pt; font-weight: 800; margin: 2mm 0 3mm; }
-      .grid { flex: 1; display: grid; grid-template-columns: 0.42fr 0.42fr repeat(7, 1fr); direction: rtl; border: 1.2pt solid #000; min-height: 0; }
+      .sheet { position: absolute; top: 35mm; left: 0; right: 0; height: 120.3mm; display: flex; flex-direction: column; border: 1.2pt solid #000; }
+      h1 { height: 13.4mm; margin: 0; display: flex; align-items: center; justify-content: center; font-size: 25pt; font-weight: 800; border-bottom: 0.5pt solid #000; }
+      .gap { height: 3.9mm; border-bottom: 1.2pt solid #000; }
+      .grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr repeat(7, 3fr); direction: rtl; min-height: 0; }
       .day { display: flex; flex-direction: column; border-left: 1.2pt solid #000; min-height: 0; }
+      .day:last-child { border-left: none; }
       .day.hours { border-left: 0.5pt solid #000; }
-      .day.hours + .day:not(.hours) { border-right: 1.2pt solid #000; }
       .dh { border-bottom: 1.2pt solid #000; text-align: center; }
-      .date { color: #FF0000; font-weight: 700; font-size: 9pt; border-bottom: 0.5pt solid #000; padding: 0.6mm 0; position: relative; }
+      .date { color: #FF0000; font-weight: 700; font-size: 8pt; border-bottom: 0.5pt solid #000; height: 4.2mm; line-height: 4.2mm; }
       .hol { margin-inline-start: 4px; }
-      .dname { font-weight: 800; font-size: 12pt; border-bottom: 0.5pt solid #000; padding: 0.6mm 0; }
-      .cnums { display: grid; font-weight: 700; font-size: 8pt; }
-      .cnums span { border-left: 0.5pt solid #000; padding: 0.4mm 0; }
+      .dname { font-weight: 800; font-size: 11pt; border-bottom: 0.5pt solid #000; height: 5.5mm; line-height: 5.5mm; }
+      .cnums { display: grid; font-weight: 700; font-size: 7.5pt; height: 4.6mm; line-height: 4.6mm; }
+      .cnums span { border-left: 0.5pt solid #000; }
       .cnums span:last-child { border-left: none; }
       .dbody { position: relative; flex: 1; }
       .vl { position: absolute; top: 0; bottom: 0; border-right: 0.5pt solid #000; }
       .blk { position: absolute; border: 0.5pt solid #000; display: flex; flex-wrap: wrap; align-content: center; align-items: center; justify-content: center;
-             column-gap: 3px; text-align: center; font-weight: 700; font-size: 8.5pt; line-height: 1.15; padding: 0.5mm; overflow: hidden; }
+             column-gap: 3px; text-align: center; font-weight: 700; font-size: 8pt; line-height: 1.1; padding: 0.3mm; overflow: hidden; }
       .blk .n { white-space: normal; }
       .blk .t { direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
       .blk.empty { color: #444; }
       .day.out .date, .day.out .dname { color: #9A9A9A; }
-      .hours .dbody div { position: absolute; right: 0; left: 0; font-size: 7.5pt; padding: 0 1.2mm; border-bottom: 0.5pt solid #000; direction: ltr; text-align: left; display: flex; align-items: center; }`;
+      .hours .dbody div { position: absolute; right: 0; left: 0; font-size: 7pt; padding: 0 1mm; border-bottom: 0.5pt solid #000; direction: ltr; text-align: left; display: flex; align-items: center; }`;
     return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;700;800&display=swap"><title>${esc(`משמרות ${monthLabel}`)}</title><style>${css}</style></head><body>${weeks.map(page).join('')}</body></html>`;
   }
 

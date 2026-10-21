@@ -1705,6 +1705,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       if (mode === 'propose') {
         const e = D.EMPLOYEES.find((x) => x.id === proposeEmp);
         if (!e || (schedule[dStr][shift.id] || []).includes(e.id) || hardBlocked(e)) return false;
+        // הצבה ישירה (תמהיל, שבתות, תיקון יום/לילה, הצעות AI, +/−) רק לפי הטיוטה הבכירה: מי שסימן "לא יכול"
+        // בה לא מוצב כך גם אם טיוטה 2/3 מאפשרת — טיוטות משניות הן רק רשת ביטחון כשאין אף מועמד אחר (ראו primary)
+        if (on('unavailable') && D.availabilityOn(e.id, dStr, shift.id) === 'unavailable') return false;
         place(e.id);
         return true;
       }
@@ -2086,7 +2089,11 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           (byEmp[empId] = byEmp[empId] || []).push({ dStr, shiftId, shift, ...D.personTimes(dStr, shift, empId) });
           const av = D.availabilityOn(empId, dStr, shiftId);
           if (av === 'unavailable') {
-            add(dStr, shiftId, empId, 'שובץ במשמרת שסומנה ״לא יכול״');
+            // אם אפשרות 2/3 שהעובד הגיש כן מאפשרת — אומרים את זה במפורש (שובץ כרשת ביטחון, לא בטעות)
+            const altRank = [2, 3].find((rk) => ['high', 'can'].includes(D.altAvailabilityOn(empId, dStr, shiftId, rk)));
+            add(dStr, shiftId, empId, altRank
+              ? `סומן ״לא יכול״ בבקשה הראשית — שובץ לפי אפשרות ${altRank} שהגיש/ה (אין מועמד אחר)`
+              : 'שובץ במשמרת שסומנה ״לא יכול״');
           } else {
             const r = D.reqOf(empId);
             const ym = dStr.slice(0, 7);

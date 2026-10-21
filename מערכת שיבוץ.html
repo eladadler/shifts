@@ -1991,6 +1991,53 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     // בתוך כל שבוע ממלאים תמיד קודם את המשמרת עם הכי מעט מועמדים כשירים — לא לפי סדר
     // התאריכים, אחרת תחילת השבוע "גומרת" את מכסת השבוע של כולם וסוף השבוע נשאר ריק.
     if (!shabbatOnly) {
+      // תמהיל אישי (e.shiftMix) הוא עדיפות, לא רק תקרה: לפני המילוי הרגיל מציבים לכל עובד כזה, בכל שבוע,
+      // את משמרות הלילה ואז את משמרות היום שלו בימים ראשון–חמישי — קודם מה שסימן "מעדיף", אחר כך "יכול",
+      // ואחר כך ימים לא מסומנים; חסימות (לא יכול, מנוחה, מכסה וכו') נאכפות כרגיל ב-'propose'.
+      // משמרות ברזל מוצבות לפני כן, כדי שהעדיפות הזו לא תתפוס להן את המקום.
+      const mixEmps = on('weeklyTargetCap') ? D.EMPLOYEES.filter((e) => e.shiftMix) : [];
+      if (mixEmps.length) {
+        dates.forEach((dStr) => D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {
+          if (!shift.continuation && shift.id !== 'shabbat') assignOne(dStr, shift, 'iron');
+        }));
+        const avRank = { high: 0, can: 1 };
+        const weeksOf = [...new Set(dates.map(weekKeyOf))];
+        // תת-קבוצות בגודל עד k (כולל הריקה)
+        const subsets = (arr, k) => {
+          const out = [[]];
+          arr.forEach((x) => { out.slice().forEach((s) => { if (s.length < k) out.push([...s, x]); }); });
+          return out;
+        };
+        mixEmps.forEach((e) => weeksOf.forEach((wk) => {
+          const slotsOf = (kind) => dates.filter((d) => weekKeyOf(d) === wk && D.weekdayOf(d) <= 4)
+            .flatMap((d) => D.shiftTypesFor(d, shiftSettings)
+              .filter((s) => !s.continuation && (s.id === 'night') === (kind === 'night') && assignOne(d, s, 'check', e.id))
+              .map((s) => ({ d, s, r: avRank[D.availabilityOn(e.id, d, s.id)] ?? 2, t: D.personTimes(d, s, e.id) })));
+          const has = (kind) => weekMix[wk]?.[e.id]?.[kind] || 0;
+          const needN = Math.max(0, (e.shiftMix.night ?? 0) - has('night'));
+          const needD = Math.max(0, (e.shiftMix.day ?? 0) - has('day'));
+          if (!needN && !needD) return;
+          // הלילות והיום נבחרים יחד — כך שכולם נכנסים עם מנוחה מספקת ביניהם (לילה ראשון לא "יחסום" את משמרת היום)
+          const fits = (list) => list.every((x, i) => list.slice(i + 1).every((y) => {
+            if (x.t.end <= y.t.start) return gapHours(x.t.end, y.t.start) >= MIN_REST_H;
+            if (y.t.end <= x.t.start) return gapHours(y.t.end, x.t.start) >= MIN_REST_H;
+            return false;
+          }));
+          let best = null; let bestKey = null;
+          subsets(slotsOf('night'), needN).forEach((ns) => subsets(slotsOf('day'), needD).forEach((ds) => {
+            const pick = [...ns, ...ds];
+            if (!fits(pick)) return;
+            const key = [-pick.length, pick.reduce((a, x) => a + x.r, 0), pick.reduce((a, x) => a + hash(e.id + x.d + x.s.id), 0)];
+            // הכי הרבה משמרות, אחר כך הכי מועדפות ("מעדיף" לפני "יכול" לפני לא מסומן), ואז פיזור קבוע
+            const better = !bestKey || key.find((v, i) => v !== bestKey[i]) !== undefined
+              && key[key.findIndex((v, i) => v !== bestKey[i])] < bestKey[key.findIndex((v, i) => v !== bestKey[i])];
+            if (better) { best = pick; bestKey = key; }
+          }));
+          (best || []).forEach(({ d, s }) => {
+            if (assignOne(d, s, 'propose', e.id)) addLog('info', `שובץ ${e.name} ל${s.name} ב־${D.shortDate(d)} — לפי התמהיל השבועי שלו`);
+          });
+        }));
+      }
       const byWeek = {};
       dates.forEach((dStr) => {
         D.shiftTypesFor(dStr, shiftSettings).forEach((shift) => {

@@ -2822,14 +2822,60 @@ Object.assign(window, { Avatar, ShiftChip, ShiftSlot, DayCard, MonthView });
 const PD = window.ShiftData;
 const PE = window.ShiftEngine;
 
-function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, editable, extraBadge, focused, onFocus, onAdjustShifts }) {
+// פירוט שבועי בכרטיס העובד: לכל שבוע בטיוטה כמה משמרות יום וכמה לילה, עם +/− לכל סוג
+function EmployeeWeeks({ emp, schedule, draftDates, onAdjustShifts }) {
+  const weeks = [];
+  draftDates.forEach(d => {
+    const wk = PD.addDays(d, -PD.weekdayOf(d));
+    let w = weeks.find(x => x.wk === wk);
+    if (!w) { w = { wk, dates: [] }; weeks.push(w); }
+    w.dates.push(d);
+  });
+  const kindOf = (sid) => (sid === 'night' ? 'night' : sid === 'shabbat' ? 'shabbat' : 'day');
+  const cnt = (w) => {
+    const c = { day: 0, night: 0, shabbat: 0 };
+    w.dates.forEach(d => Object.entries(schedule[d] || {}).forEach(([sid, ids]) => { if ((ids || []).includes(emp.id)) c[kindOf(sid)]++; }));
+    return c;
+  };
+  const range = (w) => { const a = w.dates[0], b = w.dates[w.dates.length - 1]; return `${Number(a.slice(8))}–${Number(b.slice(8))}.${Number(b.slice(5, 7))}`; };
+  const stepper = (w, kind, n) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+      <span style={{ color: 'var(--ink-3)', fontSize: 11 }}>{kind === 'night' ? '🌙' : '☀️'}</span>
+      <button className="emp-max-btn" title={`להוריד משמרת ${kind === 'night' ? 'לילה' : 'יום'} בשבוע הזה`} onClick={(e) => { e.stopPropagation(); onAdjustShifts(emp.id, -1, { week: w.wk, kind }); }}>−</button>
+      <span style={{ minWidth: 12, textAlign: 'center', fontWeight: 700 }}>{n}</span>
+      <button className="emp-max-btn" title={`להוסיף משמרת ${kind === 'night' ? 'לילה' : 'יום'} בשבוע הזה`} onClick={(e) => { e.stopPropagation(); onAdjustShifts(emp.id, 1, { week: w.wk, kind }); }}>+</button>
+    </span>
+  );
+  return (
+    <div onClick={(e) => e.stopPropagation()} title="☀️ משמרות יום · 🌙 משמרות לילה · 🕯️ שבת ארוכה בשבוע" style={{ margin: '-4px 6px 6px', padding: '6px 10px', borderRadius: '0 0 10px 10px', border: '1px solid var(--line)', borderTop: 'none', background: 'var(--bg)', display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12 }}>
+      {weeks.map((w, i) => {
+        const c = cnt(w);
+        return (
+          <div key={w.wk} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', alignItems: 'center', gap: 8 }}>
+            <div style={{ lineHeight: 1.2, minWidth: 0 }}>
+              <b>שבוע {i + 1}</b>{c.shabbat > 0 && <span title="שבת ארוכה בשבוע הזה"> 🕯️</span>}
+              <div style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{range(w)}</div>
+            </div>
+            {stepper(w, 'day', c.day)}
+            {stepper(w, 'night', c.night)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, editable, extraBadge, focused, onFocus, onAdjustShifts, draftDates }) {
+  const [weeksOpen, setWeeksOpen] = React.useState(false);
   const count = PE.countShifts(schedule, emp.id);
   const req = PD.reqOf(emp.id);
   const overMax = count > emp.max;
   const av = selectedDate ? PD.availabilityOn(emp.id, selectedDate) : null;
   const onVacation = selectedDate ? PD.isVacationOn(emp.id, selectedDate) : false;
 
+  const canWeeks = !!onAdjustShifts && (draftDates || []).length > 0;
   return (
+    <div>
     <div
       className={'emp-card' + (focused ? ' emp-card-focused' : '')}
       draggable={editable}
@@ -2864,12 +2910,18 @@ function EmployeeCard({ emp, schedule, selectedDate, onDragEmpStart, onDragEnd, 
             <button className="emp-max-btn" title="להוריד משמרת לעובד" onClick={(e) => { e.stopPropagation(); onAdjustShifts(emp.id, -1); }}>−</button>
             <span className={'emp-count' + (overMax ? ' emp-count-over' : '')}>{count} / {emp.max}</span>
             <button className="emp-max-btn" title="להוסיף משמרת לעובד" onClick={(e) => { e.stopPropagation(); onAdjustShifts(emp.id, 1); }}>+</button>
+            {canWeeks && (
+              <button className="emp-max-btn" title="פירוט שבועי: משמרות יום ולילה בכל שבוע" style={{ marginInlineStart: 2, fontSize: 10 }}
+                onClick={(e) => { e.stopPropagation(); setWeeksOpen(o => !o); }}>{weeksOpen ? '▴' : '▾'}</button>
+            )}
           </div>
         ) : (
           <span className={'emp-count' + (overMax ? ' emp-count-over' : '')} title="משמרות החודש / מכסה">{count} / {emp.max}</span>
         )}
         {req && <span className="req-dot" title="הגיש/ה בקשת זמינות לחודש"></span>}
       </div>
+    </div>
+    {canWeeks && weeksOpen && <EmployeeWeeks emp={emp} schedule={schedule} draftDates={draftDates} onAdjustShifts={onAdjustShifts} />}
     </div>
   );
 }
@@ -3218,7 +3270,7 @@ ${editable ? '' : 'שים לב: הסידור נעול כרגע לעריכה — 
 }
 
 // ---- חלונית צד ראשית ----
-function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, aiOn, employees, onEmployeesChange, onAssign, onRemove, onAdjustShifts, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs }) {
+function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, aiOn, employees, onEmployeesChange, onAssign, onRemove, onAdjustShifts, draftDates, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
   const [shiftFilter, setShiftFilter] = React.useState('all');
@@ -3405,7 +3457,7 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
                     </>}
                     focused={focusedEmpId === emp.id}
                     onFocus={(id) => onFocusEmpChange && onFocusEmpChange(focusedEmpId === id ? null : id)}
-                    onAdjustShifts={editable && onAdjustShifts ? onAdjustShifts : null} />
+                    onAdjustShifts={editable && onAdjustShifts ? onAdjustShifts : null} draftDates={draftDates} />
                 </div>
               );
             })}
@@ -7042,7 +7094,8 @@ function App({ auth }) {
   // + / − בכרטיס העובד: + ממלא בעובד משמרת פתוחה (מותר לחרוג רק מהיעד השבועי — זו ההחלטה הידנית
   // של המשבץ; חפיפה, מנוחה ו"לא יכול" נאכפים), − מעביר אחת ממשמרותיו לעובד אחר שעומד בכל התנאים,
   // ואם אין כזה — מוריד אותה ומשאיר חור (עם הודעה)
-  const adjustEmpShifts = (empId, delta) => {
+  // scope (רשות) = { week: יום ראשון של השבוע, kind: 'day' | 'night' } — מגביל ל-+/− של שבוע וסוג משמרת
+  const adjustEmpShifts = (empId, delta, scope = null) => {
     const draft = currentDraft;
     const emp = AD.empById(empId);
     if (!draft?.range?.start || !editable || !emp) return;
@@ -7073,7 +7126,12 @@ function App({ auth }) {
     const label = (d, sid) => `${AD.shiftNameOf(sid, shiftSettings)} ב־${AD.dayLabel(d)} ${AD.shortDate(d)}`;
     const apply = (schedule) => setDrafts(ds => ds.map(x => x.id === draft.id ? { ...x, schedule } : x));
     const slots = [];
-    datesForDraft(draft).forEach(d => AD.shiftTypesFor(d, shiftSettings).forEach(s => { if (!s.continuation) slots.push({ d, s }); }));
+    datesForDraft(draft).forEach(d => AD.shiftTypesFor(d, shiftSettings).forEach(s => {
+      if (s.continuation) return;
+      if (scope && (weekOf(d) !== scope.week || kindOf(s.id) !== scope.kind)) return;
+      slots.push({ d, s });
+    }));
+    const where = scope ? ` ${scope.kind === 'night' ? 'לילה' : 'יום'} בשבוע של ${AD.shortDate(scope.week)}` : '';
 
     if (delta > 0) {
       const toggles = { ...ruleToggles, weeklyTargetCap: false };
@@ -7082,7 +7140,7 @@ function App({ auth }) {
         .map(({ d, s }) => ({ d, sid: s.id, next: tryPlace(sched, d, s.id, empId, toggles) }))
         .filter(c => c.next);
       if (!cands.length) {
-        setToast(`לא נמצאה משמרת פתוחה ש${emp.name} יכול/ה למלא בלי חפיפה, משמרת צמודה או "לא יכול" — מספר המשמרות לא השתנה.`);
+        setToast(`לא נמצאה משמרת${where} פתוחה ש${emp.name} יכול/ה למלא בלי חפיפה, משמרת צמודה או "לא יכול" — מספר המשמרות לא השתנה.`);
         return;
       }
       const rank = (c) => { const w = weekStats(sched, empId, weekOf(c.d)); return [w.total, w[kindOf(c.sid)], -avScore(empId, c.d, c.sid)]; };
@@ -7093,7 +7151,7 @@ function App({ auth }) {
     }
 
     const mine = slots.filter(({ d, s }) => (sched[d]?.[s.id] || []).includes(empId)).map(({ d, s }) => ({ d, sid: s.id }));
-    if (!mine.length) return;
+    if (!mine.length) { if (scope) setToast(`אין ל${emp.name} משמרת${where}`); return; }
     // קודם מהשבוע הכי עמוס של העובד, מהסוג שיש לו יותר ממנו, ומשמרת שלא ביקש בעדיפות גבוהה
     const rankMine = (m) => {
       const w = weekStats(sched, empId, weekOf(m.d));
@@ -7743,7 +7801,7 @@ ${JSON.stringify(emptySlots, null, 2)}
               schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
               onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
               aiOn={aiOn} employees={employees} onEmployeesChange={setEmployees}
-              onAssign={assign} onRemove={remove} onAdjustShifts={adjustEmpShifts}
+              onAssign={assign} onRemove={remove} onAdjustShifts={adjustEmpShifts} draftDates={currentDraft ? datesForDraft(currentDraft) : []}
               focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift}
               managerNotes={Object.fromEntries(employees.map(e => [e.id, requests[e.id]?.[currentMonth]?.managerNote || '']).filter(([, n]) => n))}
               responses={Object.fromEntries(employees.map(e => [e.id, scheduleResponses[e.id]?.[currentMonth]]).filter(([, r]) => r))}

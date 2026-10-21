@@ -2365,7 +2365,8 @@ function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, 
     Object.entries(published).forEach(([m, row]) => {
       const finalAt = row?.shift_settings?._finalAt;
       const status = row?.shift_settings?._status;
-      if (!finalAt || status === 'open') return;
+      // שלב תגובת עובדים לסידור פעיל רק אם המשבץ הפעיל אותו במפורש (_responses: true) — כרגע לא
+      if (!finalAt || status === 'open' || row?.shift_settings?._responses !== true) return;
       const t = new Date(finalAt).getTime();
       if (!(t > now)) return;
       if (!best || t < best.t) best = { month: m, finalAt, t };
@@ -2570,8 +2571,11 @@ function ScheduleTab({ me, empNames, published, TM, serverReqs, goReq, myRespons
         {(() => {
           // מציגים את תיבת התגובה רק כשהסידור פורסם בפועל (לא "פתוח לבקשות") וגם — אם
           // המשבץ קבע מועד אחרון — הוא עדיין לא עבר. בלי מועד אחרון = תמיד פתוח להערות.
+          // אישור/הערות לסידור — רק אם המשבץ הפעיל במפורש שלב תגובה (_responses: true). כרגע "אישור ופרסום"
+          // הופך את הסידור מיד לסופי בלי שלב כזה (_responses: false), וגם סידורים ישנים לא מציגים אותו
           const finalAt = pub.shift_settings?._finalAt;
-          const responseWindowOpen = pub.shift_settings?._status !== 'open' && (!finalAt || new Date(finalAt).getTime() > Date.now());
+          const responseWindowOpen = pub.shift_settings?._responses === true && pub.shift_settings?._status !== 'open'
+            && (!finalAt || new Date(finalAt).getTime() > Date.now());
           return responseWindowOpen && <ScheduleResponseBox month={ym} response={myResponses?.[ym]} onSave={onSaveResponse} />;
         })()}
 

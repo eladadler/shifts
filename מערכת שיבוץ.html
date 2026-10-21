@@ -7135,7 +7135,8 @@ function App({ auth }) {
   const currentDraft = drafts.find(d => d.id === activeDraftId) || null;
   const isGenerating = generatingId === activeDraftId;
   const status = isGenerating ? 'generating' : (currentDraft?.status || 'preview');
-  const editable = status === 'draft' || status === 'open';
+  // גם סידור סופי ניתן לעריכה ע"י המשבץ — השינויים מתפרסמים לעובדים אוטומטית
+  const editable = status === 'draft' || status === 'open' || status === 'final';
   const openRangeByMonth = React.useMemo(() => {
     const map = {};
     drafts.filter(d => d.status === 'open').forEach(d => { if (d.range) map[d.month] = { ...d.range, excluded: d.excluded || [] }; });
@@ -7899,22 +7900,42 @@ ${JSON.stringify(emptySlots, null, 2)}
   };
   const setDraftStatus = (id, s) => updateDraft(id, () => ({ status: s }));
 
-  // אישור ופרסום — מפרסם את הסידור גם לאפליקציית העובדים (published_schedules).
-  // finalAt (רשות, ISO) — מועד אחרון לתגובת עובדים, מוצג כספירה לאחור אצלם
-  const publishDraft = (id, finalAt) => {
+  // אישור ופרסום — הסידור הופך מיד לסופי ומתפרסם לאפליקציית העובדים (published_schedules), בלי שלב
+  // אישור/הערות של העובדים (_responses: false — אפליקציית העובד לא מציגה תיבת תגובה וספירה לאחור).
+  // המשבץ עדיין יכול לערוך סידור סופי; כל שינוי מתפרסם מחדש אוטומטית (ראו האפקט שאחרי הפונקציה).
+  const publishRowFor = (d) => {
+    const { _status: _s, _range: _r, ...cleanSettings } = shiftSettings || {};
+    return {
+      month: d.month,
+      schedule: d.schedule,
+      shift_settings: { ...cleanSettings, _finalAt: null, _responses: false },
+      employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
+      published_at: new Date().toISOString(),
+    };
+  };
+  const publishDraft = (id) => {
     const d = drafts.find(x => x.id === id);
     setDraftStatus(id, 'final');
     if (d && dbAvailable.current && window.__db.publishSchedule) {
-      const { _status: _s, _range: _r, ...cleanSettings } = shiftSettings || {};
-      window.__db.publishSchedule({
-        month: d.month,
-        schedule: d.schedule,
-        shift_settings: { ...cleanSettings, _finalAt: finalAt || null },
-        employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
-        published_at: new Date().toISOString(),
-      });
+      window.__db.publishSchedule(publishRowFor(d));
+      publishedSigRef.current[d.id] = JSON.stringify([d.schedule, shiftSettings]);
     }
   };
+  // עריכה של סידור סופי — מפרסמים מחדש לעובדים (שנייה וחצי אחרי השינוי האחרון).
+  // החתימה הראשונה שנראית לכל טיוטה סופית נרשמת בלי פרסום, כדי שטעינת האפליקציה לא תפרסם סתם
+  const publishedSigRef = React.useRef({});
+  React.useEffect(() => {
+    const d = drafts.find(x => x.id === activeDraftId);
+    if (!d || d.status !== 'final' || !dbAvailable.current || !window.__db.publishSchedule) return;
+    const sig = JSON.stringify([d.schedule, shiftSettings]);
+    if (publishedSigRef.current[d.id] === undefined) { publishedSigRef.current[d.id] = sig; return; }
+    if (publishedSigRef.current[d.id] === sig) return;
+    const t = setTimeout(() => {
+      publishedSigRef.current[d.id] = sig;
+      window.__db.publishSchedule(publishRowFor(d));
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [drafts, activeDraftId, shiftSettings]);
 
   // חזרה לעריכה — מסיר את הפרסום מאפליקציית העובדים
   const unpublishDraft = (id) => {
@@ -8170,14 +8191,16 @@ ${JSON.stringify(emptySlots, null, 2)}
                 <button className="btn" style={{borderColor:'oklch(0.38 0.14 200)',color:'oklch(0.38 0.14 200)'}} onClick={() => openForRequests(activeDraftId)}>📤 פתח לבקשות</button>
               )}
               {(status === 'draft' || status === 'open') && (
-                <button className="btn btn-final" onClick={() => setPublishModalOpen(true)}>אישור ופרסום</button>
+                <button className="btn btn-final" onClick={() => publishDraft(activeDraftId)}
+                  title="הסידור הופך מיד לסופי ומתפרסם לאפליקציית העובדים. אפשר להמשיך לערוך אותו — השינויים יתעדכנו אצל העובדים">אישור ופרסום</button>
               )}
               {status === 'final' && vapidPublicKey && (
                 <button className="btn" style={{borderColor:'oklch(0.55 0.18 300)',color:'oklch(0.45 0.18 300)'}}
                   onClick={() => setSendRemindersOpen(true)}>🔔 שלח תזכורות</button>
               )}
               {(status === 'final' || status === 'open') && (
-                <button className="btn" onClick={() => unpublishDraft(activeDraftId)}>חזרה לעריכה</button>
+                <button className="btn" onClick={() => unpublishDraft(activeDraftId)}
+                  title={status === 'final' ? 'מסיר את הסידור מאפליקציית העובדים ומחזיר אותו לטיוטה' : undefined}>{status === 'final' ? 'ביטול פרסום' : 'חזרה לעריכה'}</button>
               )}
               <button className="btn btn-primary" onClick={() => { setModalMode('create'); setModalOpen(true); }} disabled={isGenerating}>
                 ✦ צור טיוטה
@@ -8206,7 +8229,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         </div>
       )}
       {screen === 'calendar' && status === 'final' && (
-        <div className="final-banner">הסידור פורסם לעובדים והוא נעול לעריכה. לחצו ״חזרה לעריכה״ כדי לבצע שינויים.</div>
+        <div className="final-banner">הסידור סופי ופורסם לעובדים. אפשר עדיין לערוך אותו — כל שינוי מתעדכן אצל העובדים אוטומטית.</div>
       )}
       {screen === 'calendar' && freeAssignMode && (
         <div className="final-banner" style={{background:'var(--danger-bg)',color:'var(--danger)',fontWeight:700}}>
@@ -8367,7 +8390,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       {publishModalOpen && (
         <PublishFinalAtModal
           onClose={() => setPublishModalOpen(false)}
-          onConfirm={(finalAt) => { setPublishModalOpen(false); publishDraft(activeDraftId, finalAt); }}
+          onConfirm={() => { setPublishModalOpen(false); publishDraft(activeDraftId); }}
         />
       )}
       {pendingApproveModal && (

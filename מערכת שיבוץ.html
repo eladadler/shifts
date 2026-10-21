@@ -780,6 +780,25 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return null;
       }
     },
+    // צבעי העובדים בייצוא "תבנית PDF" — שורה נפרדת 'export_colors': { colors: { [emp_id]: '#RRGGBB' } }
+    // (לפי מזהים, לא שמות). עובד בלי צבע שמור מקבל צבע פנוי מהפלטה בזמן הייצוא
+    async fetchExportColors() {
+      if (!client) return {};
+      try {
+        const { data, error } = await client.from(TABLE).select('data').eq('id', 'export_colors').maybeSingle();
+        if (error) throw error;
+        return data?.data?.colors || {};
+      } catch (e) {
+        console.warn('DB fetchExportColors failed:', e.message);
+        return {};
+      }
+    },
+    async saveExportColors(colors) {
+      if (!client) return false;
+      const { error } = await client.from(TABLE).upsert({ id: 'export_colors', data: { colors: colors || {} }, updated_at: new Date().toISOString() });
+      if (error) { console.warn('DB saveExportColors failed:', error.message); return false; }
+      return true;
+    },
     async saveShabbatHistory(hist) {
       if (!client) return false;
       const { error } = await client.from(TABLE).upsert({ id: 'shabbat_history', data: { entries: hist.entries || [], monthly: hist.monthly || [] }, updated_at: new Date().toISOString() });
@@ -7928,19 +7947,29 @@ ${JSON.stringify(emptySlots, null, 2)}
 
   // ייצוא "תבנית PDF": פותח את הסידור בחלון חדש בפורמט של הסידורים הישנים (שבוע לעמוד, צבע קבוע לכל
   // עובד) ומקפיץ הדפסה — שם בוחרים "שמירה כ-PDF"
-  const exportPdfTemplate = () => {
+  const exportPdfTemplate = async () => {
     if (!currentDraft) return;
+    // החלון נפתח מיד (בתוך הלחיצה) — אחרת דפדפנים חוסמים אותו כחלון קופץ; התוכן נכתב אחרי טעינת הצבעים
+    const w = window.open('', '_blank');
+    if (!w) { alert('הדפדפן חסם את החלון החדש — אפשרו חלונות קופצים לאתר ונסו שוב'); return; }
+    w.document.write('<p dir="rtl" style="font-family:sans-serif;padding:20px">מכין את הסידור…</p>');
+    const saved = await window.__db.fetchExportColors();
+    // צבע שמור לפי מזהה; לשאר — צבעים מהפלטה שעוד לא תפוסים, לפי סדר העובדים (כך שאין שני עובדים באותו צבע)
+    const used = new Set(Object.values(saved).map((c) => String(c).toUpperCase()));
+    const free = [];
+    for (let i = 0; free.length < employees.length; i++) { const c = AE.exportColorAt(i); if (!used.has(String(c).toUpperCase())) free.push(c); }
+    const colorById = {}; let k = 0;
+    employees.forEach((e) => { colorById[e.id] = saved[e.id] || free[k++]; });
     const html = AE.buildPdfExportHtml({
       D: AD, schedule: currentDraft.schedule || {}, rangeStart: currentDraft.range.start, rangeEnd: currentDraft.range.end,
       excluded: currentDraft.excluded || [], shiftSettings,
       nameOf: AE.exportNameFor(employees),
-      colorOf: (id) => { const i = employees.findIndex((e) => e.id === id); return i < 0 ? '#D9D9D9' : AE.exportColorAt(i); },
+      colorOf: (id) => colorById[id] || '#D9D9D9',
       monthLabel: String(AD.monthLabel(currentMonth)).split(' ')[0],
     });
-    const w = window.open('', '_blank');
-    if (!w) { alert('הדפדפן חסם את החלון החדש — אפשרו חלונות קופצים לאתר ונסו שוב'); return; }
     w.document.open();
-    w.document.write(html.replace('</body>', `<script>window.addEventListener('load', () => setTimeout(() => window.print(), 300));<\/script></body>`));
+    // הדפסה רק אחרי שהגופן העברי נטען — אחרת ה-PDF יוצא בגופן ברירת מחדל
+    w.document.write(html.replace('</body>', `<script>window.addEventListener('load', () => (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => setTimeout(() => window.print(), 250)));<\/script></body>`));
     w.document.close();
   };
 
@@ -8011,9 +8040,14 @@ ${JSON.stringify(emptySlots, null, 2)}
                 </button>
               )}
               <div style={{position:'relative'}}>
-                <button className="btn" onClick={() => setExportMenuOpen(o => !o)} disabled={!currentDraft || isGenerating}>
-                  ייצוא ▾
-                </button>
+                {/* "ייצוא" = הסידור בתבנית ה-PDF; ▾ = עוד פורמטים (CSV) */}
+                <div style={{display:'flex'}}>
+                  <button className="btn" onClick={exportPdfTemplate} disabled={!currentDraft || isGenerating}
+                    title="הסידור שבטיוטה בתבנית ה-PDF (שבוע לעמוד) — נפתח בחלון חדש, ושם בוחרים 'שמירה כ-PDF'"
+                    style={{borderStartEndRadius:0,borderEndEndRadius:0}}>ייצוא</button>
+                  <button className="btn" onClick={() => setExportMenuOpen(o => !o)} disabled={!currentDraft || isGenerating}
+                    title="פורמטים נוספים" style={{borderStartStartRadius:0,borderEndStartRadius:0,borderInlineStart:'none',padding:'0 7px'}}>▾</button>
+                </div>
                 {exportMenuOpen && (<>
                   <div style={{position:'fixed',inset:0,zIndex:40}} onClick={() => setExportMenuOpen(false)} />
                   <div style={{position:'absolute',top:'calc(100% + 4px)',insetInlineEnd:0,zIndex:41,background:'var(--surface)',border:'1px solid var(--line)',
@@ -8022,7 +8056,7 @@ ${JSON.stringify(emptySlots, null, 2)}
                       📄 קובץ CSV (אקסל)
                     </button>
                     <button className="ham-item" onClick={() => { setExportMenuOpen(false); exportPdfTemplate(); }}>
-                      🗓 תבנית PDF — שבוע לעמוד
+                      🗓 תבנית PDF — שבוע לעמוד (כמו "ייצוא")
                     </button>
                   </div>
                 </>)}

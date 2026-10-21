@@ -6005,8 +6005,10 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   // (בשוויון מי שעשה פחות), ורק אחרי כולם גם "קבוע חודשי" — כדי שכל השבתות יאוישו
   fridays.forEach(f => {
     while (slots[f].length < 2) {
+      // מכסה חודשית (כרטיס העובד) נאכפת גם כאן, כמו במנוע — למשל "קבוע חודשי" עם מכסה 1 לא מקבל שבת שנייה
+      const monthCnt = (id) => fridays.filter(g => slots[g].some(y => y.id === id)).length;
       const early = [...queued, ...stats.filter(s => s.monthly && s.wants && s.submitted).map(s => s.e)]
-        .filter(x => !slots[f].some(y => y.id === x.id) && avail(x.id, f) !== 'unavailable')
+        .filter(x => !slots[f].some(y => y.id === x.id) && avail(x.id, f) !== 'unavailable' && !(x.max && monthCnt(x.id) >= x.max))
         .sort((a, b) => (monthlyNames.has(nm(a)) ? 1 : 0) - (monthlyNames.has(nm(b)) ? 1 : 0)
           || (lastOf[a.id] || '').localeCompare(lastOf[b.id] || '') || (countOf[a.id] || 0) - (countOf[b.id] || 0));
       const e = early[0];

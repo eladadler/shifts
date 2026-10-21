@@ -1401,7 +1401,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false, proposals = null, submitted = null }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false, proposals = null, submitted = null, shabbatMonthly = [], initialShabbatCounts = {} }) {
     // כל תנאי דלוק כברירת מחדל — כבוי רק אם המשבץ כיבה אותו במפורש במסך "תנאי שיבוץ"
     const on = (key) => ruleToggles[key] !== false;
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
@@ -1410,6 +1410,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     const counts = {}; const hist = {}; const busy = {};
     // submitted = מזהי העובדים שהגישו בקשה לחודש המשובץ (או שיש להם משמרת קבועה פעילה); null = לא בודקים
     const submittedSet = submitted ? new Set(submitted) : null;
+    // עובדים עם "שבת קבועה פעם בחודש" (מסך 🕯️ שבתות) — מקבלים סופ״ש אחד בחודש מחוץ לתור
+    const monthlySet = new Set(shabbatMonthly || []);
+    const shabbatCount = { ...initialShabbatCounts };
     // counts = החודש הנוכחי בלבד, ומולו נבדקת המכסה החודשית.
     // hist = משמרות מחודשים קודמים, ומשמש לאיזון עומסים בניקוד בלבד — הזרקתו
     // למונה החודשי הייתה חוסמת לאלתר כל מי שעבד בחודש שעבר.
@@ -1457,6 +1460,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       markBusy(empId, D.shiftTimes(d, shift));
       if (shift.id === 'shabbat') {
         lastShabbat[empId] = d;
+        shabbatCount[empId] = (shabbatCount[empId] || 0) + 1;
         (shabbatWeeks[weekKeyOf(d)] = shabbatWeeks[weekKeyOf(d)] || new Set()).add(empId);
       }
       if (isWeekendShort(D.weekdayOf(d), shift.id)) lastWeekendShort[empId] = d;
@@ -1521,6 +1525,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           markBusy(empId, D.personTimes(dStr, shift, empId));
           if (shift.id === 'shabbat') {
             if (!lastShabbat[empId] || dStr > lastShabbat[empId]) lastShabbat[empId] = dStr;
+            shabbatCount[empId] = (shabbatCount[empId] || 0) + 1;
             const wk = weekKeyOf(dStr);
             (shabbatWeeks[wk] = shabbatWeeks[wk] || new Set()).add(empId);
           }
@@ -1656,6 +1661,11 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           });
           if (spaced.length) pool = spaced;
         }
+        // "קבוע חודשי" לא מתחרה בתור הרגיל של השבתות (הוא מקבל את שלו בנפרד, לפני המעבר הראשון)
+        if (shift.id === 'shabbat' && monthlySet.size) {
+          const regular = pool.filter((e) => !monthlySet.has(e.id));
+          if (regular.length) pool = regular;
+        }
         // איזון יום/לילה בשבוע: עובד לא מקבל יותר ממחצית היעד השבועי שלו (מעוגל למעלה) מאותו סוג,
         // אם יש לו זמינות לסוג השני באותו שבוע ויש מועמד אחר למשבצת. מי שזמין רק לסוג אחד — לא מוגבל.
         if (on('biasShiftMix') && isWeekdayShift(wdShift0, shift.id)) {
@@ -1727,7 +1737,13 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           s += hash(e.id + dStr + shift.id + slot) * 0.5;
           return s;
         };
-        const best = pool.slice().sort((a, b) => score(b) - score(a))[0];
+        // שבת ארוכה בתור הוגן: קודם מי שהשבת הארוכה האחרונה שלו הכי רחוקה (מי שעוד לא עשה — ראשון).
+        // בשוויון — מי שעשה פחות שבתות; אחר כך "מעדיף" וכו' (score). מי שחסום לשבת הזו כבר לא בבריכה — הוא נשאר בראש
+        // התור ויקבל את השבת הבאה שבה הוא זמין.
+        const lastKey = (e) => lastShabbat[e.id] || '';
+        const fairShabbat = shift.id === 'shabbat' && on('biasShabbatFrequency');
+        const fairCmp = (a, b) => lastKey(a).localeCompare(lastKey(b)) || (shabbatCount[a.id] || 0) - (shabbatCount[b.id] || 0);
+        const best = pool.slice().sort((a, b) => (fairShabbat ? fairCmp(a, b) : 0) || score(b) - score(a))[0];
 
         place(best.id);
 
@@ -1824,6 +1840,17 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       });
       return { schedule, log, rejected };
     }
+
+    // "קבוע חודשי": סופ״ש אחד בטווח הטיוטה — עדיף שבת שסימן לה "מעדיף", אחרת הראשונה שאפשר
+    // (בכפוף לכל החסימות). מי שכבר משובץ לשבת בטיוטה לא מקבל עוד אחת.
+    monthlySet.forEach((empId) => {
+      const fridays = dates.map((d) => [d, D.shiftTypesFor(d, shiftSettings).find((sh) => sh.id === 'shabbat' && !sh.continuation)]).filter(([, sh]) => sh);
+      if (fridays.some(([d]) => (schedule[d].shabbat || []).includes(empId))) return;
+      const order = [...fridays.filter(([d]) => D.availabilityOn(empId, d, 'shabbat') === 'high'), ...fridays];
+      for (const [d, sh] of order) {
+        if (assignOne(d, sh, 'propose', empId)) { addLog('info', `שובץ ${D.empById(empId)?.name || empId} לשבת ארוכה ב־${D.shortDate(d)} — שבת קבועה חודשית`); break; }
+      }
+    });
 
     // מעבר ראשון: משמרות "שבת ארוכה" בלבד — כדי שברגע שמגיעים למשמרות החול של אותו
     // שבוע כבר ידוע מי קיבל שבת, ואפשר לאכוף עליו תקרה מופחתת (ראו shabbatWeeks למעלה)
@@ -5795,7 +5822,7 @@ function SchedulingRulesScreen({ ruleToggles, onToggle }) {
 // מסך "שבתות ארוכות": כל סופי השבוע עם שבת ארוכה (היסטוריה ידנית + סידורים מהמערכת), מצב כל
 // עובד בתור, והמלצה לחודש לפי סבב הוגן — מי שחיכה הכי הרבה קודם. עובד שלא עושה שבת ארוכה
 // (employee_prefs.wants_shabbat_long=false) לא בתור; "קבוע חודשי" מקבל סופ״ש אחד בחודש מחוץ לתור.
-function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSaveHistory }) {
+function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSaveHistory, isSubmitted, requireSubmission }) {
   const [month, setMonth] = React.useState(initialMonth);
   const [busy, setBusy] = React.useState(false);
   const entries = history?.entries || [];
@@ -5830,7 +5857,8 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   const stats = employees.map(e => {
     const mine = weekends.filter(w => w.date < monthStart && w.names.some(n => String(n).trim() === nm(e)));
     return { e, last: mine.length ? mine[0].date : null, count: mine.length,
-      wants: prefs?.[e.id]?.wants_shabbat_long !== false, monthly: monthlyNames.has(nm(e)) };
+      wants: prefs?.[e.id]?.wants_shabbat_long !== false, monthly: monthlyNames.has(nm(e)),
+      submitted: !requireSubmission || !isSubmitted || isSubmitted(e.id, month) };
   });
   const queue = stats.filter(s => s.wants && !s.monthly).sort((a, b) =>
     (a.last ? 1 : 0) - (b.last ? 1 : 0) || (a.last || '').localeCompare(b.last || '') || a.count - b.count || nm(a.e).localeCompare(nm(b.e), 'he'));
@@ -5846,9 +5874,13 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
 
   const slots = Object.fromEntries(fridays.map(f => [f, []]));
   const skipped = Object.fromEntries(fridays.map(f => [f, []]));
+  const noSubmit = stats.filter(s => s.wants && !s.submitted).map(s => nm(s.e));
+  const submittedOf = Object.fromEntries(stats.map(s => [s.e.id, s.submitted]));
+  // אותו מרווח מינימלי בין שבתות כמו במנוע: חצי מתדירות השבת האישית, ולא פחות מ-14 יום
+  const minGap = (e) => Math.max(14, Math.floor((e.shabbatFrequencyDays || 45) / 2));
   const lastOf = Object.fromEntries(stats.map(s => [s.e.id, s.last]));
   // 1) קבוע חודשי — סופ״ש אחד בחודש: עדיף שביקש, אחרת הראשון שזמין בו
-  stats.filter(s => s.monthly && s.wants).forEach(s => {
+  stats.filter(s => s.monthly && s.wants && s.submitted).forEach(s => {
     const ok = fridays.filter(f => avail(s.e.id, f) !== 'unavailable' && slots[f].length < 2);
     const pick = ok.find(f => avail(s.e.id, f) === 'high') || ok[0];
     if (pick) { slots[pick].push({ id: s.e.id, name: nm(s.e), tag: 'קבוע חודשי' }); lastOf[s.e.id] = pick; }
@@ -5857,10 +5889,10 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   let order = queue.map(s => s.e);
   fridays.forEach(f => {
     while (slots[f].length < 2) {
-      const idx = order.findIndex(e => !slots[f].some(x => x.id === e.id) && avail(e.id, f) !== 'unavailable'
-        && !(lastOf[e.id] && daysBetween(lastOf[e.id], f) < 14));
+      const idx = order.findIndex(e => submittedOf[e.id] && !slots[f].some(x => x.id === e.id) && avail(e.id, f) !== 'unavailable'
+        && !(lastOf[e.id] && daysBetween(lastOf[e.id], f) < minGap(e)));
       if (idx < 0) break;
-      order.slice(0, idx).forEach(e => { if (avail(e.id, f) === 'unavailable' && !skipped[f].includes(nm(e))) skipped[f].push(nm(e)); });
+      order.slice(0, idx).forEach(e => { if (submittedOf[e.id] && avail(e.id, f) === 'unavailable' && !skipped[f].includes(nm(e))) skipped[f].push(nm(e)); });
       const e = order[idx];
       slots[f].push({ id: e.id, name: nm(e), tag: avail(e.id, f) === 'high' ? 'ביקש' : null });
       lastOf[e.id] = f;
@@ -5884,7 +5916,7 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
       </div>
       <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 860 }}>
         <div style={{ fontSize: '12.5px', color: 'var(--ink-3)', lineHeight: 1.6 }}>
-          סבב הוגן: מי שחיכה הכי הרבה מאז השבת הארוכה האחרונה שלו מקבל ראשון. עובד שמסומן שאינו עושה שבת ארוכה לא בתור; "קבוע חודשי" מקבל סופ״ש אחד בכל חודש מחוץ לתור. ההמלצה מתחשבת בבקשות שהעובדים הגישו (לא יכול / רשימת יכול) ובמרחק של 14 יום לפחות בין שבתות.
+          סבב הוגן: מי שחיכה הכי הרבה מאז השבת הארוכה האחרונה שלו מקבל ראשון — כך גם השיבוץ האוטומטי. מי שחסם שבת מסוימת לא ישובץ אליה, נשאר בראש התור ויקבל את השבת הבאה שבה הוא זמין. עובד שמסומן שאינו עושה שבת ארוכה לא בתור, ומי שלא הגיש בקשות לחודש לא מוצע; "קבוע חודשי" מקבל סופ״ש אחד בכל חודש מחוץ לתור. בין שתי שבתות של אותו עובד — לפחות חצי מתדירות השבת שלו (ברירת מחדל 22 יום).
         </div>
 
         <div>
@@ -5893,6 +5925,9 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
             <button className="btn" style={{ padding: '2px 10px' }} onClick={() => setMonth(m => shiftMonth(m, -1))}>›</button>
             <button className="btn" style={{ padding: '2px 10px' }} onClick={() => setMonth(m => shiftMonth(m, 1))}>‹</button>
           </div>
+          {noSubmit.length > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--warn)', marginBottom: 8 }}>לא מוצעים כי לא הגישו בקשות לחודש: {noSubmit.join(', ')}</div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {fridays.map(f => {
               const inDraft = (monthDraft?.schedule?.[f]?.shabbat || []).map(nameOf);
@@ -5919,7 +5954,7 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
             {queue.map((s, i) => (
               <div key={s.e.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 13 }}>
                 <span style={{ width: 22, color: 'var(--ink-3)', fontWeight: 700 }}>{i + 1}</span>
-                <span style={{ flex: 1, fontWeight: 700 }}>{nm(s.e)}</span>
+                <span style={{ flex: 1, fontWeight: 700 }}>{nm(s.e)}{!s.submitted && <span style={{ fontWeight: 600, fontSize: 11, color: 'var(--warn)' }}> · לא הגיש בקשות לחודש — לא יוצע</span>}</span>
                 <span style={{ width: 150, color: 'var(--ink-2)' }}>{s.last ? `אחרונה: ${weekendLabel(s.last)}` : 'עוד לא עשה/תה'}</span>
                 <span style={{ width: 90, color: 'var(--ink-3)' }}>{s.last ? `${daysBetween(s.last, monthStart)} ימים` : ''}</span>
                 <span style={{ width: 70, color: 'var(--ink-3)' }}>{s.count === 0 ? '' : s.count === 1 ? 'שבת אחת' : `${s.count} שבתות`}</span>
@@ -6840,7 +6875,8 @@ function App({ auth }) {
 
   // תאריך המשמרת האחרונה שכל עובד שובץ ל"שבת ארוכה" — לפי שלוש החודשים האחרונים
   // (מספיק כדי לכסות את יעד ה-45 יום הדיפולטיבי). משמש להטיית השיבוץ האוטומטי.
-  const calcLastShabbatDates = () => {
+  // כל סופי השבוע עם שבת ארוכה לפני היום הראשון שמשובץ עכשיו: { 'YYYY-MM-DD' (שישי): [מזהי עובדים] }
+  const shabbatByDate = () => {
     const [y, m] = currentMonth.split('-').map(Number);
     const pastMonths = [];
     for (let i = 1; i <= 3; i++) {
@@ -6865,12 +6901,22 @@ function App({ auth }) {
       const ids = resolveHistoryNames(h.names).ids;
       if (ids.length) byDate[h.date] = ids;
     });
+    return byDate;
+  };
+  const calcLastShabbatDates = () => {
     const last = {};
-    Object.entries(byDate).forEach(([dStr, ids]) => ids.forEach(empId => {
+    Object.entries(shabbatByDate()).forEach(([dStr, ids]) => ids.forEach(empId => {
       if (!last[empId] || dStr > last[empId]) last[empId] = dStr;
     }));
     return last;
   };
+  // כמה שבתות ארוכות עשה כל עובד (שובר שוויון בתור השבתות — כמו במסך 🕯️ שבתות)
+  const calcShabbatCounts = () => {
+    const c = {};
+    Object.values(shabbatByDate()).forEach(ids => ids.forEach(empId => { c[empId] = (c[empId] || 0) + 1; }));
+    return c;
+  };
+  const shabbatMonthlyIds = () => resolveHistoryNames(shabbatHistory.monthly).ids;
   const resolveHistoryNames = (names) => {
     const ids = []; const missing = [];
     (names || []).forEach(n => {
@@ -7037,7 +7083,7 @@ function App({ auth }) {
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
       initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
-      submitted: submittedForDraft(currentDraft),
+      submitted: submittedForDraft(currentDraft), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
     });
     const ts = new Date().toISOString();
     const log = [
@@ -7060,7 +7106,7 @@ function App({ auth }) {
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
       initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
-      submitted: submittedForDraft(currentDraft),
+      submitted: submittedForDraft(currentDraft), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
       shabbatOnly: true,
     });
     const ts = new Date().toISOString();
@@ -7206,7 +7252,7 @@ function App({ auth }) {
         shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds,
         initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
-        submitted: submittedForDraft(currentDraft),
+        submitted: submittedForDraft(currentDraft), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
       });
       algoResult.log.filter(l => l.type !== 'info').forEach(l => smartLog.push({ ...l, timestamp: ts() }));
 
@@ -7421,7 +7467,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
         initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(snap)),
-        submitted: submittedForDraft(snap),
+        submitted: submittedForDraft(snap), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
       });
 
       const ts = new Date().toISOString();
@@ -7765,6 +7811,8 @@ ${JSON.stringify(emptySlots, null, 2)}
             window.__db.saveEmployeePref?.(empId, patch);
           }} />}
         {screen === 'shabbat'   && <ShabbatScreen employees={employees} prefs={prefs} drafts={drafts} initialMonth={currentMonth}
+          requireSubmission={ruleToggles.requireSubmission !== false}
+          isSubmitted={(empId, month) => { const r = (requests[empId] || {})[month]; return (!!r && !r.isDraft) || allRecurring.some(x => x.emp_id === empId && x.active); }}
           history={shabbatHistory} onSaveHistory={saveShabbatHistory} />}
         {screen === 'rules'     && <SchedulingRulesScreen ruleToggles={ruleToggles}
           onToggle={(key, val) => setRuleToggles(t => ({ ...t, [key]: val }))} />}

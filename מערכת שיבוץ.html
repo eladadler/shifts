@@ -2102,7 +2102,136 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   window.checkRequestCriteria = checkRequestCriteria;
-  window.ShiftEngine = { listDates, defaultRange, applyFixed, generate, planShabbat, detectConflicts, countShifts, exportCsv, checkRequestCriteria, MIN_REST_H, gapHours };
+  // ---- ייצוא "תבנית PDF" (כמו הסידורים שהופקו ידנית): עמוד לרוחב לכל שבוע (ראשון–שבת), לכל יום 3
+  // עמודות, ציר שעות 6:00–0:00, וכל שיבוץ = מלבן בצבע הקבוע של העובד עם "שם שעות".
+  // D = window.ShiftData. colorOf(empId) → צבע; nameOf(empId) → שם לתצוגה. מחזיר מסמך HTML להדפסה/שמירה כ-PDF.
+  function buildPdfExportHtml({ D, schedule, rangeStart, rangeEnd, excluded = [], shiftSettings, nameOf, colorOf, monthLabel }) {
+    const H0 = 6, H1 = 24;                                    // ציר השעות בעמוד
+    const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const hm = (d) => d.getHours() + (d.getMinutes() ? ':' + String(d.getMinutes()).padStart(2, '0') : '');
+    const dm = (dStr) => `${Number(dStr.slice(8))}.${Number(dStr.slice(5, 7))}`;
+    const inRange = (d) => d >= rangeStart && d <= rangeEnd && !excluded.includes(d);
+    // שעה עשרונית של רגע t ביחס לחצות של היום dStr (יכולה להיות <0 או >24)
+    const hourOf = (dStr, t) => (t - D.parseDate(dStr)) / 36e5;
+    const shiftsOn = (dStr) => D.shiftTypesFor(dStr, shiftSettings).filter((s) => !s.continuation);
+
+    // כל המלבנים של יום אחד: שיבוצים שמתחילים בו + המשך של משמרות שהתחילו ביום/יומיים קודם
+    const blocksFor = (dStr) => {
+      const out = [];
+      [2, 1, 0].forEach((back) => {
+        const src = D.addDays(dStr, -back);
+        if (!inRange(src)) return;
+        shiftsOn(src).forEach((shift, si) => {
+          const ids = schedule[src]?.[shift.id] || [];
+          const req = Math.max(shift.required || 1, ids.length);
+          for (let i = 0; i < req; i++) {
+            const id = ids[i];
+            const t = id ? D.personTimes(src, shift, id) : D.shiftTimes(src, shift);
+            const a = Math.max(H0, hourOf(dStr, t.start)), b = Math.min(H1, hourOf(dStr, t.end));
+            if (b <= a) continue;
+            out.push({ id, slot: i, multi: (shift.required || 1) > 1, a, b, label: `${hm(t.start)}-${hm(t.end)}`, order: si, carry: back > 0 });
+          }
+        });
+      });
+      return out;
+    };
+
+    // שיבוץ לעמודות: משמרות של 2+ עובדים (וההמשך שלהן) בעמודות 1..n לפי סדר העובדים; משמרות של עובד
+    // אחד — מהקצרה לארוכה, לעמודה הראשונה שפנויה בכל טווח השעות שלה (כך שישי קצר יושב לפני השבת הארוכה)
+    const layout = (blocks) => {
+      const cols = [];
+      const free = (c, x) => !(cols[c] || []).some((y) => x.a < y.b && y.a < x.b);
+      const put = (x, c) => { (cols[c] = cols[c] || []).push(x); x.col = c; };
+      blocks.filter((x) => x.multi).sort((p, q) => p.a - q.a || p.slot - q.slot).forEach((x) => {
+        let c = x.slot; while (!free(c, x)) c++; put(x, c);
+      });
+      blocks.filter((x) => !x.multi).sort((p, q) => (p.b - p.a) - (q.b - q.a) || p.a - q.a).forEach((x) => {
+        let c = 0; while (!free(c, x)) c++; put(x, c);
+      });
+      return Math.max(3, cols.length);
+    };
+
+    const sunday = (dStr) => D.addDays(dStr, -D.weekdayOf(dStr));
+    const weeks = [];
+    for (let w = sunday(rangeStart); w <= rangeEnd; w = D.addDays(w, 7)) {
+      if ([0, 1, 2, 3, 4, 5, 6].some((i) => inRange(D.addDays(w, i)))) weeks.push(w);
+    }
+
+    const ROW = 100 / (H1 - H0);                         // אחוז גובה לשעה
+    const page = (w) => {
+      const days = [0, 1, 2, 3, 4, 5, 6].map((i) => D.addDays(w, i));
+      const shown = days.filter(inRange);
+      const title = `משמרות ${monthLabel} ${dm(shown[0])}-${dm(shown[shown.length - 1])}`;
+      const dayHtml = days.map((dStr) => {
+        const blocks = blocksFor(dStr);
+        const n = layout(blocks);
+        const holiday = D.hebrewHolidayOf ? D.hebrewHolidayOf(D.parseDate(dStr)) : null;
+        const [y, m, d] = dStr.split('-');
+        const head = `<div class="dh"><div class="date">${Number(d)}.${Number(m)}.${y.slice(2)}${holiday ? `<span class="hol">${esc(holiday)}</span>` : ''}</div>
+          <div class="dname">${DAY_NAMES[D.weekdayOf(dStr)]}</div>
+          <div class="cnums" style="grid-template-columns:repeat(${n},1fr)">${Array.from({ length: n }, (_, i) => `<span>${i + 1}</span>`).join('')}</div></div>`;
+        const body = blocks.map((x) => {
+          const bg = x.id ? colorOf(x.id) : '#FFFFFF';
+          const text = x.id ? `<span class="n">${esc(nameOf(x.id))}</span><span class="t">${x.label}</span>` : `<span class="t">${x.label}</span>`;
+          return `<div class="blk${x.id ? '' : ' empty'}" style="right:${(x.col * 100) / n}%;width:${100 / n}%;top:${(x.a - H0) * ROW}%;height:${(x.b - x.a) * ROW}%;background:${bg}">${text}</div>`;
+        }).join('');
+        const lines = Array.from({ length: n - 1 }, (_, i) => `<div class="vl" style="right:${((i + 1) * 100) / n}%"></div>`).join('');
+        return `<div class="day${inRange(dStr) ? '' : ' out'}">${head}<div class="dbody">${lines}${body}</div></div>`;
+      }).join('');
+      const hours = Array.from({ length: H1 - H0 }, (_, i) => `<div style="top:${i * ROW}%">${String((H0 + i) % 24).padStart(2, '0')}:00</div>`).join('');
+      return `<section class="page"><h1>${esc(title)}</h1><div class="grid">${dayHtml}
+        <div class="day hours"><div class="dh"><div class="date">&nbsp;</div><div class="dname">&nbsp;</div><div class="cnums"><span>&nbsp;</span></div></div><div class="dbody">${hours}</div></div></div></section>`;
+    };
+
+    const css = `
+      @page { size: A4 landscape; margin: 6mm; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: Calibri, 'Segoe UI', Arial, sans-serif; color: #000; background: #FFF; }
+      .page { width: 285mm; height: 196mm; display: flex; flex-direction: column; page-break-after: always; break-after: page; }
+      .page:last-child { page-break-after: auto; break-after: auto; }
+      h1 { text-align: center; font-size: 26pt; font-weight: 800; margin: 2mm 0 3mm; }
+      .grid { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr) 0.55fr; direction: rtl; border: 1.2pt solid #000; min-height: 0; }
+      .day { display: flex; flex-direction: column; border-left: 1.2pt solid #000; min-height: 0; }
+      .day.hours { border-left: none; }
+      .dh { border-bottom: 1.2pt solid #000; text-align: center; }
+      .date { color: #FF0000; font-weight: 700; font-size: 9pt; border-bottom: 0.5pt solid #000; padding: 0.6mm 0; position: relative; }
+      .hol { margin-inline-start: 4px; }
+      .dname { font-weight: 800; font-size: 12pt; border-bottom: 0.5pt solid #000; padding: 0.6mm 0; }
+      .cnums { display: grid; font-weight: 700; font-size: 8pt; }
+      .cnums span { border-left: 0.5pt solid #000; padding: 0.4mm 0; }
+      .cnums span:last-child { border-left: none; }
+      .dbody { position: relative; flex: 1; }
+      .vl { position: absolute; top: 0; bottom: 0; border-right: 0.5pt solid #000; }
+      .blk { position: absolute; border: 0.5pt solid #000; display: flex; flex-wrap: wrap; align-content: center; align-items: center; justify-content: center;
+             column-gap: 3px; text-align: center; font-weight: 700; font-size: 8.5pt; line-height: 1.15; padding: 0.5mm; overflow: hidden; }
+      .blk .n { white-space: normal; }
+      .blk .t { direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+      .blk.empty { color: #444; }
+      .day.out .dbody { background: repeating-linear-gradient(135deg, #FFF 0 6px, #F2F2F2 6px 12px); }
+      .hours .dbody div { position: absolute; right: 0; left: 0; font-size: 7.5pt; padding: 0 1.5mm; border-top: 0.5pt solid #000; direction: ltr; text-align: left; }`;
+    return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${esc(`משמרות ${monthLabel}`)}</title><style>${css}</style></head><body>${weeks.map(page).join('')}</body></html>`;
+  }
+
+  // צבע קבוע וייחודי לכל עובד בייצוא — לפי מיקומו ברשימת העובדים (הפלטה של הסידורים הישנים, ואחריה
+  // גוונים נוספים לפי "זווית הזהב" כך שגם מעבר לפלטה אין שני עובדים באותו צבע)
+  const EXPORT_PALETTE = ['#8EA9DB', '#F767C7', '#00FFFF', '#548235', '#CC00FF', '#ADB9CA', '#92D050', '#FFFF00', '#A4F8A6',
+    '#0070C0', '#757171', '#2F5597', '#7030A0', '#808000', '#FF0000', '#F8CBAD', '#FFC000', '#C55A11', '#BF8F00', '#00B0F0',
+    '#FFD966', '#FF9966', '#66FFCC', '#CC99FF', '#996633', '#C9C9C9'];
+  const exportColorAt = (i) => i < EXPORT_PALETTE.length ? EXPORT_PALETTE[i]
+    : `hsl(${Math.round(((i - EXPORT_PALETTE.length) * 137.508) % 360)}, 70%, 62%)`;
+  // שם בייצוא: שם פרטי; אם עוד עובד מתחיל באותו שם פרטי — השם המלא (למשל "יוחנן צין" לעומת "יוחנן")
+  const exportNameFor = (employees) => {
+    const first = (n) => (n || '').trim().split(/\s+/)[0];
+    return (id) => {
+      const e = employees.find((x) => x.id === id);
+      if (!e) return id;
+      const n = (e.name || '').trim();
+      return employees.filter((x) => first(x.name) === first(n)).length > 1 ? n : first(n);
+    };
+  };
+
+  window.ShiftEngine = { listDates, defaultRange, applyFixed, generate, planShabbat, buildPdfExportHtml, exportColorAt, exportNameFor, detectConflicts, countShifts, exportCsv, checkRequestCriteria, MIN_REST_H, gapHours };
 
 })();
 </script>
@@ -6651,6 +6780,7 @@ function App({ auth }) {
   const [modalMode, setModalMode] = React.useState('create'); // 'create' | 'edit' (עריכת טווח לטיוטה הפעילה)
   const [publishModalOpen, setPublishModalOpen] = React.useState(false);
   const [logOpen, setLogOpen] = React.useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = React.useState(false);
   const [screen, setScreen] = React.useState('calendar');
   const [shiftsDrawerOpen, setShiftsDrawerOpen] = React.useState(false);
   const [settingsDrawerOpen, setSettingsDrawerOpen] = React.useState(false);
@@ -7795,6 +7925,24 @@ ${JSON.stringify(emptySlots, null, 2)}
     });
   };
 
+  // ייצוא "תבנית PDF": פותח את הסידור בחלון חדש בפורמט של הסידורים הישנים (שבוע לעמוד, צבע קבוע לכל
+  // עובד) ומקפיץ הדפסה — שם בוחרים "שמירה כ-PDF"
+  const exportPdfTemplate = () => {
+    if (!currentDraft) return;
+    const html = AE.buildPdfExportHtml({
+      D: AD, schedule: currentDraft.schedule || {}, rangeStart: currentDraft.range.start, rangeEnd: currentDraft.range.end,
+      excluded: currentDraft.excluded || [], shiftSettings,
+      nameOf: AE.exportNameFor(employees),
+      colorOf: (id) => { const i = employees.findIndex((e) => e.id === id); return i < 0 ? '#D9D9D9' : AE.exportColorAt(i); },
+      monthLabel: String(AD.monthLabel(currentMonth)).split(' ')[0],
+    });
+    const w = window.open('', '_blank');
+    if (!w) { alert('הדפדפן חסם את החלון החדש — אפשרו חלונות קופצים לאתר ונסו שוב'); return; }
+    w.document.open();
+    w.document.write(html.replace('</body>', `<script>window.addEventListener('load', () => setTimeout(() => window.print(), 300));<\/script></body>`));
+    w.document.close();
+  };
+
   const slotProps = {
     onAssign: assign, onRemove: remove, onMoveChip: moveChip,
     onDragChipStart: setDraggingEmp, onDragEnd: () => setDraggingEmp(null),
@@ -7861,9 +8009,23 @@ ${JSON.stringify(emptySlots, null, 2)}
                   לוג AI{dilemmaCount > 0 && <span className="btn-badge">{dilemmaCount}</span>}
                 </button>
               )}
-              <button className="btn" onClick={() => AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth, shiftSettings)} disabled={!currentDraft || isGenerating}>
-                ייצוא
-              </button>
+              <div style={{position:'relative'}}>
+                <button className="btn" onClick={() => setExportMenuOpen(o => !o)} disabled={!currentDraft || isGenerating}>
+                  ייצוא ▾
+                </button>
+                {exportMenuOpen && (<>
+                  <div style={{position:'fixed',inset:0,zIndex:40}} onClick={() => setExportMenuOpen(false)} />
+                  <div style={{position:'absolute',top:'calc(100% + 4px)',insetInlineEnd:0,zIndex:41,background:'var(--surface)',border:'1px solid var(--line)',
+                    borderRadius:9,boxShadow:'0 8px 24px rgba(0,0,0,.14)',padding:4,minWidth:240,whiteSpace:'nowrap',display:'flex',flexDirection:'column'}}>
+                    <button className="ham-item" onClick={() => { setExportMenuOpen(false); AE.exportCsv(currentDraft?.schedule || {}, conflicts, currentMonth, shiftSettings); }}>
+                      📄 קובץ CSV (אקסל)
+                    </button>
+                    <button className="ham-item" onClick={() => { setExportMenuOpen(false); exportPdfTemplate(); }}>
+                      🗓 תבנית PDF — שבוע לעמוד
+                    </button>
+                  </div>
+                </>)}
+              </div>
               {(status === 'draft' || status === 'open') && (<>
                 {!hiddenButtons.includes('runShabbatOnly') && (
                   <button className="btn" onClick={runShabbatOnly} disabled={isGenerating}

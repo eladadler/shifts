@@ -1401,6 +1401,50 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   // ממלא משבצות ריקות בלבד — שומר על שיבוצים קיימים (קבועים + ידניים)
+  // תכנון "שבת ארוכה" לחודש שלם לפי תור הוגן. queue = מזהי עובדים לפי סדר התור, cap[friday] = מקומות פנויים,
+  // canDo(id, friday) = אפשר לשבץ אותו שם, prefers(id, friday) = ביקש את השבת הזו.
+  // 1) עוברים על התור לפי הסדר ומצרפים כל מי שאפשר — כל עוד יש דרך להושיב את כל מי שצורף (התאמה בגרף
+  //    דו-צדדי). כך מי שזמין רק לשבת אחת מקבל אותה, ומי שלפניו בתור עובר לשבת אחרת במקום "לתפוס" לו.
+  // 2) הצבה לפי סדר התור: כל אחד בשבת שביקש אם אפשר, אחרת המוקדמת ביותר — כל עוד השאר עדיין נכנסים.
+  // מחזיר [{ id, date }] — כל עובד לכל היותר פעם אחת.
+  function planShabbat({ fridays, cap, queue, canDo, prefers = () => false }) {
+    const opts = {};
+    queue.forEach((id) => { opts[id] = fridays.filter((f) => (cap[f] || 0) > 0 && canDo(id, f)); });
+    const fits = (people, left) => {
+      const owner = {};
+      const tryA = (id, seen) => {
+        for (const f of opts[id]) {
+          for (let i = 0; i < (left[f] || 0); i++) {
+            const s = f + '#' + i;
+            if (seen.has(s)) continue;
+            seen.add(s);
+            if (owner[s] === undefined || tryA(owner[s], seen)) { owner[s] = id; return true; }
+          }
+        }
+        return false;
+      };
+      return people.every((id) => tryA(id, new Set()));
+    };
+    const total = fridays.reduce((s, f) => s + Math.max(0, cap[f] || 0), 0);
+    const chosen = [];
+    for (const id of queue) {
+      if (chosen.length >= total) break;
+      if (opts[id].length && fits([...chosen, id], cap)) chosen.push(id);
+    }
+    const left = { ...cap };
+    const out = [];
+    chosen.forEach((id, i) => {
+      const rest = chosen.slice(i + 1);
+      for (const f of [...opts[id].filter((f) => prefers(id, f)), ...opts[id]]) {
+        if ((left[f] || 0) <= 0) continue;
+        left[f] -= 1;
+        if (fits(rest, left)) { out.push({ id, date: f }); return; }
+        left[f] += 1;
+      }
+    });
+    return out;
+  }
+
   function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false, proposals = null, submitted = null, shabbatMonthly = [], initialShabbatCounts = {} }) {
     // כל תנאי דלוק כברירת מחדל — כבוי רק אם המשבץ כיבה אותו במפורש במסך "תנאי שיבוץ"
     const on = (key) => ruleToggles[key] !== false;
@@ -1610,6 +1654,12 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       if (mode === 'count') {
         const inNow = schedule[dStr][shift.id] || [];
         return D.EMPLOYEES.filter((e) => !inNow.includes(e.id) && !hardBlocked(e)).length;
+      }
+      // 'check' = האם אפשר לשבץ את proposeEmp כאן לפי הטיוטה הבכירה שלו (בלי לשבץ) — לתכנון השבתות
+      if (mode === 'check') {
+        const e = D.EMPLOYEES.find((x) => x.id === proposeEmp);
+        return !!e && !(schedule[dStr][shift.id] || []).includes(e.id) && !hardBlocked(e)
+          && D.availabilityOn(e.id, dStr, shift.id) !== 'unavailable';
       }
       if (mode === 'propose') {
         const e = D.EMPLOYEES.find((x) => x.id === proposeEmp);
@@ -1852,6 +1902,31 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       }
     });
 
+    // תור השבתות לכל החודש יחד (planShabbat): מי שמגיע לו לפי התור מקבל שבת שהוא יכול,
+    // גם אם הוא זמין רק לאחת — במקום שמי שלפניו בתור "יתפוס" אותה. מה שנשאר פתוח ממולא במעבר הראשון.
+    if (on('biasShabbatFrequency')) {
+      const shabbatOf = (d) => D.shiftTypesFor(d, shiftSettings).find((sh) => sh.id === 'shabbat' && !sh.continuation);
+      const fr = dates.filter((d) => shabbatOf(d));
+      const cap = Object.fromEntries(fr.map((d) => [d, Math.max(0, (shabbatOf(d).required || 1) - (schedule[d].shabbat || []).length)]));
+      const has = new Set(fr.flatMap((d) => schedule[d].shabbat || []));
+      const gapOk = (e, d) => {
+        const prev = lastShabbat[e.id];
+        if (!on('shabbatMinGap') || !prev) return true;
+        return (D.parseDate(d) - D.parseDate(prev)) / 864e5 >= Math.max(14, Math.floor((e.shabbatFrequencyDays || 45) / 2));
+      };
+      const queue = D.EMPLOYEES.filter((e) => !monthlySet.has(e.id) && !has.has(e.id))
+        .sort((a, b) => (lastShabbat[a.id] || '').localeCompare(lastShabbat[b.id] || '')
+          || (shabbatCount[a.id] || 0) - (shabbatCount[b.id] || 0) || (a.name || '').localeCompare(b.name || '', 'he'));
+      const plan = planShabbat({
+        fridays: fr, cap, queue: queue.map((e) => e.id),
+        canDo: (id, d) => gapOk(D.empById(id), d) && assignOne(d, shabbatOf(d), 'check', id),
+        prefers: (id, d) => D.availabilityOn(id, d, 'shabbat') === 'high',
+      });
+      plan.forEach(({ id, date }) => {
+        if (assignOne(date, shabbatOf(date), 'propose', id)) addLog('info', `שובץ ${D.empById(id)?.name || id} לשבת ארוכה ב־${D.shortDate(date)} — לפי תור השבתות`);
+      });
+    }
+
     // מעבר ראשון: משמרות "שבת ארוכה" בלבד — כדי שברגע שמגיעים למשמרות החול של אותו
     // שבוע כבר ידוע מי קיבל שבת, ואפשר לאכוף עליו תקרה מופחתת (ראו shabbatWeeks למעלה)
     dates.forEach((dStr) => {
@@ -2019,7 +2094,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   }
 
   window.checkRequestCriteria = checkRequestCriteria;
-  window.ShiftEngine = { listDates, defaultRange, applyFixed, generate, detectConflicts, countShifts, exportCsv, checkRequestCriteria, MIN_REST_H, gapHours };
+  window.ShiftEngine = { listDates, defaultRange, applyFixed, generate, planShabbat, detectConflicts, countShifts, exportCsv, checkRequestCriteria, MIN_REST_H, gapHours };
 
 })();
 </script>
@@ -5875,7 +5950,6 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   const slots = Object.fromEntries(fridays.map(f => [f, []]));
   const skipped = Object.fromEntries(fridays.map(f => [f, []]));
   const noSubmit = stats.filter(s => s.wants && !s.submitted).map(s => nm(s.e));
-  const submittedOf = Object.fromEntries(stats.map(s => [s.e.id, s.submitted]));
   // אותו מרווח מינימלי בין שבתות כמו במנוע: חצי מתדירות השבת האישית, ולא פחות מ-14 יום
   const minGap = (e) => Math.max(14, Math.floor((e.shabbatFrequencyDays || 45) / 2));
   const lastOf = Object.fromEntries(stats.map(s => [s.e.id, s.last]));
@@ -5893,40 +5967,46 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
     if (lastOf[e.id] && daysBetween(lastOf[e.id], f) < minGap(e)) return `שבת קרובה מדי (${weekendLabel(lastOf[e.id])})`;
     return null;
   };
-  const addSkip = (f, e) => {
-    const why = whyNot(e, f);
-    if (why && !skipped[f].some(x => x.name === nm(e))) skipped[f].push({ name: nm(e), why });
-  };
-  // 2) תור הוגן — מי שחיכה הכי הרבה, זמין באותו סופ״ש, ולפחות 14 יום מהשבת הקודמת שלו
-  let order = queue.map(s => s.e);
+  // 2) תור הוגן לכל החודש יחד — אותה פונקציה כמו בשיבוץ האוטומטי (ShiftEngine.planShabbat): לפי סדר
+  // התור, כל מי שאפשר להושיב מקבל שבת שהוא יכול, גם מי שזמין רק לאחת; מי שלפניו בתור זז לשבת אחרת
+  const queued = queue.filter(s => s.submitted).map(s => s.e);
+  const rank = Object.fromEntries(queued.map((e, i) => [e.id, i]));
+  const plan = window.ShiftEngine.planShabbat({
+    fridays, cap: Object.fromEntries(fridays.map(f => [f, 2 - slots[f].length])),
+    queue: queued.map(e => e.id),
+    canDo: (id, f) => !whyNot(queued[rank[id]], f),
+    prefers: (id, f) => avail(id, f) === 'high',
+  });
+  const gotOn = {};
+  plan.forEach(({ id, date }) => {
+    slots[date].push({ id, name: nm(queued[rank[id]]), tag: avail(id, date) === 'high' ? 'ביקש' : null });
+    gotOn[id] = date;
+  });
+  // דולגו: מי שקודם בתור למישהו שקיבל את הסופ״ש הזה (או כל התור, אם נשאר בו מקום) — ולמה
+  fridays.forEach(f => {
+    const worst = slots[f].length < 2 ? Infinity : Math.max(-1, ...slots[f].map(x => rank[x.id] ?? -1));
+    queued.forEach(e => {
+      // מי שכבר קיבל שבת מוקדמת יותר החודש לא "דולג" — רק מי שחסום כאן, או שהועבר לשבת מאוחרת יותר
+      if (rank[e.id] >= worst || slots[f].some(x => x.id === e.id) || (gotOn[e.id] && gotOn[e.id] < f)) return;
+      const why = whyNot(e, f) || (gotOn[e.id] ? `מקבל/ת את ${weekendLabel(gotOn[e.id])}` : null);
+      if (why) skipped[f].push({ name: nm(e), why });
+    });
+  });
+  plan.forEach(({ id, date }) => { lastOf[id] = date; });
+  // 3) נשאר מקום ריק — כמו במנוע, מרווח המינימום בין שבתות מתרכך: לוקחים מי שזמין וחיכה הכי הרבה
+  // (בשוויון מי שעשה פחות), ורק אחרי כולם גם "קבוע חודשי" — כדי שכל השבתות יאוישו
   fridays.forEach(f => {
     while (slots[f].length < 2) {
-      const idx = order.findIndex(e => submittedOf[e.id] && !slots[f].some(x => x.id === e.id) && !whyNot(e, f));
-      // אין אף אחד — מציגים את הסיבה של כל מי שנשאר בתור
-      const passed = idx < 0 ? order : order.slice(0, idx);
-      passed.forEach(e => { if (submittedOf[e.id] && !slots[f].some(x => x.id === e.id)) addSkip(f, e); });
-      if (idx < 0) {
-        // אין אף אחד בתור שמתאים — כמו במנוע, מרווח המינימום בין שבתות מתרכך: לוקחים מי שזמין
-        // ורק השבת הקודמת שלו קרובה (קודם מי שחיכה הכי הרבה, בשוויון מי שעשה פחות), ורק אחרי
-        // כולם גם "קבוע חודשי" — כדי שכל השבתות יאוישו
-        const early = [...order, ...stats.filter(s => s.monthly && s.wants).map(s => s.e)]
-          .filter(x => submittedOf[x.id] && !slots[f].some(y => y.id === x.id) && avail(x.id, f) !== 'unavailable')
-          .sort((a, b) => (monthlyNames.has(nm(a)) ? 1 : 0) - (monthlyNames.has(nm(b)) ? 1 : 0)
-            || (lastOf[a.id] || '').localeCompare(lastOf[b.id] || '') || (countOf[a.id] || 0) - (countOf[b.id] || 0));
-        const e = early[0];
-        if (!e) break;
-        skipped[f] = skipped[f].filter(x => x.name !== nm(e));
-        slots[f].push({ id: e.id, name: nm(e), early: true,
-          tag: `מוקדם מהתור — אין מועמד אחר${lastOf[e.id] ? ` (קודמת: ${weekendLabel(lastOf[e.id])})` : ''}` });
-        lastOf[e.id] = f;
-        const oi = order.findIndex(x => x.id === e.id);
-        if (oi >= 0) order = [...order.slice(0, oi), ...order.slice(oi + 1), e];
-        continue;
-      }
-      const e = order[idx];
-      slots[f].push({ id: e.id, name: nm(e), tag: avail(e.id, f) === 'high' ? 'ביקש' : null });
+      const early = [...queued, ...stats.filter(s => s.monthly && s.wants && s.submitted).map(s => s.e)]
+        .filter(x => !slots[f].some(y => y.id === x.id) && avail(x.id, f) !== 'unavailable')
+        .sort((a, b) => (monthlyNames.has(nm(a)) ? 1 : 0) - (monthlyNames.has(nm(b)) ? 1 : 0)
+          || (lastOf[a.id] || '').localeCompare(lastOf[b.id] || '') || (countOf[a.id] || 0) - (countOf[b.id] || 0));
+      const e = early[0];
+      if (!e) break;
+      skipped[f] = skipped[f].filter(x => x.name !== nm(e));
+      slots[f].push({ id: e.id, name: nm(e), early: true,
+        tag: `מוקדם מהתור — אין מועמד אחר${lastOf[e.id] ? ` (קודמת: ${weekendLabel(lastOf[e.id])})` : ''}` });
       lastOf[e.id] = f;
-      order = [...order.slice(0, idx), ...order.slice(idx + 1), e];
     }
   });
   const monthDraft = (() => { const ds = drafts.filter(d => d.month === month && d.schedule); return ds.find(x => x.status === 'final') || ds[ds.length - 1]; })();
@@ -5962,7 +6042,7 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
       </div>
       <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 860 }}>
         <div style={{ fontSize: '12.5px', color: 'var(--ink-3)', lineHeight: 1.6 }}>
-          סבב הוגן: מי שחיכה הכי הרבה מאז השבת הארוכה האחרונה שלו מקבל ראשון — כך גם השיבוץ האוטומטי. מי שחסם שבת מסוימת לא ישובץ אליה, נשאר בראש התור ויקבל את השבת הבאה שבה הוא זמין. עובד שמסומן שאינו עושה שבת ארוכה לא בתור, ומי שלא הגיש בקשות לחודש לא מוצע; "קבוע חודשי" מקבל סופ״ש אחד בכל חודש מחוץ לתור. בין שתי שבתות של אותו עובד — לפחות חצי מתדירות השבת שלו (ברירת מחדל 22 יום); אם בלי זה נשאר מקום ריק בשבת, משובץ מוקדם מהתור מי שזמין ומחכה הכי הרבה.
+          סבב הוגן: מי שחיכה הכי הרבה מאז השבת הארוכה האחרונה שלו מקבל ראשון — כך גם השיבוץ האוטומטי. מי שחסם שבת מסוימת לא ישובץ אליה, נשאר בראש התור ויקבל את השבת הבאה שבה הוא זמין. עובד שמסומן שאינו עושה שבת ארוכה לא בתור, ומי שלא הגיש בקשות לחודש לא מוצע; "קבוע חודשי" מקבל סופ״ש אחד בכל חודש מחוץ לתור. בין שתי שבתות של אותו עובד — לפחות חצי מתדירות השבת שלו (ברירת מחדל 22 יום); אם בלי זה נשאר מקום ריק בשבת, משובץ מוקדם מהתור מי שזמין ומחכה הכי הרבה. התכנון נעשה לכל החודש יחד: מי שזמין רק לשבת אחת מקבל אותה, ומי שלפניו בתור עובר לשבת אחרת שהוא יכול.
         </div>
 
         <div>

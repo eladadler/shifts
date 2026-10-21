@@ -253,6 +253,7 @@
   }
   .chip:hover .chip-x { opacity: 1; }
   .chip-x:hover { color: var(--danger); }
+  .chip-swap-over { outline: 2px dashed var(--accent); outline-offset: 1px; background: color-mix(in oklab, var(--accent) 12%, var(--surface)); }
 
   .avatar {
     border-radius: 50%; color: white; font-weight: 700;
@@ -1489,6 +1490,8 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     // עובדים עם "שבת קבועה פעם בחודש" (מסך 🕯️ שבתות) — מקבלים סופ״ש אחד בחודש מחוץ לתור
     const monthlySet = new Set(shabbatMonthly || []);
     const shabbatCount = { ...initialShabbatCounts };
+    // כמה פעמים כל עובד קיבל כל משבצת קבועה (ברזל) בהרצה — לתורות כשיש יותר קבועים ממקומות
+    const ironRot = {};
     // counts = החודש הנוכחי בלבד, ומולו נבדקת המכסה החודשית.
     // hist = משמרות מחודשים קודמים, ומשמש לאיזון עומסים בניקוד בלבד — הזרקתו
     // למונה החודשי הייתה חוסמת לאלתר כל מי שעבד בחודש שעבר.
@@ -1631,7 +1634,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       const wk0 = weekKeyOf(dStr);
       // חסימות קשיחות "רגילות" — לא כולל "כבר בתפוסה"/מכסת שיבוץ ברזל, כדי שאפשר יהיה
       // להשתמש באותה בדיקה גם עבור שיבוץ ברזל וגם עבור התחרות הרגילה בין מועמדים
-      const hardBlocked = (e) => {
+      // pinned = הצבת משמרת קבועה (ברזל): היא חלק מהעומס הקבוע של העובד, ולכן לא נחסמת ע"י תקרות השבוע
+      // (יעד שבועי, תמהיל, "שבוע עם שבת ארוכה") — רק ע"י זמינות, חופשה, מנוחה, מכסה חודשית וכו'
+      const hardBlocked = (e, pinned = false) => {
         // עובד לא יכול להיות בשתי משמרות חופפות בזמן — חסימה מוחלטת, לא תלויה באף תנאי
         if ((busy[e.id] || []).some((iv) => iv.start < t.end && t.start < iv.end)) return true;
         // מנוחה מינימלית (8 ש׳) לפני ואחרי כל משמרת אחרת של העובד — חוסם; עדיף חור פתוח
@@ -1640,9 +1645,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         if (on('requireSubmission') && submittedSet && !submittedSet.has(e.id)) return true;
         // יעד משמרות/שבוע = משמרות חול (ראשון עד חמישי + מוצאי שבת) בלבד, והוא תקרה בשיבוץ האוטומטי.
         // שישי, שבת ארוכה ושבת קצרה באות בנוסף ליעד ולא נספרות בו
-        if (on('weeklyTargetCap') && isWeekdayShift(wdShift0, shift.id) && (weekCounts[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return true;
+        if (!pinned && on('weeklyTargetCap') && isWeekdayShift(wdShift0, shift.id) && (weekCounts[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return true;
         // תמהיל אישי (e.shiftMix = { day, night } משמרות חול בשבוע) — תקרה נפרדת לכל סוג; היעד השבועי = הסכום
-        if (on('weeklyTargetCap') && e.shiftMix && isWeekdayShift(wdShift0, shift.id)) {
+        if (!pinned && on('weeklyTargetCap') && e.shiftMix && isWeekdayShift(wdShift0, shift.id)) {
           const kind = shift.id === 'night' ? 'night' : 'day';
           if ((weekMix[wk0]?.[e.id]?.[kind] || 0) >= (e.shiftMix[kind] ?? 0)) return true;
         }
@@ -1670,7 +1675,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         // "ללא משמרות לילה" — חוסם כל משמרת night, כולל מוצאי שבת (לא רק ימי א׳-ה׳)
         if (on('noWeekdayNights') && shift.id === 'night' && e.noWeekdayNights) return true;
         // מי שיש לו "שבת ארוכה" באותו שבוע מוגבל למשמרת חול אחת פחות מהיעד הרגיל שלו
-        if (on('shabbatWeeklyCap') && isWeekdayShift(wdShift0, shift.id) && shabbatWeeks[wk0]?.has(e.id)) {
+        if (!pinned && on('shabbatWeeklyCap') && isWeekdayShift(wdShift0, shift.id) && shabbatWeeks[wk0]?.has(e.id)) {
           const cap = Math.max(0, (e.weekdayShiftsPerWeek ?? 2) - 1);
           if ((weekCounts[wk0]?.[e.id] || 0) >= cap) return true;
         }
@@ -1716,20 +1721,29 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       // עדיין כפופים לחסימות הקשיחות הרגילות (כולל "לא יכול" — כך העובד יכול לבטל מופע
       // ספציפי) ולתפוסת המשמרת; אם יש יותר עובדי ברזל ממקום פנוי, העודפים מתועדים כדילמה.
       if (on('ironStanding') && mode !== 'one') {
+        // משמרת "מקובעת" (ברזל): יכולים להיות לה יותר עובדים קבועים ממקומות (למשל 3 עובדים ל-2 מקומות) —
+        // אז מתחלפים בתורות: קודם מי שקיבל הכי פחות פעמים את המשבצת הקבועה הזו בהרצה, ואז מי שעובד פחות החודש
+        const cands = [];
         (ironAssignments[dStr]?.[shift.id] || []).forEach((empId) => {
           if ((schedule[dStr][shift.id] || []).includes(empId)) return;
-          if ((schedule[dStr][shift.id] || []).length >= required) {
-            addLog('dilemma', `עובד ברזל ${D.empById(empId)?.name || empId} לא שובץ ל${shift.name} ב־${D.shortDate(dStr)} — המשמרת כבר בתפוסה מלאה`);
-            return;
-          }
           const e = D.EMPLOYEES.find((x) => x.id === empId);
           if (!e) return;
-          if (hardBlocked(e)) {
-            addLog('dilemma', `עובד ברזל ${e.name} לא ניתן לשיבוץ ל${shift.name} ב־${D.shortDate(dStr)} — נחסם ע"י תנאי אחר`);
+          if (hardBlocked(e, true)) {
+            addLog('dilemma', `עובד קבוע ${e.name} לא שובץ ל${shift.name} ב־${D.shortDate(dStr)} — נחסם ע"י תנאי אחר`);
             return;
           }
-          place(empId, false);
-          addLog('info', `שובץ ${e.name} ל${shift.name} ב־${D.shortDate(dStr)} — משמרת ברזל קבועה`);
+          cands.push(e);
+        });
+        const rotKey = (e) => wdShift0 + '|' + shift.id + '|' + e.id;
+        cands.sort((a, b) => (ironRot[rotKey(a)] || 0) - (ironRot[rotKey(b)] || 0) || (counts[a.id] || 0) - (counts[b.id] || 0));
+        cands.forEach((e) => {
+          if ((schedule[dStr][shift.id] || []).length >= required || hardBlocked(e, true)) {
+            addLog('info', `${e.name} (קבוע ב${shift.name}) לא שובץ ב־${D.shortDate(dStr)} — תורו של עובד קבוע אחר`);
+            return;
+          }
+          place(e.id, false);
+          ironRot[rotKey(e)] = (ironRot[rotKey(e)] || 0) + 1;
+          addLog('info', `שובץ ${e.name} ל${shift.name} ב־${D.shortDate(dStr)} — משמרת קבועה`);
         });
       }
       if (mode === 'iron') return;
@@ -2049,12 +2063,23 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         });
       });
       const left = (s) => (s.shift.required || 1) - (schedule[s.dStr][s.shift.id] || []).length;
+      // ימים א׳–ה׳: משמרת יום קצרה ממשמרת היום הארוכה של אותו יום (למשל "יום קצר" 9–20 מול "יום" 9–21)
+      // מאוישת רק אחרי כל השאר בשבוע — כך שאם חסרים עובדים, החור נופל עליה ולא על המשמרת הארוכה
+      const hoursOf = (d, sh) => { const t = D.shiftTimes(d, sh); return (t.end - t.start) / 36e5; };
+      const tierOf = (s) => {
+        if (D.weekdayOf(s.dStr) > 4 || s.shift.id === 'night') return 0;
+        const dayShifts = D.shiftTypesFor(s.dStr, shiftSettings).filter((x) => !x.continuation && x.id !== 'night' && x.id !== 'shabbat');
+        const longest = Math.max(...dayShifts.map((x) => hoursOf(s.dStr, x)));
+        return hoursOf(s.dStr, s.shift) < longest ? 1 : 0;
+      };
       Object.keys(byWeek).sort().forEach((wk) => {
         byWeek[wk].forEach((s) => assignOne(s.dStr, s.shift, 'iron'));
+        byWeek[wk].forEach((s) => { s.tier = tierOf(s); });
         let open = byWeek[wk].filter((s) => left(s) > 0);
         while (open.length) {
           let pick = null; let pickSlack = Infinity;
-          open.forEach((s) => {
+          const tier = Math.min(...open.map((s) => s.tier));
+          open.filter((s) => s.tier === tier).forEach((s) => {
             const slack = assignOne(s.dStr, s.shift, 'count') - left(s);
             if (slack < pickSlack) { pick = s; pickSlack = slack; }
           });
@@ -2702,10 +2727,20 @@ function Avatar({ emp, size = 22 }) {
   );
 }
 
-function ShiftChip({ emp, dStr, shiftId, shift, conflicts, editable, onRemove, onDragChipStart, onDragEnd }) {
+function ShiftChip({ emp, dStr, shiftId, shift, conflicts, editable, onRemove, onDragChipStart, onDragEnd, canDropOn, onSwap, onReplace }) {
   const key = `${dStr}|${shiftId}|${emp.id}`;
   const issues = conflicts[key] || [];
   const [showTip, setShowTip] = React.useState(false);
+  const [swapOver, setSwapOver] = React.useState(false);
+  // שחרור עובד משובץ אחר על העובד הזה = החלפה ביניהם; עובד מהרשימה בצד = מחליף אותו במשמרת
+  const handleChipDrop = (e) => {
+    e.preventDefault(); e.stopPropagation(); setSwapOver(false);
+    let payload;
+    try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
+    if (!payload || payload.empId === emp.id) return;
+    if (payload.kind === 'chip' && onSwap) onSwap(payload.from, payload.empId, { dStr, shiftId }, emp.id);
+    else if (payload.kind === 'emp' && onReplace) onReplace({ dStr, shiftId }, emp.id, payload.empId);
+  };
   // שעות אישיות מוצגות רק כשהן נבדלות מהבלוק
   const own = shift && D.hasPersonTimes(shift, emp.id) ? D.personTimes(dStr, shift, emp.id) : null;
 
@@ -2718,10 +2753,13 @@ function ShiftChip({ emp, dStr, shiftId, shift, conflicts, editable, onRemove, o
 
   return (
     <div
-      className={'chip' + (issues.length ? ' chip-conflict' : '')}
+      className={'chip' + (issues.length ? ' chip-conflict' : '') + (swapOver ? ' chip-swap-over' : '')}
       draggable={editable}
       onDragStart={editable ? handleDragStart : undefined}
       onDragEnd={onDragEnd}
+      onDragOver={canDropOn ? (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setSwapOver(true); } : undefined}
+      onDragLeave={canDropOn ? () => setSwapOver(false) : undefined}
+      onDrop={canDropOn ? handleChipDrop : undefined}
       title={issues.length ? undefined : emp.name}
     >
       <Avatar emp={emp} size={20} />
@@ -2756,7 +2794,7 @@ function ShiftChip({ emp, dStr, shiftId, shift, conflicts, editable, onRemove, o
   );
 }
 
-function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focusedEmpId, isContinuation, onAssign, onRemove, onEditTimes, onSelectShift, onMoveChip, onDragChipStart, onDragEnd, slotKey, slotDragKey, onSlotDragStart, onSlotDragEnd, onSlotDropReorder }) {
+function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focusedEmpId, isContinuation, onAssign, onRemove, onEditTimes, onSelectShift, onMoveChip, onSwapChips, onReplaceChip, onDragChipStart, onDragEnd, slotKey, slotDragKey, onSlotDragStart, onSlotDragEnd, onSlotDropReorder }) {
   const openTimes = onEditTimes ? () => onEditTimes(dStr, shift.id, null) : null;
   const [over, setOver] = React.useState(false);
   const hasConflict = emps.some((id) => (conflicts[`${dStr}|${shift.id}|${id}`] || []).length);
@@ -2846,7 +2884,9 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
             return emp && (
               <ShiftChip key={id} emp={emp} dStr={dStr} shiftId={shift.id} shift={shift} conflicts={conflicts}
                 editable={editable} onRemove={onRemove}
-                onDragChipStart={onDragChipStart} onDragEnd={onDragEnd} />
+                onDragChipStart={onDragChipStart} onDragEnd={onDragEnd}
+                canDropOn={editable && !slotDragActive && !!draggingEmp && draggingEmp !== id}
+                onSwap={onSwapChips} onReplace={onReplaceChip} />
             );
           })}
           {!atCapacity && <div className="slot-placeholder"><span className="slot-missing">חסר {required - emps.length}</span></div>}
@@ -7404,29 +7444,11 @@ function App({ auth }) {
     return out;
   };
 
-  // בדיקת חריגה: יותר עובדי ברזל ממקומות פנויים באותה משמרת — מוצג למשבץ לפני הרצה
-  const computeIronConflicts = () => {
-    const dates = datesForDraft(currentDraft);
-    if (!dates.length) return [];
-    const ironAssignments = computeIronAssignments(dates);
-    const conflicts = [];
-    Object.entries(ironAssignments).forEach(([dStr, byShift]) => {
-      Object.entries(byShift).forEach(([shiftId, empIds]) => {
-        const shift = AD.shiftDef(dStr, shiftId, shiftSettings);
-        const required = shift?.required || 1;
-        if (empIds.length > required) {
-          const names = empIds.map(id => employees.find(e => e.id === id)?.name || id).join(', ');
-          conflicts.push(`${AD.shortDate(dStr)} — ${shift?.name || shiftId}: ${empIds.length} עובדי ברזל למקום ${required} (${names})`);
-        }
-      });
-    });
-    return conflicts;
-  };
-
   // מי "הגיש" לחודש של הטיוטה: בקשה שנשלחה (לא רק נשמרה כטיוטה), או משמרת קבועה פעילה
   const submittedForDraft = (draft) => employees.filter(emp => {
     const r = (requests[emp.id] || {})[draft?.month];
-    return (r && !r.isDraft) || allRecurring.some(x => x.emp_id === emp.id && x.active);
+    // משמרת קבועה שהעובד הגדיר בעצמו נחשבת הגשה; "ברזל" (משמרת מקובעת שהמשבץ קבע) — לא
+    return (r && !r.isDraft) || allRecurring.some(x => x.emp_id === emp.id && x.active && x.mark !== 'iron');
   }).map(e => e.id);
 
   // בדיקת חריגות מקריטריוני הגשה, לפני הרצת שיבוץ אוטומטי — ראו runWithCriteriaGate
@@ -7460,8 +7482,8 @@ function App({ auth }) {
   // למשבץ, לפני שהשיבוץ בפועל רץ — הוא בוחר אם להמשיך בכל זאת או לדרוש תיקון קודם
   const runWithCriteriaGate = (fn) => () => {
     const violations = checkCriteriaViolationsForScheduling();
-    const ironConflicts = computeIronConflicts();
-    if (violations.length || ironConflicts.length) { setCriteriaGate({ violations, ironConflicts, proceed: fn }); return; }
+    // יותר עובדים קבועים (ברזל) ממקומות באותה משמרת הוא תורות שהמנוע מחלק בהוגנות — לא חריגה שעוצרת הרצה
+    if (violations.length) { setCriteriaGate({ violations, ironConflicts: [], proceed: fn }); return; }
     fn();
   };
 
@@ -8028,6 +8050,37 @@ ${JSON.stringify(emptySlots, null, 2)}
     });
   };
 
+  // החלפה בגרירה: עובד A (במשבצת from) ↔ עובד B (במשבצת to). נחסם אם אחד מהם סימן "לא יכול" במשבצת
+  // החדשה שלו (אלא אם "שיבוץ חופשי" דלוק), או אם כבר נמצא בה
+  const blockedAt = (empId, slot) => !AD.freeAssignMode && AD.availabilityOn(empId, slot.dStr, slot.shiftId) === 'unavailable';
+  const nameOf = (id) => employees.find(e => e.id === id)?.name || id;
+  const swapChips = (from, empA, to, empB) => {
+    if (!activeDraftId || empA === empB || (from.dStr === to.dStr && from.shiftId === to.shiftId)) return;
+    if (blockedAt(empA, to) || blockedAt(empB, from)) {
+      setToast(`אי אפשר להחליף — ${blockedAt(empA, to) ? nameOf(empA) : nameOf(empB)} סימן/ה "לא יכול" במשמרת הזו`);
+      return;
+    }
+    updateDraft(activeDraftId, d => {
+      const next = { ...d.schedule };
+      const fromArr = next[from.dStr]?.[from.shiftId] || [];
+      const toArr = next[to.dStr]?.[to.shiftId] || [];
+      if (!fromArr.includes(empA) || !toArr.includes(empB) || toArr.includes(empA) || fromArr.includes(empB)) return {};
+      next[from.dStr] = { ...(next[from.dStr] || {}), [from.shiftId]: fromArr.map(x => x === empA ? empB : x) };
+      next[to.dStr] = { ...(next[to.dStr] || {}), [to.shiftId]: toArr.map(x => x === empB ? empA : x) };
+      return { schedule: next };
+    });
+  };
+  // עובד מהרשימה בצד שוחרר על עובד משובץ — מחליף אותו באותה משמרת
+  const replaceChip = (slot, oldEmp, newEmp) => {
+    if (!activeDraftId || oldEmp === newEmp) return;
+    if (blockedAt(newEmp, slot)) { setToast(`${nameOf(newEmp)} סימן/ה "לא יכול" במשמרת הזו`); return; }
+    updateDraft(activeDraftId, d => {
+      const arr = d.schedule[slot.dStr]?.[slot.shiftId] || [];
+      if (!arr.includes(oldEmp) || arr.includes(newEmp)) return {};
+      return { schedule: { ...d.schedule, [slot.dStr]: { ...(d.schedule[slot.dStr] || {}), [slot.shiftId]: arr.map(x => x === oldEmp ? newEmp : x) } } };
+    });
+  };
+
   // סדר תצוגה של משמרות בתא של יום (ויזואלי בלבד) — נשמר ב-shiftSettings.dayOrder
   const reorderDayShift = (dStr, orderedKeys) => {
     setShiftSettings(s => ({ ...s, dayOrder: { ...(s.dayOrder || {}), [dStr]: orderedKeys } }));
@@ -8080,7 +8133,7 @@ ${JSON.stringify(emptySlots, null, 2)}
   };
 
   const slotProps = {
-    onAssign: assign, onRemove: remove, onMoveChip: moveChip,
+    onAssign: assign, onRemove: remove, onMoveChip: moveChip, onSwapChips: swapChips, onReplaceChip: replaceChip,
     onDragChipStart: setDraggingEmp, onDragEnd: () => setDraggingEmp(null),
     onReorderShift: reorderDayShift,
     onEditTimes: (dStr, shiftId, empId) => setEditTimes({ dStr, shiftId, empId }),

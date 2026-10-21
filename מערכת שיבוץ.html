@@ -1609,6 +1609,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         // יעד משמרות/שבוע = משמרות חול (ראשון עד חמישי + מוצאי שבת) בלבד, והוא תקרה בשיבוץ האוטומטי.
         // שישי, שבת ארוכה ושבת קצרה באות בנוסף ליעד ולא נספרות בו
         if (on('weeklyTargetCap') && isWeekdayShift(wdShift0, shift.id) && (weekCounts[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return true;
+        // חופשה חוסמת תמיד — משותפת לכל הטיוטות, טיוטה משנית (2/3) לא עוקפת אותה.
+        // שבת ארוכה נמשכת עד מוצ״ש, לכן גם חופשה בשבת עצמה חוסמת אותה
+        if (on('unavailable') && (D.isVacationOn(e.id, dStr)
+            || (shift.id === 'shabbat' && D.isVacationOn(e.id, D.addDays(dStr, 1))))) return true;
         const av = D.availabilityOn(e.id, dStr, shift.id);
         if (on('unavailable') && av === 'unavailable') {
           // חסום לפי הטיוטה הבכירה (1) — אבל אם לעובד יש טיוטה משנית (2/3) שכן מאפשרת
@@ -1699,6 +1703,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         const wdShift = wdShift0;
         const wk = wk0;
         let pool = D.EMPLOYEES.filter((e) => !alreadyIn.includes(e.id) && !hardBlocked(e));
+        // טיוטות משניות (2/3) הן רשת ביטחון בלבד: כל עוד יש מישהו שזמין לפי הטיוטה הבכירה שלו —
+        // רק הם מתחרים (אחרת, למשל, תור השבתות היה מקדים מי שחסם את השבת בטיוטה הבכירה)
+        const primary = pool.filter((e) => D.availabilityOn(e.id, dStr, shift.id) !== 'unavailable');
+        if (primary.length) pool = primary;
         // מרחק מינימלי בין שבתות ארוכות — מועדף מאוד, לא חוסם לגמרי: אם זה משאיר
         // בריכה ריקה (אין באמת אף מועמד אחר), חוזרים לבריכה המקורית כמוצא אחרון
         if (shift.id === 'shabbat' && on('shabbatMinGap')) {

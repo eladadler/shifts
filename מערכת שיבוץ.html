@@ -5879,6 +5879,7 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   // אותו מרווח מינימלי בין שבתות כמו במנוע: חצי מתדירות השבת האישית, ולא פחות מ-14 יום
   const minGap = (e) => Math.max(14, Math.floor((e.shabbatFrequencyDays || 45) / 2));
   const lastOf = Object.fromEntries(stats.map(s => [s.e.id, s.last]));
+  const countOf = Object.fromEntries(stats.map(s => [s.e.id, s.count]));
   // 1) קבוע חודשי — סופ״ש אחד בחודש: עדיף שביקש, אחרת הראשון שזמין בו
   stats.filter(s => s.monthly && s.wants && s.submitted).forEach(s => {
     const ok = fridays.filter(f => avail(s.e.id, f) !== 'unavailable' && slots[f].length < 2);
@@ -5904,7 +5905,24 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
       // אין אף אחד — מציגים את הסיבה של כל מי שנשאר בתור
       const passed = idx < 0 ? order : order.slice(0, idx);
       passed.forEach(e => { if (submittedOf[e.id] && !slots[f].some(x => x.id === e.id)) addSkip(f, e); });
-      if (idx < 0) break;
+      if (idx < 0) {
+        // אין אף אחד בתור שמתאים — כמו במנוע, מרווח המינימום בין שבתות מתרכך: לוקחים מי שזמין
+        // ורק השבת הקודמת שלו קרובה (קודם מי שחיכה הכי הרבה, בשוויון מי שעשה פחות), ורק אחרי
+        // כולם גם "קבוע חודשי" — כדי שכל השבתות יאוישו
+        const early = [...order, ...stats.filter(s => s.monthly && s.wants).map(s => s.e)]
+          .filter(x => submittedOf[x.id] && !slots[f].some(y => y.id === x.id) && avail(x.id, f) !== 'unavailable')
+          .sort((a, b) => (monthlyNames.has(nm(a)) ? 1 : 0) - (monthlyNames.has(nm(b)) ? 1 : 0)
+            || (lastOf[a.id] || '').localeCompare(lastOf[b.id] || '') || (countOf[a.id] || 0) - (countOf[b.id] || 0));
+        const e = early[0];
+        if (!e) break;
+        skipped[f] = skipped[f].filter(x => x.name !== nm(e));
+        slots[f].push({ id: e.id, name: nm(e), early: true,
+          tag: `מוקדם מהתור — אין מועמד אחר${lastOf[e.id] ? ` (קודמת: ${weekendLabel(lastOf[e.id])})` : ''}` });
+        lastOf[e.id] = f;
+        const oi = order.findIndex(x => x.id === e.id);
+        if (oi >= 0) order = [...order.slice(0, oi), ...order.slice(oi + 1), e];
+        continue;
+      }
       const e = order[idx];
       slots[f].push({ id: e.id, name: nm(e), tag: avail(e.id, f) === 'high' ? 'ביקש' : null });
       lastOf[e.id] = f;
@@ -5944,7 +5962,7 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
       </div>
       <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 860 }}>
         <div style={{ fontSize: '12.5px', color: 'var(--ink-3)', lineHeight: 1.6 }}>
-          סבב הוגן: מי שחיכה הכי הרבה מאז השבת הארוכה האחרונה שלו מקבל ראשון — כך גם השיבוץ האוטומטי. מי שחסם שבת מסוימת לא ישובץ אליה, נשאר בראש התור ויקבל את השבת הבאה שבה הוא זמין. עובד שמסומן שאינו עושה שבת ארוכה לא בתור, ומי שלא הגיש בקשות לחודש לא מוצע; "קבוע חודשי" מקבל סופ״ש אחד בכל חודש מחוץ לתור. בין שתי שבתות של אותו עובד — לפחות חצי מתדירות השבת שלו (ברירת מחדל 22 יום).
+          סבב הוגן: מי שחיכה הכי הרבה מאז השבת הארוכה האחרונה שלו מקבל ראשון — כך גם השיבוץ האוטומטי. מי שחסם שבת מסוימת לא ישובץ אליה, נשאר בראש התור ויקבל את השבת הבאה שבה הוא זמין. עובד שמסומן שאינו עושה שבת ארוכה לא בתור, ומי שלא הגיש בקשות לחודש לא מוצע; "קבוע חודשי" מקבל סופ״ש אחד בכל חודש מחוץ לתור. בין שתי שבתות של אותו עובד — לפחות חצי מתדירות השבת שלו (ברירת מחדל 22 יום); אם בלי זה נשאר מקום ריק בשבת, משובץ מוקדם מהתור מי שזמין ומחכה הכי הרבה.
         </div>
 
         <div>
@@ -5963,7 +5981,7 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
                 <div key={f} style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontWeight: 800, minWidth: 70 }}>{weekendLabel(f)}</span>
                   {slots[f].map(x => (
-                    <span key={x.id} style={chip('color-mix(in oklab, var(--accent) 14%, transparent)')}>
+                    <span key={x.id} style={chip(x.early ? 'var(--warn-bg)' : 'color-mix(in oklab, var(--accent) 14%, transparent)')}>
                       {x.name}{x.tag && <span style={{ fontWeight: 600, fontSize: 11, color: 'var(--ink-3)' }}>· {x.tag}</span>}
                     </span>
                   ))}

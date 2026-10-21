@@ -5909,6 +5909,22 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   const card = { background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px' };
   const chip = (bg) => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: bg });
   const notIn = stats.filter(s => !s.wants || s.monthly);
+  // הטבלה המלאה: כל יום שישי בין הסופ״ש הראשון לאחרון שידועים, כולל חורים (סופ״ש בלי נתונים —
+  // כנראה שובץ מחוץ למערכת ועוד לא הוזן ידנית), כדי שיהיה ברור מה חסר בתור
+  const SOURCE_LABEL = { 'סידור סופי': 'מסידור סופי באפליקציה', 'טיוטה': 'מטיוטה — עוד לא סופי', 'ידני': 'הוזן ידנית' };
+  const weekendRows = (() => {
+    if (!weekends.length) return [];
+    const byDate = Object.fromEntries(weekends.map(w => [w.date, w]));
+    const rows = [];
+    const first = weekends[weekends.length - 1].date, last = weekends[0].date;
+    for (let d = first; d <= last; d = SD.addDays(d, 1)) {
+      if (byDate[d]) rows.push(byDate[d]);
+      else if (SD.weekdayOf(d) === 5) rows.push({ date: d, names: [], source: null });
+    }
+    weekends.forEach(w => { if (!rows.includes(w)) rows.push(w); });
+    return rows.sort((a, b) => b.date.localeCompare(a.date));
+  })();
+  const missingCount = weekendRows.filter(w => !w.source).length;
   return (
     <div className="mgmt-screen">
       <div className="mgmt-toolbar">
@@ -5983,14 +5999,23 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
         </div>
 
         <div>
-          <div className="settings-sec-title" style={{ marginBottom: 10 }}>כל השבתות הארוכות</div>
+          <div className="settings-sec-title" style={{ marginBottom: 4 }}>כל השבתות הארוכות</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 10, lineHeight: 1.6 }}>
+            יומן של מי עשה כל שבת ארוכה — ממנו נבנה התור. המקור: סידור שאושר באפליקציה, טיוטה של חודש שעוד לא אושר, או הזנה ידנית (למטה) לסופי שבוע ששובצו מחוץ לאפליקציה.
+          </div>
+          {missingCount > 0 && (
+            <div style={{ fontSize: 12.5, color: 'var(--warn)', fontWeight: 700, marginBottom: 8 }}>
+              ⚠ חסרים נתונים ל-{missingCount === 1 ? 'סופ״ש אחד' : `${missingCount} סופי שבוע`} — התור לא יודע מי עשה אותם. הזינו אותם ב"הזנה ידנית" למטה.
+            </div>
+          )}
           <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-            {weekends.length === 0 && <div style={{ padding: 12, fontSize: 12.5, color: 'var(--ink-3)' }}>אין עדיין נתונים.</div>}
-            {weekends.map((w, i) => (
-              <div key={w.date} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 13 }}>
+            {weekendRows.length === 0 && <div style={{ padding: 12, fontSize: 12.5, color: 'var(--ink-3)' }}>אין עדיין נתונים.</div>}
+            {weekendRows.map((w, i) => (
+              <div key={w.date} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 13,
+                background: w.source ? 'transparent' : 'var(--warn-bg)' }}>
                 <span style={{ width: 80, fontWeight: 800 }}>{weekendLabel(w.date)}{w.date.slice(0, 4) !== String(new Date().getFullYear()) ? '.' + w.date.slice(0, 4) : ''}</span>
-                <span style={{ flex: 1 }}>{w.names.join(', ')}</span>
-                <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{w.source}</span>
+                <span style={{ flex: 1, color: w.source ? 'inherit' : 'var(--warn)' }}>{w.source ? w.names.join(', ') : 'אין נתונים — להזין ידנית'}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{w.source ? (SOURCE_LABEL[w.source] || w.source) : ''}</span>
               </div>
             ))}
           </div>

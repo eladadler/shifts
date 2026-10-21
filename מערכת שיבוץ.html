@@ -1636,25 +1636,26 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
       // להשתמש באותה בדיקה גם עבור שיבוץ ברזל וגם עבור התחרות הרגילה בין מועמדים
       // pinned = הצבת משמרת קבועה (ברזל): היא חלק מהעומס הקבוע של העובד, ולכן לא נחסמת ע"י תקרות השבוע
       // (יעד שבועי, תמהיל, "שבוע עם שבת ארוכה") — רק ע"י זמינות, חופשה, מנוחה, מכסה חודשית וכו'
+      // מחזיר את סיבת החסימה (מחרוזת, truthy) או false — כך הלוג יכול לומר למה עובד לא שובץ
       const hardBlocked = (e, pinned = false) => {
         // עובד לא יכול להיות בשתי משמרות חופפות בזמן — חסימה מוחלטת, לא תלויה באף תנאי
-        if ((busy[e.id] || []).some((iv) => iv.start < t.end && t.start < iv.end)) return true;
+        if ((busy[e.id] || []).some((iv) => iv.start < t.end && t.start < iv.end)) return 'כבר משובץ במשמרת חופפת';
         // מנוחה מינימלית (8 ש׳) לפני ואחרי כל משמרת אחרת של העובד — חוסם; עדיף חור פתוח
-        if (on('biasMidMonthRest') && !restOk(e.id, t)) return true;
+        if (on('biasMidMonthRest') && !restOk(e.id, t)) return 'אין מנוחה מספקת ממשמרת סמוכה';
         // מי שלא הגיש בקשה לחודש (או רק שמר טיוטה) לא משובץ אוטומטית — רק ידנית ע"י המשבץ
-        if (on('requireSubmission') && submittedSet && !submittedSet.has(e.id)) return true;
+        if (on('requireSubmission') && submittedSet && !submittedSet.has(e.id)) return 'לא הגיש בקשות לחודש';
         // יעד משמרות/שבוע = משמרות חול (ראשון עד חמישי + מוצאי שבת) בלבד, והוא תקרה בשיבוץ האוטומטי.
         // שישי, שבת ארוכה ושבת קצרה באות בנוסף ליעד ולא נספרות בו
-        if (!pinned && on('weeklyTargetCap') && isWeekdayShift(wdShift0, shift.id) && (weekCounts[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return true;
+        if (!pinned && on('weeklyTargetCap') && isWeekdayShift(wdShift0, shift.id) && (weekCounts[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return 'הגיע ליעד השבועי';
         // תמהיל אישי (e.shiftMix = { day, night } משמרות חול בשבוע) — תקרה נפרדת לכל סוג; היעד השבועי = הסכום
         if (!pinned && on('weeklyTargetCap') && e.shiftMix && isWeekdayShift(wdShift0, shift.id)) {
           const kind = shift.id === 'night' ? 'night' : 'day';
-          if ((weekMix[wk0]?.[e.id]?.[kind] || 0) >= (e.shiftMix[kind] ?? 0)) return true;
+          if ((weekMix[wk0]?.[e.id]?.[kind] || 0) >= (e.shiftMix[kind] ?? 0)) return 'הגיע לתמהיל השבועי';
         }
         // חופשה חוסמת תמיד — משותפת לכל הטיוטות, טיוטה משנית (2/3) לא עוקפת אותה.
         // שבת ארוכה נמשכת עד מוצ״ש, לכן גם חופשה בשבת עצמה חוסמת אותה
         if (on('unavailable') && (D.isVacationOn(e.id, dStr)
-            || (shift.id === 'shabbat' && D.isVacationOn(e.id, D.addDays(dStr, 1))))) return true;
+            || (shift.id === 'shabbat' && D.isVacationOn(e.id, D.addDays(dStr, 1))))) return 'בחופשה';
         const av = D.availabilityOn(e.id, dStr, shift.id);
         if (on('unavailable') && av === 'unavailable') {
           // חסום לפי הטיוטה הבכירה (1) — אבל אם לעובד יש טיוטה משנית (2/3) שכן מאפשרת
@@ -1664,33 +1665,33 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
             const altAv = D.altAvailabilityOn(e.id, dStr, shift.id, rank);
             return altAv === 'high' || altAv === 'can';
           });
-          if (!altOk) return true;
+          if (!altOk) return 'סימן "לא יכול" בבקשה';
         }
-        if (on('maxQuota') && counts[e.id] >= e.max) return true;
+        if (on('maxQuota') && counts[e.id] >= e.max) return 'הגיע למכסה החודשית';
         // העדפות עצמאיות לכל משמרת סוף שבוע בנפרד — חסימה קשיחה רק בשיבוץ אוטומטי; שיבוץ ידני עוקף
-        if (on('wantsFridayShort') && wdShift0 === 5 && shift.id === 'short' && e.wantsFridayShort === false) return true;
-        if (on('wantsFridayLong') && wdShift0 === 5 && shift.id === 'morning' && e.wantsFridayLong === false) return true;
-        if (on('wantsShabbatLong') && shift.id === 'shabbat' && e.wantsShabbatLong === false) return true;
-        if (on('wantsSaturdayShort') && wdShift0 === 6 && shift.id === 'morning' && e.wantsSaturdayShort === false) return true;
+        if (on('wantsFridayShort') && wdShift0 === 5 && shift.id === 'short' && e.wantsFridayShort === false) return 'לא עושה שישי קצר';
+        if (on('wantsFridayLong') && wdShift0 === 5 && shift.id === 'morning' && e.wantsFridayLong === false) return 'לא עושה שישי ארוך';
+        if (on('wantsShabbatLong') && shift.id === 'shabbat' && e.wantsShabbatLong === false) return 'לא עושה שבת ארוכה';
+        if (on('wantsSaturdayShort') && wdShift0 === 6 && shift.id === 'morning' && e.wantsSaturdayShort === false) return 'לא עושה שבת קצרה';
         // "ללא משמרות לילה" — חוסם כל משמרת night, כולל מוצאי שבת (לא רק ימי א׳-ה׳)
-        if (on('noWeekdayNights') && shift.id === 'night' && e.noWeekdayNights) return true;
+        if (on('noWeekdayNights') && shift.id === 'night' && e.noWeekdayNights) return 'לא עושה לילות';
         // מי שיש לו "שבת ארוכה" באותו שבוע מוגבל למשמרת חול אחת פחות מהיעד הרגיל שלו
         if (!pinned && on('shabbatWeeklyCap') && isWeekdayShift(wdShift0, shift.id) && shabbatWeeks[wk0]?.has(e.id)) {
           const cap = Math.max(0, (e.weekdayShiftsPerWeek ?? 2) - 1);
-          if ((weekCounts[wk0]?.[e.id] || 0) >= cap) return true;
+          if ((weekCounts[wk0]?.[e.id] || 0) >= cap) return 'שבוע עם שבת ארוכה — משמרת חול אחת פחות';
         }
         // העדפה אישית: לא לקבל משמרת יום (בוקר/בוקר קצר) ביום חמישי אם משובץ ל"שבת ארוכה" באותו שבוע
         if (on('noThursdayIfShabbat') && wdShift0 === 4 && (shift.id === 'morning' || shift.id === 'evening')
-            && e.noThursdayIfShabbat && shabbatWeeks[wk0]?.has(e.id)) return true;
+            && e.noThursdayIfShabbat && shabbatWeeks[wk0]?.has(e.id)) return 'ביקש בלי יום בחמישי בשבוע של שבת';
         // גבול חודש: מי שסיים משמרת בסוף החודש הקודם חסום מהמשמרת הצמודה. שיבוץ ידני עוקף, ומסומן כחריגה.
-        if (on('crossMonthRest') && initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return true;
+        if (on('crossMonthRest') && initialLastEnd[e.id] && gapHours(initialLastEnd[e.id], t.start) < MIN_REST_H) return 'אין מנוחה מסוף החודש הקודם';
         // אם לעובד יש רשימת can — הוא זמין רק ביום/משמרת שפתח בפירוש.
         // הרשימה חוסמת רק בחודש שבו הוגשה: הבקשות מאוחדות מכל החודשים,
         // ובלי הסייג הזה בקשה מחודש קודם הייתה חוסמת את העובד בכל החודשים הבאים.
         if (on('canWhitelist')) {
           const r = D.reqOf(e.id);
           const ym = dStr.slice(0, 7);
-          if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') return true;
+          if ((r?.can || []).some((v) => v.startsWith(ym)) && av !== 'can' && av !== 'high') return 'הגיש רשימת "יכול" שלא כוללת את המשמרת הזו';
         }
         return false;
       };
@@ -1728,8 +1729,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
           if ((schedule[dStr][shift.id] || []).includes(empId)) return;
           const e = D.EMPLOYEES.find((x) => x.id === empId);
           if (!e) return;
-          if (hardBlocked(e, true)) {
-            addLog('dilemma', `עובד קבוע ${e.name} לא שובץ ל${shift.name} ב־${D.shortDate(dStr)} — נחסם ע"י תנאי אחר`);
+          const why = (on('unavailable') && D.availabilityOn(e.id, dStr, shift.id) === 'unavailable' && 'סימן "לא יכול" בבקשה') || hardBlocked(e, true);
+          if (why) {
+            // כבר במשמרת חופפת באותו יום (למשל צוות קבוע ל"יום" + "יום קצר") — מצופה, לא דילמה
+            if (why !== 'כבר משובץ במשמרת חופפת') addLog('dilemma', `${e.name} (קבוע ב${shift.name}) לא שובץ ב־${D.shortDate(dStr)} — ${why}`);
             return;
           }
           cands.push(e);
@@ -7424,7 +7427,7 @@ function App({ auth }) {
 
   // מחשב אילו עובדים משובצים בכפייה ("ברזל") לכל תאריך/משמרת בטווח נתון, מתוך
   // employee_recurring_requests — בלי תלות בהגשת בקשה חודשית של אף עובד. עובד
-  // שביטל מופע ספציפי (סימן "לא זמין" לתאריך/משמרת הזו בבקשה שהגיש) מוחרג משם.
+  // שביטל מופע ספציפי (סימן "לא זמין" לתאריך/משמרת הזו) לא ישובץ — המנוע מדלג עליו ורושם את הסיבה בלוג.
   const computeIronAssignments = (dates) => {
     const out = {};
     allRecurring.filter(r => r.active && r.mark === 'iron').forEach(rule => {
@@ -7434,7 +7437,7 @@ function App({ auth }) {
           ? [rule.shift_id]
           : AD.shiftTypesFor(dStr, shiftSettings).filter(s => !s.continuation).map(s => s.id);
         shiftIds.forEach(sid => {
-          if (AD.availabilityOn(rule.emp_id, dStr, sid) === 'unavailable') return;
+          // גם תאריך שהעובד סימן בו "לא יכול" עובר למנוע — הוא לא ישבץ, אבל ירשום בלוג למה
           if (!out[dStr]) out[dStr] = {};
           if (!out[dStr][sid]) out[dStr][sid] = [];
           if (!out[dStr][sid].includes(rule.emp_id)) out[dStr][sid].push(rule.emp_id);

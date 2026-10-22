@@ -2084,11 +2084,18 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         });
       });
       const left = (s) => (s.shift.required || 1) - (schedule[s.dStr][s.shift.id] || []).length;
-      // ימים א׳–ה׳: משמרת יום קצרה ממשמרת היום הארוכה של אותו יום (למשל "יום קצר" 9–20 מול "יום" 9–21)
-      // מאוישת רק אחרי כל השאר בשבוע — כך שאם חסרים עובדים, החור נופל עליה ולא על המשמרת הארוכה
+      // "מלווה שלישי" מאויש רק אחרי כל שאר המשמרות בשבוע (יום רגיל עם 2 מלווים, לילות) — כך שאם חסרים
+      // עובדים, החור נופל עליו: בימים א׳–ה׳ משמרת יום קצרה מהמשמרת הארוכה של אותו יום ("יום קצר" מול "יום"),
+      // ובשבת משמרת יום שחופפת לשבת הארוכה שכבר מאוישת ב-2 ("שבת קצרה")
       const hoursOf = (d, sh) => { const t = D.shiftTimes(d, sh); return (t.end - t.start) / 36e5; };
       const tierOf = (s) => {
-        if (D.weekdayOf(s.dStr) > 4 || s.shift.id === 'night') return 0;
+        if (s.shift.id === 'night') return 0;
+        if (D.weekdayOf(s.dStr) === 6) {
+          const t = D.shiftTimes(s.dStr, s.shift);
+          return D.shiftTypesFor(s.dStr, shiftSettings).some((x) => x.continuation && x.id === 'shabbat'
+            && (() => { const c = D.shiftTimes(x.originDate || D.addDays(s.dStr, -1), x); return c.start < t.end && t.start < c.end; })()) ? 1 : 0;
+        }
+        if (D.weekdayOf(s.dStr) > 4) return 0;
         const dayShifts = D.shiftTypesFor(s.dStr, shiftSettings).filter((x) => !x.continuation && x.id !== 'night' && x.id !== 'shabbat');
         const longest = Math.max(...dayShifts.map((x) => hoursOf(s.dStr, x)));
         return hoursOf(s.dStr, s.shift) < longest ? 1 : 0;

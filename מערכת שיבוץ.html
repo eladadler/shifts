@@ -1341,6 +1341,19 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     return !!(r && (r.vacation || []).includes(dStr));
   };
 
+  // התאמת שם שנשמר כטקסט (היסטוריית שבתות, "קבוע חודשי") לעובד: קודם שם זהה; אחרת התאמה חד-משמעית לפי
+  // תחילית מילים — כך שינוי שם (למשל "אלעד אדלר" ← "אלעד") לא מנתק את ההיסטוריה. כמה התאמות = אין התאמה
+  const matchEmployeeByName = (name, list) => {
+    const norm = (x) => String(x || '').trim().replace(/\s+/g, ' ');
+    const n = norm(name);
+    if (!n) return null;
+    const exact = (list || []).find((e) => norm(e.name) === n);
+    if (exact) return exact;
+    const pref = (a, b) => b.startsWith(a + ' ');
+    const cands = (list || []).filter((e) => { const en = norm(e.name); return en && (pref(en, n) || pref(n, en)); });
+    return cands.length === 1 ? cands[0] : null;
+  };
+
   const ALT_REQUESTS = {};
   // טיוטות שיבוץ משניות (2/3, ראו RequestsTab.addDraft באפליקציית העובד) — קריאה מהאובייקט
   // החי (window.ShiftData.ALT_REQUESTS), מסונכרן מה-state altRequests של האפליקציה.
@@ -1386,7 +1399,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
   window.ShiftData = {
     MONTH, HEB_DAYS, HEB_DAYS_SHORT, EMPLOYEES, REQUESTS, ALT_REQUESTS, FIXED_SHIFTS,
     pad, parseDate, dateStr, addDays, weekdayOf, dayLabel, shortDate, monthLabel,
-    getBase, shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, isVacationOn, altReqOf, altAvailabilityOn, empById, initials, shiftKey, orderShifts,
+    getBase, shiftTypesFor, shiftDef, shiftTimes, reqOf, availabilityOn, isVacationOn, altReqOf, altAvailabilityOn, empById, initials, shiftKey, orderShifts, matchEmployeeByName,
     splitReqEntry, shiftNameOf, hebrewHolidayOf,
     atTime, nearestClock, personTimes, hasPersonTimes, fmtHM,
   };
@@ -1643,7 +1656,9 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         // מנוחה מינימלית (8 ש׳) לפני ואחרי כל משמרת אחרת של העובד — חוסם; עדיף חור פתוח
         if (on('biasMidMonthRest') && !restOk(e.id, t)) return 'אין מנוחה מספקת ממשמרת סמוכה';
         // מי שלא הגיש בקשה לחודש (או רק שמר טיוטה) לא משובץ אוטומטית — רק ידנית ע"י המשבץ
-        if (on('requireSubmission') && submittedSet && !submittedSet.has(e.id)) return 'לא הגיש בקשות לחודש';
+        // "קבוע חודשי" לשבת לא צריך להגיש בקשות כדי לקבל את השבת החודשית (שאר המשמרות — כן)
+        if (on('requireSubmission') && submittedSet && !submittedSet.has(e.id)
+            && !(shift.id === 'shabbat' && monthlySet.has(e.id))) return 'לא הגיש בקשות לחודש';
         // יעד משמרות/שבוע = משמרות חול (ראשון עד חמישי + מוצאי שבת) בלבד, והוא תקרה בשיבוץ האוטומטי.
         // שישי, שבת ארוכה ושבת קצרה באות בנוסף ליעד ולא נספרות בו
         if (!pinned && on('weeklyTargetCap') && isWeekdayShift(wdShift0, shift.id) && (weekCounts[wk0]?.[e.id] || 0) >= (e.weekdayShiftsPerWeek ?? 2)) return 'הגיע ליעד השבועי';
@@ -1966,7 +1981,10 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     monthlySet.forEach((empId) => {
       const fridays = dates.map((d) => [d, D.shiftTypesFor(d, shiftSettings).find((sh) => sh.id === 'shabbat' && !sh.continuation)]).filter(([, sh]) => sh);
       if (fridays.some(([d]) => (schedule[d].shabbat || []).includes(empId))) return;
-      const order = [...fridays.filter(([d]) => D.availabilityOn(empId, d, 'shabbat') === 'high'), ...fridays];
+      // קודם שבת שביקש, אחר כך הראשונה שרחוקה מספיק מהשבת הקודמת שלו (אותו מרווח מינימום כמו בתור), ואז כל השאר
+      const emp = D.empById(empId);
+      const gapOk = ([d]) => !lastShabbat[empId] || (D.parseDate(d) - D.parseDate(lastShabbat[empId])) / 864e5 >= Math.max(14, Math.floor(((emp && emp.shabbatFrequencyDays) || 45) / 2));
+      const order = [...fridays.filter(([d]) => D.availabilityOn(empId, d, 'shabbat') === 'high'), ...fridays.filter(gapOk), ...fridays];
       for (const [d, sh] of order) {
         if (assignOne(d, sh, 'propose', empId)) { addLog('info', `שובץ ${D.empById(empId)?.name || empId} לשבת ארוכה ב־${D.shortDate(d)} — שבת קבועה חודשית`); break; }
       }
@@ -4268,7 +4286,7 @@ function ShabbatHistoryEditor({ entries, employees, onSave }) {
   const [text, setText] = React.useState('');
   const [msg, setMsg] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
-  const known = new Set(employees.map(e => (e.name || '').trim()));
+  const known = { has: (n) => !!SD.matchEmployeeByName(n, employees) };
   const fmt = (d) => d.split('-').reverse().join('.');
   const save = async (next, okText) => {
     setBusy(true);
@@ -6183,8 +6201,10 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   const [month, setMonth] = React.useState(initialMonth);
   const [busy, setBusy] = React.useState(false);
   const entries = history?.entries || [];
-  const monthlyNames = new Set((history?.monthly || []).map(n => String(n).trim()));
   const nm = (e) => (e?.name || '').trim();
+  // שמות שמורים (היסטוריה, קבוע חודשי) → עובדים, עמיד לשינוי שם (ראו SD.matchEmployeeByName)
+  const idOfName = (n) => SD.matchEmployeeByName(n, employees)?.id || null;
+  const monthlyIds = new Set((history?.monthly || []).map(idOfName).filter(Boolean));
   const nameOf = (id) => nm(employees.find(e => e.id === id)) || id;
   const dm = (d) => `${Number(d.slice(8))}.${Number(d.slice(5, 7))}`;
   const weekendLabel = (fri) => { const sat = SD.addDays(fri, 1); return `${Number(fri.slice(8))}–${dm(sat)}`; };
@@ -6212,9 +6232,9 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   for (let d = monthStart; d.slice(0, 7) === month; d = SD.addDays(d, 1)) if (SD.weekdayOf(d) === 5) fridays.push(d);
 
   const stats = employees.map(e => {
-    const mine = weekends.filter(w => w.date < monthStart && w.names.some(n => String(n).trim() === nm(e)));
+    const mine = weekends.filter(w => w.date < monthStart && w.names.some(n => idOfName(n) === e.id));
     return { e, last: mine.length ? mine[0].date : null, count: mine.length,
-      wants: prefs?.[e.id]?.wants_shabbat_long !== false, monthly: monthlyNames.has(nm(e)),
+      wants: prefs?.[e.id]?.wants_shabbat_long !== false, monthly: monthlyIds.has(e.id),
       submitted: !requireSubmission || !isSubmitted || isSubmitted(e.id, month) };
   });
   const queue = stats.filter(s => s.wants && !s.monthly).sort((a, b) =>
@@ -6231,15 +6251,17 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
 
   const slots = Object.fromEntries(fridays.map(f => [f, []]));
   const skipped = Object.fromEntries(fridays.map(f => [f, []]));
-  const noSubmit = stats.filter(s => s.wants && !s.submitted).map(s => nm(s.e));
+  // "קבוע חודשי" לא צריך להגיש בקשות כדי לקבל את השבת החודשית שלו
+  const noSubmit = stats.filter(s => s.wants && !s.monthly && !s.submitted).map(s => nm(s.e));
   // אותו מרווח מינימלי בין שבתות כמו במנוע: חצי מתדירות השבת האישית, ולא פחות מ-14 יום
   const minGap = (e) => Math.max(14, Math.floor((e.shabbatFrequencyDays || 45) / 2));
   const lastOf = Object.fromEntries(stats.map(s => [s.e.id, s.last]));
   const countOf = Object.fromEntries(stats.map(s => [s.e.id, s.count]));
   // 1) קבוע חודשי — סופ״ש אחד בחודש: עדיף שביקש, אחרת הראשון שזמין בו
-  stats.filter(s => s.monthly && s.wants && s.submitted).forEach(s => {
+  stats.filter(s => s.monthly && s.wants).forEach(s => {
     const ok = fridays.filter(f => avail(s.e.id, f) !== 'unavailable' && slots[f].length < 2);
-    const pick = ok.find(f => avail(s.e.id, f) === 'high') || ok[0];
+    // כמו במנוע: שבת שביקש, אחרת הראשונה שרחוקה מספיק מהשבת הקודמת שלו, אחרת הראשונה שאפשר
+    const pick = ok.find(f => avail(s.e.id, f) === 'high') || ok.find(f => !s.last || daysBetween(s.last, f) >= minGap(s.e)) || ok[0];
     if (pick) { slots[pick].push({ id: s.e.id, name: nm(s.e), tag: 'קבוע חודשי' }); lastOf[s.e.id] = pick; }
   });
   // למה עובד מהתור לא שובץ לסופ״ש הזה (null = אפשר לשבץ אותו)
@@ -6281,9 +6303,9 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
     while (slots[f].length < 2) {
       // מכסה חודשית (כרטיס העובד) נאכפת גם כאן, כמו במנוע — למשל "קבוע חודשי" עם מכסה 1 לא מקבל שבת שנייה
       const monthCnt = (id) => fridays.filter(g => slots[g].some(y => y.id === id)).length;
-      const early = [...queued, ...stats.filter(s => s.monthly && s.wants && s.submitted).map(s => s.e)]
+      const early = [...queued, ...stats.filter(s => s.monthly && s.wants).map(s => s.e)]
         .filter(x => !slots[f].some(y => y.id === x.id) && avail(x.id, f) !== 'unavailable' && !(x.max && monthCnt(x.id) >= x.max))
-        .sort((a, b) => (monthlyNames.has(nm(a)) ? 1 : 0) - (monthlyNames.has(nm(b)) ? 1 : 0)
+        .sort((a, b) => (monthlyIds.has(a.id) ? 1 : 0) - (monthlyIds.has(b.id) ? 1 : 0)
           || (lastOf[a.id] || '').localeCompare(lastOf[b.id] || '') || (countOf[a.id] || 0) - (countOf[b.id] || 0));
       const e = early[0];
       if (!e) break;
@@ -6296,7 +6318,8 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   const monthDraft = (() => { const ds = drafts.filter(d => d.month === month && d.schedule); return ds.find(x => x.status === 'final') || ds[ds.length - 1]; })();
 
   const toggleMonthly = async (e) => {
-    const next = monthlyNames.has(nm(e)) ? [...monthlyNames].filter(n => n !== nm(e)) : [...monthlyNames, nm(e)];
+    const cur = history?.monthly || [];
+    const next = monthlyIds.has(e.id) ? cur.filter(n => idOfName(n) !== e.id) : [...cur, nm(e)];
     setBusy(true); await onSaveHistory({ monthly: next }); setBusy(false);
   };
 
@@ -7355,7 +7378,7 @@ function App({ auth }) {
   const resolveHistoryNames = (names) => {
     const ids = []; const missing = [];
     (names || []).forEach(n => {
-      const e = employees.find(x => (x.name || '').trim() === String(n).trim());
+      const e = AD.matchEmployeeByName(n, employees);
       if (e) ids.push(e.id); else missing.push(n);
     });
     return { ids, missing };

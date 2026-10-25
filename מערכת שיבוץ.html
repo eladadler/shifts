@@ -898,6 +898,16 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         return true;
       } catch (e) { console.warn('deleteRecurringRequest failed:', e.message); return false; }
     },
+    // האימיילים שמקושרים בפועל לעובדים באפליקציית העובדים ({ id: email }) — עובד יכול לקשר את עצמו שם
+    // ("זה אני" בכניסה הראשונה), וזה נכתב רק ל-app_employees
+    async fetchAppEmployeeEmails() {
+      if (!client) return {};
+      try {
+        const { data, error } = await client.from('app_employees').select('id,email');
+        if (error) throw error;
+        return Object.fromEntries((data || []).filter(r => r.email).map(r => [r.id, r.email]));
+      } catch (e) { console.warn('fetchAppEmployeeEmails failed:', e.message); return {}; }
+    },
     async syncEmployees(employees) {
       if (!client) return false;
       try {
@@ -7051,8 +7061,16 @@ function App({ auth }) {
       // טעינת ממתינים לאישור
       window.__db.fetchPendingEmployees?.().then(rows => setPendingEmps(rows || [])).catch(e => setPendingEmpsErr(e?.message || String(e)));
       refreshSwapQueue();
-      // ממשק לאפליקציית העובדים: סנכרון עובדים + קליטת בקשות שהוגשו
-      window.__db.syncEmployees?.(loadedEmployees);
+      // ממשק לאפליקציית העובדים: סנכרון עובדים + קליטת בקשות שהוגשו.
+      // קודם מאמצים אימיילים שעובדים קישרו בעצמם באפליקציה ("זה אני") לעובד שאין לו אימייל ברשימה כאן —
+      // אחרת הסנכרון היה מוחק את הקישור, והכרטיס לא היה מראה עם איזה אימייל העובד מחובר בפועל
+      (window.__db.fetchAppEmployeeEmails?.() || Promise.resolve({})).then((linked) => {
+        const merged = loadedEmployees.map(e => (!e.email && linked[e.id]) ? { ...e, email: linked[e.id] } : e);
+        if (merged.some((e, i) => e !== loadedEmployees[i])) {
+          setEmployees(prev => prev.map(e => (!e.email && linked[e.id]) ? { ...e, email: linked[e.id] } : e));
+        }
+        window.__db.syncEmployees?.(merged);
+      });
       refreshEmployeeRequests();
       refreshEmployeePrefs();
       refreshAllRecurring();

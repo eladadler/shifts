@@ -2348,7 +2348,13 @@ function HomeTab({ me, empNames, published, TM, swaps, goSched, goReq, goSwaps, 
   });
   upcoming.sort((a, b) => a.off - b.off);
   const hero = upcoming[0] || null;
-  const firstName = (me.name || '').split(' ')[0];
+  // שם פרטי לברכה — אבל אם עוד עובד מתחיל באותו שם פרטי (למשל "יוחנן" ו"יוחנן צין"), השם המלא,
+  // כדי שלא ייראה כאילו העובד מחובר לחשבון של מישהו אחר
+  const firstName = (() => {
+    const full = (me.name || '').trim(); const f = full.split(/\s+/)[0];
+    const clash = (me.allEmployees || []).some(e => e.id !== me.id && (e.name || '').trim().split(/\s+/)[0] === f);
+    return clash ? full : f;
+  })();
 
   // הגשת בקשות פתוחה בפועל — רק אם המשבץ פרסם טיוטה במצב "פתוח לבקשות"
   const isReqOpen = (m) => published[m]?.shift_settings?._status === 'open';

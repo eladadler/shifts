@@ -1501,7 +1501,7 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     return out;
   }
 
-  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false, proposals = null, submitted = null, shabbatMonthly = [], initialShabbatCounts = {} }) {
+  function generate({ startDate, endDate, excluded = [], existingSchedule = {}, shiftSettings = null, initialCounts = {}, initialLastEnd = {}, initialLastShabbat = {}, initialLastWeekendShort = {}, ruleToggles = {}, ironAssignments = {}, shabbatOnly = false, proposals = null, submitted = null, shabbatMonthly = [], initialShabbatCounts = {}, contextSchedule = {} }) {
     // כל תנאי דלוק כברירת מחדל — כבוי רק אם המשבץ כיבה אותו במפורש במסך "תנאי שיבוץ"
     const on = (key) => ruleToggles[key] !== false;
     const dates = listDates(startDate, endDate).filter((d) => !excluded.includes(d));
@@ -1638,6 +1638,30 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
         });
       });
     });
+
+    // שיבוצים מסידורים סמוכים (מחוץ לטווח, עד שבוע לפני/אחרי): נחשבים למנוחה ולחפיפה, ובשבוע שמתפצל בין
+    // שני סידורים — גם ליעד השבועי, לתמהיל ולכלל "שבוע עם שבת ארוכה". לא נספרים במכסה החודשית
+    if (on('crossMonthRest')) {
+      const rangeWeeks = new Set(dates.map(weekKeyOf));
+      Object.keys(contextSchedule || {}).sort().forEach((dStr) => {
+        if (dates.includes(dStr)) return;
+        const wd = D.weekdayOf(dStr); const wk = weekKeyOf(dStr);
+        Object.entries(contextSchedule[dStr] || {}).forEach(([shiftId, ids]) => {
+          const shift = D.shiftDef(dStr, shiftId, shiftSettings);
+          if (!shift || shift.continuation) return;
+          (ids || []).forEach((empId) => {
+            markBusy(empId, D.personTimes(dStr, shift, empId));
+            if (!rangeWeeks.has(wk)) return;
+            (weekTotal[wk] = weekTotal[wk] || {})[empId] = (weekTotal[wk][empId] || 0) + 1;
+            if (shiftId === 'shabbat') (shabbatWeeks[wk] = shabbatWeeks[wk] || new Set()).add(empId);
+            if (!isWeekdayShift(wd, shiftId)) return;
+            (weekCounts[wk] = weekCounts[wk] || {})[empId] = (weekCounts[wk][empId] || 0) + 1;
+            const kind = shiftId === 'night' ? 'night' : 'day';
+            ((weekMix[wk] = weekMix[wk] || {})[empId] = weekMix[wk][empId] || { day: 0, night: 0 })[kind] += 1;
+          });
+        });
+      });
+    }
 
     addLog('info', `התחלת שיבוץ אוטומטי: ${D.shortDate(startDate)}–${D.shortDate(endDate)}, ${dates.length} ימים`);
     excluded.forEach((d) => addLog('info', `יום ${D.shortDate(d)} הוחרג מהסידור`));
@@ -7262,6 +7286,28 @@ function App({ auth }) {
     return ends;
   }, [drafts, currentMonth, shiftSettings]);
 
+  // שיבוצים מהסידורים של החודשים הסמוכים (הסופי, אחרת האחרון בכל חודש) בשבוע שלפני ובשבוע שאחרי הטווח
+  // של הטיוטה — המנוע בודק מולם מנוחה (אין משמרות צמודות במעבר בין סידורים) וסופר אותם ביעד השבועי של
+  // שבוע שמתפצל בין שני סידורים
+  const contextScheduleFor = (draft) => {
+    const out = {};
+    if (!draft?.range?.start) return out;
+    const lo = AD.addDays(draft.range.start, -7), hi = AD.addDays(draft.range.end, 7);
+    [...new Set(drafts.map(d => d.month))].filter(m => m !== draft.month).forEach(m => {
+      const ds = drafts.filter(d => d.month === m && d.schedule);
+      const d = ds.find(x => x.status === 'final') || ds[ds.length - 1];
+      if (!d) return;
+      Object.entries(d.schedule).forEach(([dStr, day]) => {
+        if (dStr < lo || dStr > hi || (dStr >= draft.range.start && dStr <= draft.range.end)) return;
+        Object.entries(day || {}).forEach(([sid, ids]) => {
+          if (!(ids || []).length) return;
+          ((out[dStr] = out[dStr] || {})[sid] = [...new Set([...(out[dStr][sid] || []), ...ids])]);
+        });
+      });
+    });
+    return out;
+  };
+
   const conflicts = React.useMemo(() => currentDraft ? AE.detectConflicts(currentDraft.schedule, shiftSettings, carryOverEnds) : {}, [currentDraft, shiftSettings, carryOverEnds]);
   const conflictCount = Object.keys(conflicts).length;
   const dilemmaCount = (currentDraft?.log || []).filter(l => l.type !== 'info').length;
@@ -7546,7 +7592,7 @@ function App({ auth }) {
     const result = AE.generate({
       startDate: currentDraft.range.start, endDate: currentDraft.range.end,
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
-      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
+      initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(currentDraft), initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
       submitted: submittedForDraft(currentDraft), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
     });
@@ -7569,7 +7615,7 @@ function App({ auth }) {
     const result = AE.generate({
       startDate: currentDraft.range.start, endDate: currentDraft.range.end,
       excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
-      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
+      initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(currentDraft), initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
       submitted: submittedForDraft(currentDraft), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
       shabbatOnly: true,
@@ -7592,7 +7638,7 @@ function App({ auth }) {
     proposals.sort((a, b) => a.dStr.localeCompare(b.dStr));
     const res = AE.generate({
       startDate: draft.range.start, endDate: draft.range.end, excluded: draft.excluded || [],
-      existingSchedule: baseSchedule, shiftSettings, initialLastEnd: carryOverEnds,
+      existingSchedule: baseSchedule, shiftSettings, initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(draft),
       initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       proposals, submitted: submittedForDraft(draft), ...extra,
     });
@@ -7621,7 +7667,7 @@ function App({ auth }) {
     const sched = draft.schedule || {};
     const base = {
       startDate: draft.range.start, endDate: draft.range.end, excluded: draft.excluded || [], shiftSettings,
-      initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(),
+      initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(draft), initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(),
     };
     // + הוא החלטה ידנית על עובד מסוים — בלי בדיקת "הגיש"; − בוחר מחליף אוטומטית — עם הבדיקה
     const tryPlace = (schedule, dStr, shiftId, id, toggles, submitted = null) => {
@@ -7714,7 +7760,7 @@ function App({ auth }) {
       const algoResult = AE.generate({
         startDate: currentDraft.range.start, endDate: currentDraft.range.end,
         excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule,
-        shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds,
+        shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(currentDraft),
         initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
         submitted: submittedForDraft(currentDraft), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
@@ -7930,7 +7976,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       const topUp = AE.generate({
         startDate: snap.range.start, endDate: snap.range.end,
         excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
-        initialLastEnd: carryOverEnds, initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
+        initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(snap), initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(snap)),
         submitted: submittedForDraft(snap), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
       });

@@ -239,8 +239,16 @@ const WEEKEND_SHIFTS = [
   { id: 'short', name: 'קצר', start: '15:00', end: '19:00' },
   { id: 'night', name: 'לילה', start: '21:00', end: '09:00' },
 ];
-const getBase = (dayStr, settings) => {
+// הגדרת המשמרות הקבועות שהייתה בתוקף בתאריך (shift_settings._prev — זהה למשבץ): שינוי שעות חל מתאריך והלאה
+const settingsAt = (dayStr, settings) => {
+  const prev = settings && Array.isArray(settings._prev) ? settings._prev : null;
+  if (!prev || !prev.length) return settings;
+  const v = prev.slice().sort((a, b) => a.until.localeCompare(b.until)).find((p) => dayStr <= p.until);
+  return v ? { ...settings, weekday: v.weekday, friday: v.friday, saturday: v.saturday } : settings;
+};
+const getBase = (dayStr, settingsIn) => {
   const wd = weekdayOf(dayStr);
+  const settings = settingsAt(dayStr, settingsIn);
   if (settings) {
     if (wd === 6) return settings.saturday || settings.weekend || WEEKEND_SHIFTS;
     if (wd === 5) return settings.friday || settings.weekend || WEEKEND_SHIFTS;

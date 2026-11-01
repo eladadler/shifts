@@ -120,9 +120,17 @@ function atTime(s: string, hm: string): Date {
   const [h, mi] = String(hm).split(':').map(Number)
   return new Date(y, m - 1, d, h, mi, 0, 0)
 }
-function getBase(dateStr: string, ss: any) {
+// הגדרת המשמרות הקבועות שהייתה בתוקף בתאריך (ss._prev — זהה למשבץ): שינוי שעות חל מתאריך והלאה
+function settingsAt(dateStr: string, ss: any) {
+  const prev = ss && Array.isArray(ss._prev) ? ss._prev : null
+  if (!prev || !prev.length) return ss
+  const v = prev.slice().sort((a: any, b: any) => String(a.until).localeCompare(String(b.until))).find((p: any) => dateStr <= p.until)
+  return v ? { ...ss, weekday: v.weekday, friday: v.friday, saturday: v.saturday } : ss
+}
+function getBase(dateStr: string, ssIn: any) {
   const [y, m, d] = dateStr.split('-').map(Number)
   const wd = new Date(y, m - 1, d).getDay()
+  const ss = settingsAt(dateStr, ssIn)
   if (ss) {
     if (wd === 6) return ss.saturday || ss.weekend || WEEKEND_SHIFTS
     if (wd === 5) return ss.friday || ss.weekend || WEEKEND_SHIFTS

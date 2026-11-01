@@ -1200,8 +1200,18 @@ async function sendWebPush(subJson, vapidPublicKey, vapidPrivateKeyJwk) {
     { id: 'short', name: 'קצר', start: '15:00', end: '19:00' },
     { id: 'night', name: 'לילה', start: '21:00', end: '09:00' },
   ];
-  const getBase = (dayStr, settings) => {
+  // הגדרת המשמרות הקבועות שהייתה בתוקף בתאריך נתון: settings._prev = [{ until, weekday, friday, saturday }]
+  // שומר הגדרות קודמות — תאריך עד until (כולל) משתמש בהגדרה הראשונה שמכסה אותו, אחריהן ההגדרה הנוכחית.
+  // כך שינוי שעות חל "מתאריך X והלאה" ולא משנה משמרות שכבר היו
+  const settingsAt = (dayStr, settings) => {
+    const prev = settings && Array.isArray(settings._prev) ? settings._prev : null;
+    if (!prev || !prev.length) return settings;
+    const v = prev.slice().sort((a, b) => a.until.localeCompare(b.until)).find((p) => dayStr <= p.until);
+    return v ? { ...settings, weekday: v.weekday, friday: v.friday, saturday: v.saturday } : settings;
+  };
+  const getBase = (dayStr, settingsIn) => {
     const wd = weekdayOf(dayStr);
+    const settings = settingsAt(dayStr, settingsIn);
     if (settings) {
       if (wd === 6) return settings.saturday || settings.weekend || WEEKEND_SHIFTS;
       if (wd === 5) return settings.friday  || settings.weekend || WEEKEND_SHIFTS;
@@ -4054,8 +4064,10 @@ function ApplySetDialog({ set, special, onConfirm, onCancel }) {
   );
 }
 
-function ShiftsDrawer({ open, onClose, settings, onChange }) {
+function ShiftsDrawer({ open, onClose, settings, onChange, onRepublish }) {
   const [tab, setTab] = React.useState('regular');
+  // מאיזה תאריך חל שינוי במשמרות הקבועות (ברירת מחדל: היום) — מה שלפניו נשאר עם ההגדרה הקודמת
+  const [effFrom, setEffFrom] = React.useState(() => SD.dateStr(new Date()));
   const [applyingSet, setApplyingSet] = React.useState(null);
   const [expandedSet, setExpandedSet] = React.useState(null);
 
@@ -4079,7 +4091,16 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
 
   if (!open) return null;
 
-  const updGroup = (group, fn) => onChange({ ...settings, [group]: fn(settings[group]) });
+  // שינוי במשמרות הקבועות: ההגדרה שהייתה בתוקף עד יום לפני effFrom נשמרת ב-_prev, והשינוי חל מ-effFrom והלאה
+  const commitRegular = (next) => {
+    const until = SD.addDays(effFrom, -1);
+    const prevList = (settings._prev || []).slice().sort((a, b) => a.until.localeCompare(b.until));
+    const covering = prevList.find(p => p.until >= until) || settings;
+    next._prev = [...prevList.filter(p => p.until < until),
+      { until, weekday: covering.weekday, friday: covering.friday, saturday: covering.saturday }];
+    onChange(next);
+  };
+  const updGroup = (group, fn) => commitRegular({ ...settings, [group]: fn(settings[group]) });
   const updSets = (fn) => onChange({ ...settings, sets: fn(sets) });
 
   const moveShift = (group, i, dir) => updGroup(group, (arr) => {
@@ -4166,15 +4187,28 @@ function ShiftsDrawer({ open, onClose, settings, onChange }) {
           <button className={'right-drawer-tab' + (tab === 'special' ? ' on' : '')} onClick={() => setTab('special')}>מיוחדות</button>
         </div>
         <div className="right-drawer-body">
-          <div className="settings-warning" style={{marginBottom:14}}>שינויים יחולו על טיוטות חדשות בלבד</div>
-
           {tab === 'regular' && (
             <div style={{display:'flex',flexDirection:'column',gap:18}}>
+              <div className="settings-warning" style={{display:'flex',flexDirection:'column',gap:6}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                  <span>שינויים חלים מתאריך</span>
+                  <input type="date" value={effFrom} onChange={e => e.target.value && setEffFrom(e.target.value)}
+                    style={{border:'1px solid var(--line)',borderRadius:6,padding:'3px 6px',font:'inherit',fontSize:12,background:'var(--surface)',color:'var(--ink)'}} />
+                  <span>והלאה</span>
+                </div>
+                <span style={{fontWeight:400}}>משמרות שלפני התאריך נשארות עם השעות הקודמות. סידורים שכבר פורסמו מתעדכנים אצל העובדים אוטומטית.</span>
+                {onRepublish && (
+                  <button className="btn" style={{alignSelf:'flex-start',fontSize:12,padding:'3px 10px'}} onClick={onRepublish}
+                    title="מפרסם מחדש כל סידור שפורסם (או פתוח לבקשות) עם השעות הנוכחיות — למשל אחרי שינוי שנעשה לפני שהעדכון האוטומטי היה קיים">
+                    🔄 עדכון השעות אצל העובדים עכשיו
+                  </button>
+                )}
+              </div>
               {renderGroup('weekday', 'ימי חול (א׳–ה׳)')}
               {renderGroup('friday',  'יום שישי (ו׳)')}
               {renderGroup('saturday','יום שבת (ש׳)')}
               <button className="btn" style={{width:'100%',fontSize:'12px'}}
-                onClick={() => onChange(window.DEFAULT_SHIFT_SETTINGS)}>איפוס לברירות מחדל</button>
+                onClick={() => commitRegular({ ...settings, weekday: window.DEFAULT_SHIFT_SETTINGS.weekday, friday: window.DEFAULT_SHIFT_SETTINGS.friday, saturday: window.DEFAULT_SHIFT_SETTINGS.saturday })}>איפוס לברירות מחדל</button>
             </div>
           )}
 
@@ -6863,6 +6897,8 @@ function mergeSettings(saved) {
     templates: saved.templates || [],
     dayOrder: saved.dayOrder || {},
     _overrides: saved._overrides || {},
+    // הגדרות קבועות קודמות לפי תאריך (ראו settingsAt) — שינוי שעות חל מתאריך והלאה
+    _prev: Array.isArray(saved._prev) ? saved._prev : [],
     _v: SETTINGS_V,
   };
 }
@@ -8069,19 +8105,43 @@ ${JSON.stringify(emptySlots, null, 2)}
   };
 
   // פתח לבקשות — מפרסם טיוטה כ"פתוחה" ב-Supabase כך שעובדים יכולים להגיש בקשות
+  const openRowFor = (d) => ({
+    month: d.month,
+    schedule: {},
+    shift_settings: { ...(shiftSettings || {}), _status: 'open', _range: { ...d.range, excluded: d.excluded || [] } },
+    employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
+    published_at: new Date().toISOString(),
+  });
   const openForRequests = (id) => {
     const d = drafts.find(x => x.id === id);
     setDraftStatus(id, 'open');
-    if (d && dbAvailable.current && window.__db.publishSchedule) {
-      window.__db.publishSchedule({
-        month: d.month,
-        schedule: {},
-        shift_settings: { ...(shiftSettings || {}), _status: 'open', _range: { ...d.range, excluded: d.excluded || [] } },
-        employees: employees.map(e => ({ id: e.id, name: e.name, color: e.color || null })),
-        published_at: new Date().toISOString(),
-      });
-    }
+    if (d && dbAvailable.current && window.__db.publishSchedule) window.__db.publishSchedule(openRowFor(d));
   };
+
+  // שינוי במסך המשמרות (שעות/משמרות) — מפרסמים מחדש כל חודש שכבר פורסם (סופי) או פתוח לבקשות, כדי
+  // שאפליקציית העובדים, היומן והתזכורות יציגו את השעות החדשות (מתאריך התחולה והלאה) גם בסידורים קיימים
+  const settingsEditedRef = React.useRef(false);
+  const republishAllPublished = () => {
+    if (!dbAvailable.current || !window.__db.publishSchedule) return 0;
+    let n = 0;
+    [...new Set(drafts.map(d => d.month))].forEach(m => {
+      const ds = drafts.filter(d => d.month === m);
+      const fin = ds.find(d => d.status === 'final');
+      if (fin) {
+        window.__db.publishSchedule(publishRowFor(fin)); n++;
+        publishedSigRef.current[fin.id] = JSON.stringify([fin.schedule, shiftSettings]);
+        return;
+      }
+      const open = ds.find(d => d.status === 'open');
+      if (open) { window.__db.publishSchedule(openRowFor(open)); n++; }
+    });
+    return n;
+  };
+  React.useEffect(() => {
+    if (!settingsEditedRef.current) return;
+    const t = setTimeout(() => { settingsEditedRef.current = false; republishAllPublished(); }, 1500);
+    return () => clearTimeout(t);
+  }, [shiftSettings]);
 
   // עריכת טווח/ימים מוחרגים בטיוטה הפעילה (הוספת/הסרת ימים בתחילת/סוף החודש).
   // אם הטיוטה כבר פתוחה לבקשות — מפרסמים מחדש מיד עם הטווח העדכני, כדי שאפליקציית
@@ -8495,7 +8555,8 @@ ${JSON.stringify(emptySlots, null, 2)}
       )}
 
       <ShiftsDrawer open={shiftsDrawerOpen} onClose={() => setShiftsDrawerOpen(false)}
-        settings={shiftSettings} onChange={setShiftSettings} />
+        settings={shiftSettings} onChange={(s) => { settingsEditedRef.current = true; setShiftSettings(s); }}
+        onRepublish={() => { const n = republishAllPublished(); setToast(n ? `השעות עודכנו אצל העובדים ב-${n} סידורים שפורסמו` : 'אין סידורים שפורסמו לעדכן'); }} />
       <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
         tweaks={t} onTweakChange={setTweak}
         auth={auth}

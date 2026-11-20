@@ -757,8 +757,9 @@
   [data-radius="round"] .btn { border-radius: 999px; }
   [data-radius="round"] .mgr-sec, [data-radius="round"] .emp-msg { border-radius: 22px; }
   .app { zoom: var(--ui-zoom, 1); height: calc(100vh / var(--ui-zoom, 1)); }
-  .twk-launch { position: fixed; left: 14px; bottom: 14px; z-index: 2147483000; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 700; box-shadow: var(--shadow); cursor: pointer; }
-  .twk-launch:hover { color: var(--accent); border-color: var(--accent); }
+  /* במרכז התחתית — בפינה הוא הסתיר את הסרגל התחתון של הטלפון (שמוצג משמאל כברירת מחדל) */
+  .twk-launch { position: fixed; left: 50%; transform: translateX(-50%); bottom: 12px; opacity: .85; z-index: 2147483000; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 700; box-shadow: var(--shadow); cursor: pointer; }
+  .twk-launch:hover { color: var(--accent); border-color: var(--accent); opacity: 1; }
   .rule-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); font-size: 12.5px; }
   .rule-row.iron { background: color-mix(in oklab, oklch(0.45 0.18 300) 9%, transparent); border-color: color-mix(in oklab, oklch(0.45 0.18 300) 35%, transparent); }
   .rule-row .act { margin-inline-start: auto; display: flex; gap: 2px; }
@@ -6407,12 +6408,14 @@ const STATUS_META = {
   final:      { label: 'סידור סופי',       cls: 'st-final' },
 };
 
+// ברירת המחדל = הבחירה של המשבץ (טורקיז, מנטה, רקע צבעוני, ניגודיות גבוהה, פינות עגולות, טלפון משמאל).
+// ניתן לשנות בכל רגע מ-🎨 Tweaks — הבחירה נשמרת בדפדפן וגוברת על ברירת המחדל.
 const TWEAK_DEFAULTS = {
-  accent: '#3D63C9', density: 'רגילה', dark: false,
+  accent: '#0891B2', density: 'רגילה', dark: false,
   // כל האפליקציה
-  tint: 'קר', contrast: 'רגילה', bg: 'גרדיאנט', glass: true, radius: 'רגיל', uiSize: 'רגיל',
+  tint: 'מנטה', contrast: 'גבוהה', bg: 'צבעוני', glass: true, radius: 'עגול', uiSize: 'רגיל',
   // מסך העובדים
-  pplView: 'טלפון והגדרות', pplPhone: 'מותאם', pplPhoneSide: 'ימין', pplList: 'רגילה', pplGroup: false, pplHeader: 'מלא',
+  pplView: 'טלפון והגדרות', pplPhone: 'מותאם', pplPhoneSide: 'שמאל', pplList: 'רגילה', pplGroup: false, pplHeader: 'מלא',
 };
 const TWEAK_ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2', '#B8326E', '#3A3F4B'];
 

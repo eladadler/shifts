@@ -63,6 +63,8 @@
   // ---- 4) פס "גרסת פיתוח" ----
   var addBar = function () {
     if (document.getElementById('__devbar')) return;
+    // בתוך iframe (למשל אפליקציית העובד המוטמעת במסך העובדים של המשבץ) — הפס כבר מוצג בעמוד העוטף
+    try { if (window.top !== window) return; } catch (_) { return; }
     var bar = document.createElement('div');
     bar.id = '__devbar';
     bar.dir = 'rtl';

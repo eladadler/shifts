@@ -635,6 +635,63 @@
   }
   .toggle-switch input:checked + .toggle-slider { background: var(--ok); }
   .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+  /* ===== אזור העובדים (עיצוב מחודש) ===== */
+  .ppl-list { width: 264px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; border-inline-end: 1px solid var(--glass-border); background: var(--glass-surface); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
+  .ppl-search { margin: 10px 10px 6px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 9px; padding: 6px 10px; background: var(--surface); }
+  .ppl-search input { border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--ink); width: 100%; }
+  .ppl-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 10px 8px; border-bottom: 1px solid var(--line); }
+  .ppl-filter { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 3px 9px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+  .ppl-filter.on { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+  .ppl-filter .n { opacity: .7; margin-inline-start: 3px; }
+  .ppl-rows { flex: 1; overflow: auto; padding: 6px; }
+  .ppl-row { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 10px; cursor: pointer; border: 1.5px solid transparent; margin-bottom: 2px; }
+  .ppl-row:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
+  .ppl-row.sel { background: color-mix(in oklab, var(--accent) 11%, transparent); border-color: color-mix(in oklab, var(--accent) 35%, transparent); }
+  .ppl-row.drop { border-top: 2px solid var(--accent); }
+  .ppl-row .nm { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ppl-row .sub { font-size: 10.5px; color: var(--ink-3); display: flex; gap: 6px; align-items: center; margin-top: 1px; }
+  .st-pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+  .st-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .emp-ws { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .emp-head { display: flex; flex-direction: column; gap: 8px; padding: 12px 20px 10px; border-bottom: 1px solid var(--line); background: var(--surface); flex-shrink: 0; }
+  .emp-head-top { display: flex; align-items: center; gap: 12px; }
+  .emp-head h2 { margin: 0; font-size: 21px; font-weight: 800; letter-spacing: -.01em; }
+  .emp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .emp-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--ink-2); background: color-mix(in oklab, var(--ink) 5%, transparent); border-radius: 8px; padding: 4px 9px; }
+  .emp-chip.warn { color: var(--warn); background: var(--warn-bg); }
+  .emp-chip.bad { color: var(--danger); background: var(--danger-bg); }
+  .emp-callout { display: flex; gap: 8px; align-items: flex-start; background: color-mix(in oklab, oklch(0.85 0.12 90) 30%, var(--surface)); border: 1px solid color-mix(in oklab, oklch(0.75 0.13 85) 50%, transparent); border-radius: 10px; padding: 8px 12px; font-size: 13px; line-height: 1.5; }
+  .emp-tabs { display: flex; gap: 4px; }
+  .emp-tab { border: none; background: transparent; font: inherit; font-size: 13px; font-weight: 700; color: var(--ink-3); padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+  .emp-tab.on { color: var(--ink); background: color-mix(in oklab, var(--ink) 7%, transparent); }
+  .emp-body { flex: 1; min-height: 0; display: flex; gap: 0; overflow: hidden; }
+  .wk-phone-col { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 16px; border-inline-end: 1px solid var(--line); background: color-mix(in oklab, var(--ink) 3%, var(--bg)); min-height: 0; }
+  .wk-phone-tabs { display: flex; gap: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 3px; flex-shrink: 0; }
+  .wk-tab { border: none; background: transparent; font: inherit; font-size: 12px; font-weight: 700; color: var(--ink-3); padding: 5px 9px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+  .wk-tab.on { background: var(--ink); color: var(--surface); }
+  .wk-phone-box { flex: 1; min-height: 0; width: 100%; display: flex; justify-content: center; }
+  .wk-phone-scale { position: relative; direction: ltr; }
+  .wk-phone { position: absolute; top: 0; left: 0; transform-origin: top left; background: #15161a; border-radius: 44px; padding: 12px; box-shadow: 0 18px 40px rgba(20,22,30,.22), inset 0 0 0 2px #2a2c33; }
+  .wk-phone iframe { display: block; border: none; border-radius: 33px; background: #fff; }
+  .wk-phone-loading { position: absolute; inset: 12px; display: flex; align-items: center; justify-content: center; color: #8a867f; font-size: 13px; background: #fff; border-radius: 33px; direction: rtl; }
+  .wk-phone-foot { font-size: 11.5px; color: var(--ink-3); flex-shrink: 0; }
+  .wk-phone-foot a { color: var(--accent); font-weight: 700; text-decoration: none; cursor: pointer; }
+  .mgr-panel { flex: 1; min-width: 0; overflow: auto; padding: 16px 22px 90px; }
+  .mgr-panel-title { font-size: 12px; font-weight: 800; color: var(--ink-3); letter-spacing: .03em; margin: 0 0 10px; }
+  .mgr-sec { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+  .mgr-sec-head { width: 100%; display: flex; align-items: center; gap: 8px; border: none; background: transparent; font: inherit; font-size: 14px; font-weight: 800; color: var(--ink); padding: 11px 14px; cursor: pointer; text-align: start; }
+  .mgr-sec-head .sum { font-size: 12px; font-weight: 600; color: var(--ink-3); margin-inline-start: auto; }
+  .mgr-sec-head .caret { color: var(--ink-3); font-size: 12px; width: 12px; }
+  .mgr-sec-hint { font-size: 12px; color: var(--ink-3); padding: 0 14px 8px; line-height: 1.5; margin-top: -4px; }
+  .mgr-sec-body { padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
+  .mgr-sec.muted .mgr-sec-head { font-size: 13px; color: var(--ink-2); }
+  .mgr-savebar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-top: 6px; background: color-mix(in oklab, var(--accent) 10%, var(--surface)); border: 1px solid color-mix(in oklab, var(--accent) 35%, transparent); border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+  .rule-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); font-size: 12.5px; }
+  .rule-row.iron { background: color-mix(in oklab, oklch(0.45 0.18 300) 9%, transparent); border-color: color-mix(in oklab, oklch(0.45 0.18 300) 35%, transparent); }
+  .rule-row .act { margin-inline-start: auto; display: flex; gap: 2px; }
+  .rule-row .act button { border: none; background: transparent; cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 6px; color: var(--ink-3); }
+  .rule-row .act button:hover { background: color-mix(in oklab, var(--ink) 7%, transparent); color: var(--ink); }
 </style>
 </head>
 <body>
@@ -4845,190 +4902,196 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, vac
     });
   };
 
+  // יש שינויים שלא נשמרו — מציגים פס שמירה דביק רק אז (במקום כפתור שמירה קבוע בתחתית טופס ארוך)
+  const dirty = isNew || JSON.stringify(draft) !== JSON.stringify(buildDraft(emp));
+  const INP = {border:'1px solid var(--line)',borderRadius:8,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'};
+  const check = (key, label) => (
+    <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+      <input type="checkbox" checked={!!draft[key]} onChange={(e) => setDraft(p => ({...p, [key]: e.target.checked}))} />{label}
+    </label>
+  );
+  const stepper = (val, dec, inc, hint) => (
+    <div className="stepper">
+      <button className="stepper-btn" onClick={dec}>−</button>
+      <span className="stepper-val">{val}</span>
+      <button className="stepper-btn" onClick={inc}>+</button>
+      {hint && <span className="field-hint">{hint}</span>}
+    </div>
+  );
+
+  // --- פרטים וחשבון ---
+  const identity = (
+    <>
+      <div className="field">
+        <label className="field-label">שם <span style={{color:'var(--danger)'}}>*</span></label>
+        <input style={INP} value={draft.name} onChange={(e) => setDraft(p => ({...p, name: e.target.value}))} autoFocus={isNew}
+          placeholder="שדה חובה יחיד — אפשר להוסיף שם משפחה אם רוצים" />
+      </div>
+      <div className="field">
+        <label className="field-label">תפקיד <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
+        <input style={INP} value={draft.role} onChange={(e) => setDraft(p => ({...p, role: e.target.value}))} />
+      </div>
+      <div className="field">
+        <label className="field-label">אימייל <span style={{color:'var(--ink-3)',fontWeight:400}}>(לכניסה לאפליקציית העובדים)</span></label>
+        <input type="email" dir="ltr" style={{...INP, textAlign:'left'}} value={draft.email || ''}
+          onChange={(e) => setDraft(p => ({...p, email: e.target.value}))} placeholder="dana@example.com" />
+      </div>
+      <div className="field">
+        <label className="field-label">סיסמה לאפליקציית העובדים</label>
+        {!adminKey ? (
+          <span className="field-hint" style={{fontSize:'11.5px'}}>כדי ליצור חשבון ולקבוע סיסמה מכאן, הזינו מפתח אדמין בהגדרות (⚙)</span>
+        ) : (
+          <>
+            <div style={{display:'flex',gap:6}}>
+              <input type="text" dir="ltr" style={{...INP, flex:1, textAlign:'left'}} value={acctPw}
+                onChange={(e) => { setAcctPw(e.target.value); setAcctMsg(null); }} placeholder="סיסמה חדשה (6 תווים לפחות)" />
+              <button className="btn btn-primary" style={{whiteSpace:'nowrap',fontSize:'12.5px'}} disabled={acctBusy} onClick={setAccountPassword}>
+                {acctBusy ? <><span className="spin">↻</span> שומר…</> : 'צור חשבון / קבע סיסמה'}
+              </button>
+            </div>
+            {acctMsg && <div style={{marginTop:6,fontSize:'12px',color:acctMsg.err ? 'var(--danger)' : 'var(--ok)'}}>{acctMsg.text}</div>}
+          </>
+        )}
+      </div>
+      <div className="field">
+        <label className="field-label">צבע</label>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {COLORS.map(c => (
+            <button key={c} onClick={() => setDraft(p => ({...p, color: c}))} aria-label="צבע"
+              style={{width:30,height:30,borderRadius:8,background:c,border:`2.5px solid ${draft.color === c ? 'var(--ink)' : 'transparent'}`,cursor:'pointer'}} />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+
+  // --- העדפות שהעובד עצמו קובע (employee_prefs) — עורכים אותן גם במסך ההגדרות שלו בטלפון ---
+  const workerPrefs = (
+    <>
+      <div className="field">
+        <label className="field-label">
+          יעד משמרות חול בשבוע (א׳–ה׳ ומוצ״ש)
+          {draft.weekdayShiftsPerWeek < 2 && <span style={{color:'var(--danger)',fontWeight:600}}> ⚠ מתחת ל-2</span>}
+        </label>
+        {stepper(draft.weekdayShiftsPerWeek,
+          () => setDraft(p => ({...p, weekdayShiftsPerWeek: Math.max(0, p.weekdayShiftsPerWeek - 1)})),
+          () => setDraft(p => ({...p, weekdayShiftsPerWeek: p.weekdayShiftsPerWeek + 1})))}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+        {check('wantsFridayShort', 'עושה שישי קצר')}
+        {check('wantsFridayLong', 'עושה שישי ארוך')}
+        {check('wantsShabbatLong', 'עושה שבת ארוכה')}
+        {check('wantsSaturdayShort', 'עושה שבת קצרה')}
+        {check('noWeekdayNights', 'ללא משמרות לילה')}
+      </div>
+    </>
+  );
+
+  // --- הגדרות שרק המשבץ קובע ---
+  const scheduling = (
+    <>
+      <div className="field">
+        <label className="field-label">מכסה חודשית</label>
+        {stepper(draft.max, () => setDraft(p => ({...p, max: Math.max(1, p.max - 1)})), () => setDraft(p => ({...p, max: p.max + 1})), 'משמרות לחודש לכל היותר')}
+      </div>
+      {!isNew && emp && (
+        <div className="field">
+          <label className="field-label">משמרות קבועות</label>
+          <span className="field-hint" style={{display:'block',marginBottom:6}}>משובצות ראשונות בכל שבוע, אלא אם העובד סימן "לא יכול" או בחופשה. נשמר מיד.</span>
+          <StandingRulesCard emp={emp} />
+        </div>
+      )}
+    </>
+  );
+  const shabbat = (
+    <>
+      <div className="field">
+        <label className="field-label">שבת ארוכה — בערך כל כמה ימים</label>
+        {stepper(draft.shabbatFrequencyDays || 45,
+          () => setDraft(p => ({...p, shabbatFrequencyDays: Math.max(7, (p.shabbatFrequencyDays || 45) - 1)})),
+          () => setDraft(p => ({...p, shabbatFrequencyDays: (p.shabbatFrequencyDays || 45) + 1})), 'ברירת מחדל 45 · המינימום בין שבתות הוא חצי מזה')}
+      </div>
+      <div className="field">
+        <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
+          <input type="checkbox" checked={draft.weekendShortFrequencyDays != null}
+            onChange={(e) => setDraft(p => ({...p, weekendShortFrequencyDays: e.target.checked ? 14 : null}))} />
+          יעד אישי למשמרת קצרה בסופ״ש (שישי קצר / שבת קצרה)
+        </label>
+        {draft.weekendShortFrequencyDays != null && stepper(draft.weekendShortFrequencyDays,
+          () => setDraft(p => ({...p, weekendShortFrequencyDays: Math.max(3, (p.weekendShortFrequencyDays || 14) - 1)})),
+          () => setDraft(p => ({...p, weekendShortFrequencyDays: (p.weekendShortFrequencyDays || 14) + 1})), 'ימים בין משמרות')}
+      </div>
+      {check('noThursdayIfShabbat', 'בלי משמרת יום בחמישי בשבוע שיש לו שבת ארוכה')}
+    </>
+  );
+  const criteria = (
+    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+      {[
+        ['minNightsPerWeek', 'מינימום לילות פתוחים בשבוע'],
+        ['minDaysPerWeek', 'מינימום ימים פתוחים בשבוע'],
+        ['minFridaysCanPerMonth', 'שישי פנוי אחד בחודש'],
+        ['minSaturdaysCanPerMonth', 'שבת קצרה פנויה אחת בחודש'],
+      ].map(([key, label]) => (
+        <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+          <span style={{fontSize:'12.5px',color:'var(--ink-2)'}}>{label}</span>
+          <input type="number" min="0" max="7" value={draft.reqCriteria?.[key] ?? ''} placeholder={String(requestCriteria?.[key] ?? '')}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setDraft(p => { const rc = { ...(p.reqCriteria || {}) }; if (raw === '') delete rc[key]; else rc[key] = Math.max(0, parseInt(raw) || 0); return { ...p, reqCriteria: rc }; });
+            }}
+            style={{width:56,border:'1px solid var(--line)',borderRadius:7,padding:'5px 7px',fontSize:'13px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'center',flexShrink:0}} />
+        </div>
+      ))}
+    </div>
+  );
+  const customCriteria = Object.keys(draft.reqCriteria || {}).length;
+  const vacNow = (vacationByYear.find(([y]) => y === String(new Date().getFullYear())) || [0, 0])[1];
+
   return (
-    <div style={{flex:1,overflow:'auto',padding:'18px 22px 28px'}}>
-      <div style={{display:'flex',flexDirection:'column',gap:16,maxWidth:520}}>
-        <div className="field">
-          <label className="field-label">שם פרטי <span style={{color:'var(--danger)'}}>*</span></label>
-          <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
-            value={draft.name} onChange={(e) => setDraft(p => ({...p, name: e.target.value}))} autoFocus
-            placeholder="שדה חובה יחיד — אפשר להוסיף שם משפחה אם רוצים" />
-        </div>
-        <div className="field">
-          <label className="field-label">תפקיד <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
-          <input style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%'}}
-            value={draft.role} onChange={(e) => setDraft(p => ({...p, role: e.target.value}))} />
-        </div>
-        <div className="field">
-          <label className="field-label">אימייל <span style={{color:'var(--ink-3)',fontWeight:400}}>(לכניסה לאפליקציית העובדים)</span></label>
-          <input type="email" dir="ltr" style={{border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',width:'100%',textAlign:'left'}}
-            value={draft.email || ''} onChange={(e) => setDraft(p => ({...p, email: e.target.value}))}
-            placeholder="dana@example.com" />
-        </div>
-        <div className="field">
-          <label className="field-label">סיסמה לאפליקציית העובדים</label>
-          {!adminKey ? (
-            <span className="field-hint" style={{fontSize:'11.5px'}}>כדי ליצור חשבון ולקבוע סיסמה מכאן, הזינו מפתח אדמין בהגדרות (⚙)</span>
-          ) : (
-            <>
-              <div style={{display:'flex',gap:6}}>
-                <input type="text" dir="ltr" style={{flex:1,border:'1px solid var(--line)',borderRadius:7,padding:'7px 10px',fontSize:'14px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'left'}}
-                  value={acctPw} onChange={(e) => { setAcctPw(e.target.value); setAcctMsg(null); }}
-                  placeholder="סיסמה חדשה (6 תווים לפחות)" />
-                <button className="btn btn-primary" style={{whiteSpace:'nowrap',fontSize:'12.5px'}} disabled={acctBusy}
-                  onClick={setAccountPassword}>
-                  {acctBusy ? <><span className="spin">↻</span> שומר…</> : 'צור חשבון / קבע סיסמה'}
-                </button>
-              </div>
-              {acctMsg && <div style={{marginTop:6,fontSize:'12px',color:acctMsg.err ? 'var(--danger)' : 'var(--ok)'}}>{acctMsg.text}</div>}
-            </>
-          )}
-        </div>
-        <div className="field">
-          <label className="field-label">מכסה חודשית <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות)</span></label>
-          <div className="stepper">
-            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, max: Math.max(1, p.max - 1)}))}>−</button>
-            <span className="stepper-val">{draft.max}</span>
-            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, max: p.max + 1}))}>+</button>
-            <span className="field-hint">משמרות לחודש</span>
-          </div>
-        </div>
-        {!isNew && (
-          <div className="field">
-            <label className="field-label">🏖️ ימי חופשה</label>
+    <div className="mgr-panel">
+      {isNew ? (
+        <>
+          <div className="mgr-panel-title">עובד חדש</div>
+          <MgrSection title="פרטים וחשבון">{identity}</MgrSection>
+          <MgrSection title="שיבוץ">{scheduling}</MgrSection>
+          <MgrSection title="העדפות העובד" hint="ברירת המחדל לעובד חדש. אחר כך העובד יעדכן אותן בעצמו באפליקציה." defaultOpen={false}>{workerPrefs}</MgrSection>
+        </>
+      ) : (
+        <>
+          <div className="mgr-panel-title">ניהול המשבץ — הגדרות שאין לעובד</div>
+          <MgrSection title="שיבוץ" summary={`מכסה ${draft.max}`}>{scheduling}</MgrSection>
+          <MgrSection title="שבתות וסוף שבוע" summary={`שבת כל ~${draft.shabbatFrequencyDays || 45} יום`}>{shabbat}</MgrSection>
+          <MgrSection title="העדפות העובד" muted defaultOpen={false}
+            summary={`${draft.weekdayShiftsPerWeek} בשבוע${draft.noWeekdayNights ? ' · בלי לילות' : ''}${draft.wantsShabbatLong ? '' : ' · בלי שבת ארוכה'}`}
+            hint="העובד קובע אותן בעצמו במסך ההגדרות שלו (בטלפון מימין). כאן אפשר לתקן במקומו.">{workerPrefs}</MgrSection>
+          <MgrSection title="פרטים וחשבון" muted defaultOpen={false} summary={draft.email || 'בלי אימייל'}>{identity}</MgrSection>
+          <MgrSection title="קריטריוני הגשה אישיים" muted defaultOpen={false} summary={customCriteria ? `${customCriteria} מותאמים` : 'לפי ההגדרה הכללית'}
+            hint="ריק = לפי ההגדרה הכללית (⚙ הגדרות).">{criteria}</MgrSection>
+          <MgrSection title="חופשות" muted defaultOpen={false} summary={`${vacNow} ימים השנה`}>
             <div style={{display:'flex',flexDirection:'column',gap:2}}>
               {vacationByYear.map(([y, cnt]) => (
                 <div key={y} style={{display:'flex',justifyContent:'space-between',fontSize:'13px',padding:'3px 2px'}}>
-                  <span style={{color:'var(--ink-2)'}}>{y}</span>
-                  <span style={{fontWeight:700}}>{cnt} ימים</span>
+                  <span style={{color:'var(--ink-2)'}}>{y}</span><span style={{fontWeight:700}}>{cnt} ימים</span>
                 </div>
               ))}
+              <span className="field-hint">נספר מהימים שהעובד מסמן כחופשה באפליקציה שלו</span>
             </div>
-            <span className="field-hint">נספר אוטומטית מהימים שהעובד.ת מסמנ.ת כחופשה באפליקציית העובדים</span>
+          </MgrSection>
+          <div style={{display:'flex',justifyContent:'flex-end',marginTop:14}}>
+            <button className="btn" style={{color:'var(--danger)',borderColor:'color-mix(in oklab, var(--danger) 40%, transparent)',fontSize:12}}
+              onClick={() => onDelete(emp.id)}>מחיקת העובד</button>
           </div>
-        )}
-        <div className="field">
-          <label className="field-label">
-            יעד משמרות/שבוע בימי חול (א׳–ה׳)
-            {draft.weekdayShiftsPerWeek < 2 && <span style={{color:'var(--danger)',fontWeight:600}}> ⚠ מתחת ל-2</span>}
-          </label>
-          <div className="stepper">
-            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, weekdayShiftsPerWeek: Math.max(0, p.weekdayShiftsPerWeek - 1)}))}>−</button>
-            <span className="stepper-val">{draft.weekdayShiftsPerWeek}</span>
-            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, weekdayShiftsPerWeek: p.weekdayShiftsPerWeek + 1}))}>+</button>
-            <span className="field-hint">גם מתעדכן/ניתן לעריכה מאפליקציית העובד</span>
-          </div>
-        </div>
-        <div className="field">
-          <label className="field-label">משמרות סוף שבוע <span style={{color:'var(--ink-3)',fontWeight:400}}>(כל משמרת ניתנת להגדרה בנפרד)</span></label>
-          <div style={{display:'flex',flexDirection:'column',gap:8}}>
-            <div style={{display:'flex',gap:20}}>
-              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-                <input type="checkbox" checked={draft.wantsFridayShort} onChange={(e) => setDraft(p => ({...p, wantsFridayShort: e.target.checked}))} />
-                עושה שישי קצר
-              </label>
-              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-                <input type="checkbox" checked={draft.wantsFridayLong} onChange={(e) => setDraft(p => ({...p, wantsFridayLong: e.target.checked}))} />
-                עושה שישי ארוך
-              </label>
-            </div>
-            <div style={{display:'flex',gap:20}}>
-              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-                <input type="checkbox" checked={draft.wantsShabbatLong} onChange={(e) => setDraft(p => ({...p, wantsShabbatLong: e.target.checked}))} />
-                עושה שבת ארוכה
-              </label>
-              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-                <input type="checkbox" checked={draft.wantsSaturdayShort} onChange={(e) => setDraft(p => ({...p, wantsSaturdayShort: e.target.checked}))} />
-                עושה שבת קצר (בוקר שבת)
-              </label>
-            </div>
-          </div>
-        </div>
-        <div style={{display:'flex',gap:20}}>
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-            <input type="checkbox" checked={draft.noWeekdayNights} onChange={(e) => setDraft(p => ({...p, noWeekdayNights: e.target.checked}))} />
-            ללא משמרות לילה (כולל מוצאי שבת)
-          </label>
-        </div>
-        <div className="field">
-          <label className="field-label">צבע</label>
-          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-            {COLORS.map(c => (
-              <button key={c} onClick={() => setDraft(p => ({...p, color: c}))}
-                style={{width:32,height:32,borderRadius:7,background:c,border:`2.5px solid ${draft.color === c ? 'var(--ink)' : 'transparent'}`,cursor:'pointer',transition:'border-color 0.1s'}} />
-            ))}
-          </div>
-        </div>
-        <div className="field">
-          <label className="field-label">🔁 שיבוץ שבת (ארוכה) — כל כמה ימים בקירוב</label>
-          <div className="stepper">
-            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, shabbatFrequencyDays: Math.max(7, (p.shabbatFrequencyDays || 45) - 1)}))}>−</button>
-            <span className="stepper-val">{draft.shabbatFrequencyDays || 45}</span>
-            <button className="stepper-btn" onClick={() => setDraft(p => ({...p, shabbatFrequencyDays: (p.shabbatFrequencyDays || 45) + 1}))}>+</button>
-            <span className="field-hint">ימים בין משמרות (ברירת מחדל 45)</span>
-          </div>
-        </div>
-        <div className="field">
-          <label className="field-label">🔁 משמרת קצרה בסופ״ש (שישי קצר / בוקר שבת) — יעד אישי <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות — משפיע רק על עובד זה)</span></label>
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer',marginBottom: draft.weekendShortFrequencyDays != null ? 8 : 0}}>
-            <input type="checkbox" checked={draft.weekendShortFrequencyDays != null}
-              onChange={(e) => setDraft(p => ({...p, weekendShortFrequencyDays: e.target.checked ? 14 : null}))} />
-            הגדר תדירות אישית (ברירת מחדל: ללא יעד מיוחד)
-          </label>
-          {draft.weekendShortFrequencyDays != null && (
-            <div className="stepper">
-              <button className="stepper-btn" onClick={() => setDraft(p => ({...p, weekendShortFrequencyDays: Math.max(3, (p.weekendShortFrequencyDays || 14) - 1)}))}>−</button>
-              <span className="stepper-val">{draft.weekendShortFrequencyDays}</span>
-              <button className="stepper-btn" onClick={() => setDraft(p => ({...p, weekendShortFrequencyDays: (p.weekendShortFrequencyDays || 14) + 1}))}>+</button>
-              <span className="field-hint">ימים בין משמרות — שישי קצר או בוקר שבת, הראשונה שמגיעה</span>
-            </div>
-          )}
-        </div>
-        <div className="field">
-          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'13px',cursor:'pointer'}}>
-            <input type="checkbox" checked={draft.noThursdayIfShabbat}
-              onChange={(e) => setDraft(p => ({...p, noThursdayIfShabbat: e.target.checked}))} />
-            ללא משמרת בוקר/בוקר קצר ביום חמישי אם משובץ ל"שבת ארוכה" באותו שבוע
-          </label>
-          <span className="field-hint" style={{display:'block',marginTop:4}}>העדפה אישית — משפיעה רק על עובד זה</span>
-        </div>
-        <div className="field">
-          <label className="field-label">📋 קריטריוני הגשת בקשות אישיים <span style={{color:'var(--ink-3)',fontWeight:400}}>(רשות — ריק = לפי ההגדרה הכללית)</span></label>
-          <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:4}}>
-            {[
-              ['minNightsPerWeek', 'מינימום לילות/שבוע'],
-              ['minDaysPerWeek', 'מינימום ימים/שבוע'],
-              ['minFridaysCanPerMonth', 'שישי קצר/ארוך פנוי אחד/חודש'],
-              ['minSaturdaysCanPerMonth', 'בוקר שבת פנוי אחד/חודש'],
-            ].map(([key, label]) => (
-              <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
-                <span style={{fontSize:'12.5px',color:'var(--ink-2)'}}>{label}</span>
-                <input type="number" min="0" max="7"
-                  value={draft.reqCriteria?.[key] ?? ''}
-                  placeholder={String(requestCriteria?.[key] ?? '')}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    setDraft(p => {
-                      const rc = { ...(p.reqCriteria || {}) };
-                      if (raw === '') delete rc[key]; else rc[key] = Math.max(0, parseInt(raw) || 0);
-                      return { ...p, reqCriteria: rc };
-                    });
-                  }}
-                  style={{width:52,border:'1px solid var(--line)',borderRadius:7,padding:'5px 7px',fontSize:'13px',background:'var(--surface)',color:'var(--ink)',font:'inherit',outline:'none',textAlign:'center',flexShrink:0}} />
-              </div>
-            ))}
-          </div>
-        </div>
-        <div style={{display:'flex',gap:10,paddingTop:10,borderTop:'1px solid var(--line)'}}>
-          {!isNew && (
-            <button className="btn" style={{color:'var(--danger)',borderColor:'color-mix(in oklab, var(--danger) 40%, transparent)'}}
-              onClick={() => onDelete(emp.id)}>מחיקה</button>
-          )}
+        </>
+      )}
+      {dirty && (
+        <div className="mgr-savebar">
+          <span style={{fontSize:13,fontWeight:700}}>{isNew ? 'עובד חדש' : 'יש שינויים שלא נשמרו'}</span>
           <span style={{marginInlineStart:'auto'}} />
-          {isNew && <button className="btn" onClick={onCancel}>ביטול</button>}
-          <button className="btn btn-primary" onClick={save}>{isNew ? '+ הוספה' : '💾 שמירה'}</button>
+          {isNew ? <button className="btn" onClick={onCancel}>ביטול</button>
+                 : <button className="btn" onClick={() => setDraft(buildDraft(emp))}>ביטול השינויים</button>}
+          <button className="btn btn-primary" onClick={save} disabled={!draft.name.trim()}>{isNew ? '+ הוספה' : 'שמירה'}</button>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -5570,6 +5633,183 @@ function RequestDetailPanel({ emp, entry, altOptions, scheduleResponse, month, o
 // "בקשות" (RequestDetailPanel, כפי שהיה במסך "בקשות" הנפרד) ו"פרטי עובד"
 // (EmployeeProfileForm, כפי שהיה במסך "עובדים" הנפרד) — כדי לא לקפוץ בין שני מסכים
 // עם שתי רשימות עובדים נפרדות כדי לעשות שתי פעולות שקשורות לאותו עובד.
+
+// ===== אזור העובדים — עיצוב מחודש (גרסת פיתוח) =====
+// מצב הבקשה של עובד לחודש — הדבר הראשון שהמשבץ צריך לדעת עליו
+function empMonthStatus(entry) {
+  if (entry?.fromEmployee && !entry.isDraft) return { key: 'submitted', label: 'הוגש', fg: 'var(--ok)', bg: 'var(--ok-bg)' };
+  if (entry?.fromEmployee && entry.isDraft) return { key: 'draft', label: 'טיוטה בלבד', fg: 'var(--warn)', bg: 'var(--warn-bg)' };
+  const hasDates = entry && ((entry.unavailable || []).length || (entry.high || []).length || (entry.can || []).length || (entry.vacation || []).length);
+  if (hasDates || entry?.text?.trim()) return { key: 'manager', label: 'הוזן במשבץ', fg: 'var(--accent)', bg: 'color-mix(in oklab, var(--accent) 12%, transparent)' };
+  return { key: 'none', label: 'לא הגיש', fg: 'var(--ink-3)', bg: 'color-mix(in oklab, var(--ink-3) 11%, transparent)' };
+}
+function StatusPill({ st }) {
+  return <span className="st-pill" style={{ color: st.fg, background: st.bg }}>{st.label}</span>;
+}
+
+// "הטלפון של העובד": אפליקציית העובדים עצמה, פתוחה כעובד (impersonate) במצב מוטמע — לא חיקוי,
+// כך שכל שינוי באפליקציית העובדים מופיע כאן אוטומטית. הלשוניות מעל הטלפון מחליפות מסך ב-postMessage.
+const WORKER_TABS = [['home', 'בית'], ['schedule', 'הסידור'], ['requests', 'בקשות'], ['swaps', 'חילופים'], ['settings', 'הגדרות']];
+function WorkerPhone({ emp }) {
+  const W = 390, H = 780, BEZEL = 12;
+  const [tab, setTab] = React.useState('home');
+  const [loaded, setLoaded] = React.useState(false);
+  const [scale, setScale] = React.useState(1);
+  const frameRef = React.useRef(null);
+  const boxRef = React.useRef(null);
+  const base = window.location.href.split('?')[0].split('#')[0].replace(/[^/]*$/, '');
+  const url = (embed) => `${base}עובד.html?impersonate=${encodeURIComponent(emp.id)}${embed ? '&embed=1&tab=home' : ''}`;
+  React.useEffect(() => { setTab('home'); setLoaded(false); }, [emp.id]);
+  React.useEffect(() => {
+    const onMsg = (e) => { if (e.source && e.source === frameRef.current?.contentWindow && e.data?.type === 'mishmarot:tab') setTab(e.data.tab); };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+  React.useEffect(() => {
+    const el = boxRef.current;
+    if (!el || !window.ResizeObserver) return;
+    const ro = new ResizeObserver(() => {
+      const h = el.clientHeight, w = el.clientWidth;
+      setScale(Math.max(0.5, Math.min(1, h / (H + BEZEL * 2))));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const go = (t) => { setTab(t); try { frameRef.current?.contentWindow?.postMessage({ type: 'mishmarot:setTab', tab: t }, '*'); } catch (_) {} };
+  const PW = W + BEZEL * 2, PH = H + BEZEL * 2;
+  return (
+    <div className="wk-phone-col" style={{ width: Math.max(340, PW * scale + 40) }}>
+      <div className="wk-phone-tabs" role="tablist" aria-label="מסכים באפליקציית העובד">
+        {WORKER_TABS.map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} className={'wk-tab' + (tab === id ? ' on' : '')} onClick={() => go(id)}>{label}</button>
+        ))}
+      </div>
+      <div ref={boxRef} className="wk-phone-box">
+        <div className="wk-phone-scale" style={{ width: PW * scale, height: PH * scale }}>
+          <div className="wk-phone" style={{ width: PW, height: PH, transform: `scale(${scale})` }}>
+            {!loaded && <div className="wk-phone-loading">טוען את האפליקציה של {emp.name}…</div>}
+            <iframe key={emp.id} ref={frameRef} src={url(true)} title={'אפליקציית העובדים — ' + emp.name}
+              onLoad={() => setLoaded(true)} style={{ width: W, height: H }} />
+          </div>
+        </div>
+      </div>
+      <div className="wk-phone-foot">כך {(emp.name || '').split(' ')[0]} רואה את האפליקציה · <a onClick={() => window.open(url(false), '_blank')}>↗ פתיחה בחלון</a></div>
+    </div>
+  );
+}
+
+// כותרת העובד: מי זה, האם הגיש לחודש, ומה צריך תשומת לב — לפני כל השאר
+function EmployeeHeader({ emp, entry, pref, altCount, violations, vacationThisYear, monthLabel }) {
+  const st = empMonthStatus(entry);
+  const weekly = pref?.weekday_shifts_per_week ?? 2;
+  return (
+    <div className="emp-head">
+      <div className="emp-head-top">
+        <window.Avatar emp={emp} size={46} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <h2>{emp.name}</h2>
+            <StatusPill st={st} />
+            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>בקשות ל{monthLabel}{entry?.employeeUpdatedAt ? ' · ' + new Date(entry.employeeUpdatedAt).toLocaleDateString('he-IL') : ''}</span>
+          </div>
+          {emp.role && <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 2 }}>{emp.role}</div>}
+        </div>
+      </div>
+      {entry?.managerNote && (
+        <div className="emp-callout"><span>📌</span><span><b>הערה מהעובד למשבץ:</b> {entry.managerNote}</span></div>
+      )}
+      <div className="emp-chips">
+        <span className={'emp-chip' + (weekly < 2 ? ' warn' : '')}>יעד {weekly} משמרות חול בשבוע</span>
+        {pref?.no_weekday_nights && <span className="emp-chip">ללא לילות</span>}
+        {pref?.wants_shabbat_long === false && <span className="emp-chip">לא עושה שבת ארוכה</span>}
+        <span className="emp-chip">מכסה {emp.max ?? 14} בחודש</span>
+        {altCount > 0 && <span className="emp-chip">🔀 {altCount} {altCount === 1 ? 'אפשרות נוספת' : 'אפשרויות נוספות'}</span>}
+        {violations?.length > 0 && <span className="emp-chip warn" title={violations.join('\n')}>⚠ לא עומד בקריטריוני הגשה ({violations.length})</span>}
+        <span className="emp-chip">🏖️ חופשה השנה: {vacationThisYear} ימים</span>
+      </div>
+    </div>
+  );
+}
+
+// משמרות קבועות של העובד (employee_recurring_requests): "קבועה" (ברזל) נקבעת ע"י המשבץ ומשובצת ראשונה;
+// בקשות קבועות שהעובד הגדיר בעצמו מוצגות מתחת. נשמר מיד (לא דרך כפתור השמירה של הטופס).
+function StandingRulesCard({ emp }) {
+  const shiftSettings = React.useContext(window.ShiftSettingsCtx);
+  const SDx = window.ShiftData;
+  const [rules, setRules] = React.useState([]);
+  const [busy, setBusy] = React.useState(false);
+  const [nr, setNr] = React.useState({ weekday: 0, shiftId: '', mark: 'iron' });
+  const load = React.useCallback(() => {
+    if (emp?.id && window.__db?.fetchRecurringForEmployee) window.__db.fetchRecurringForEmployee(emp.id).then(r => setRules(r || []));
+  }, [emp?.id]);
+  React.useEffect(() => { load(); setNr({ weekday: 0, shiftId: '', mark: 'iron' }); }, [load]);
+  const allShifts = React.useMemo(() => {
+    const seen = new Set(); const list = [];
+    ['weekday', 'friday', 'saturday'].forEach(t => (shiftSettings?.[t] || []).forEach(sh => { if (!seen.has(sh.id)) { seen.add(sh.id); list.push(sh); } }));
+    return list;
+  }, [shiftSettings]);
+  const shiftName = (id) => id ? (allShifts.find(x => x.id === id)?.name || id) : 'כל היום';
+  const LABEL = { iron: 'קבועה', high: 'מבקש לעבוד', can: 'יכול', un: 'לא זמין' };
+  const run = async (fn) => { setBusy(true); try { await fn(); } finally { load(); setBusy(false); } };
+  const pinned = rules.filter(r => r.mark === 'iron');
+  const own = rules.filter(r => r.mark !== 'iron');
+  const sel = { fontSize: 12.5, padding: '5px 8px', borderRadius: 7, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)', font: 'inherit' };
+  const Row = ({ r }) => (
+    <div className={'rule-row' + (r.mark === 'iron' ? ' iron' : '')} style={{ opacity: r.active ? 1 : 0.5 }}>
+      <b>{SDx.HEB_DAYS[r.weekday]}</b><span>·</span><span>{shiftName(r.shift_id)}</span>
+      {r.mark !== 'iron' && <span style={{ color: 'var(--ink-3)' }}>— {LABEL[r.mark] || r.mark}</span>}
+      {!r.active && <span style={{ color: 'var(--ink-3)', fontSize: 11 }}>(כבוי)</span>}
+      <span className="act">
+        <button disabled={busy} title={r.active ? 'השהיה' : 'הפעלה'} onClick={() => run(() => window.__db.setRecurringRequestActive(r.id, !r.active))}>{r.active ? '⏸' : '▶'}</button>
+        <button disabled={busy} title="מחיקה" onClick={() => { if (window.confirm('למחוק את הכלל הקבוע?')) run(() => window.__db.deleteRecurringRequest(r.id)); }}>✕</button>
+      </span>
+    </div>
+  );
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {pinned.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>אין משמרות קבועות.</div>}
+      {pinned.map(r => <Row key={r.id} r={r} />)}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
+        <select style={sel} value={nr.weekday} onChange={e => setNr(x => ({ ...x, weekday: Number(e.target.value) }))}>
+          {SDx.HEB_DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+        </select>
+        <select style={sel} value={nr.shiftId} onChange={e => setNr(x => ({ ...x, shiftId: e.target.value }))}>
+          <option value="">כל היום</option>
+          {allShifts.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+        </select>
+        <select style={sel} value={nr.mark} onChange={e => setNr(x => ({ ...x, mark: e.target.value }))}>
+          <option value="iron">קבועה (משובצת ראשונה)</option>
+          <option value="high">מבקש לעבוד</option>
+          <option value="can">יכול</option>
+          <option value="un">לא זמין</option>
+        </select>
+        <button className="btn" disabled={busy} onClick={() => run(() => window.__db.addRecurringRequest({ emp_id: emp.id, weekday: nr.weekday, shift_id: nr.shiftId || null, mark: nr.mark, active: true }))}>+ הוספה</button>
+      </div>
+      {own.length > 0 && (
+        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-3)' }}>בקשות קבועות שהעובד הגדיר</div>
+          {own.map(r => <Row key={r.id} r={r} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MgrSection({ title, summary, hint, defaultOpen = true, muted, children }) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  return (
+    <div className={'mgr-sec' + (muted ? ' muted' : '')}>
+      <button className="mgr-sec-head" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        <span className="caret">{open ? '▾' : '◂'}</span>
+        <span>{title}</span>
+        {summary && <span className="sum">{summary}</span>}
+      </button>
+      {open && hint && <div className="mgr-sec-hint">{hint}</div>}
+      {open && <div className="mgr-sec-body">{children}</div>}
+    </div>
+  );
+}
+
 function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, altRequests, scheduleResponses, initialMonth, aiOn, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria }) {
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
   const [refreshing, setRefreshing] = React.useState(false);
@@ -5823,127 +6063,126 @@ ${shiftsDesc}
     if (selectedEmpId === id) { setSelectedEmpId(null); setTab('requests'); }
   };
 
-  const withReqCount = employees.filter(e => entryOf(e.id)).length;
   const selectedEmp = employees.find(e => e.id === selectedEmpId) || null;
+
+  // --- רשימה: חיפוש + סינון לפי מצב החודש ---
+  const [query, setQuery] = React.useState('');
+  const [filter, setFilter] = React.useState('all'); // all | submitted | missing | issues
+  const [detailTab, setDetailTab] = React.useState('overview'); // overview | requests
+  React.useEffect(() => { setDetailTab('overview'); }, [selectedEmpId]);
+  const rows = employees.map(emp => {
+    const entry = entryOf(emp.id);
+    const st = empMonthStatus(entry);
+    const issues = (criteriaViolationsByEmp[emp.id] || []).length > 0 || (prefs?.[emp.id]?.weekday_shifts_per_week ?? 2) < 2;
+    return { emp, entry, st, issues, alt: Object.keys(altRequests[emp.id]?.[month] || {}).length };
+  });
+  const counts = {
+    all: rows.length,
+    submitted: rows.filter(r => r.st.key === 'submitted').length,
+    missing: rows.filter(r => r.st.key !== 'submitted').length,
+    issues: rows.filter(r => r.issues).length,
+  };
+  const q = query.trim();
+  const shown = rows.filter(r => (!q || (r.emp.name || '').includes(q) || (r.emp.role || '').includes(q))
+    && (filter === 'all' || (filter === 'submitted' ? r.st.key === 'submitted' : filter === 'missing' ? r.st.key !== 'submitted' : r.issues)));
+  const canReorder = !q && filter === 'all';
+  const thisYear = String(new Date().getFullYear());
 
   return (
     <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,overflow:'hidden'}}>
-      {/* Toolbar */}
+      {/* סרגל עליון */}
       <div className="mgmt-toolbar" style={{padding:'10px 20px',borderBottom:'1px solid var(--glass-border)',flexShrink:0,background:'var(--glass-surface)',backdropFilter:'var(--glass-blur)',WebkitBackdropFilter:'var(--glass-blur)'}}>
-        <h2 className="mgmt-title">👥 עובדים ובקשות</h2>
+        <h2 className="mgmt-title">עובדים</h2>
         <div className="month-nav" style={{marginInlineStart:12}}>
           <button className="month-nav-btn" onClick={() => navMonth(-1)} title="חודש קודם">‹</button>
           <span style={{fontSize:'14px',fontWeight:600,minWidth:110,textAlign:'center'}}>{SD.monthLabel(month)}</span>
           <button className="month-nav-btn" onClick={() => navMonth(1)} title="חודש הבא">›</button>
         </div>
-        <button className="btn" style={{marginInlineStart:10,fontSize:'12px'}} onClick={refresh} disabled={refreshing}>
+        <span style={{fontSize:13,color:'var(--ink-2)',marginInlineStart:14}}>
+          <b style={{color:'var(--ok)'}}>{counts.submitted}</b> מתוך {counts.all} הגישו
+          {counts.issues > 0 && <> · <b style={{color:'var(--warn)'}}>{counts.issues}</b> עם חריגות</>}
+        </span>
+        <span style={{marginInlineStart:'auto'}} />
+        <button className="btn" style={{fontSize:'12px'}} onClick={refresh} disabled={refreshing}>
           {refreshing ? <><span className="spin">↻</span> מרענן…</> : '↻ רענון'}
         </button>
-        <span style={{fontSize:'12.5px',color:'var(--ink-3)',marginInlineStart:'auto'}}>{withReqCount}/{employees.length} עם בקשות</span>
-        <button className="btn btn-primary" style={{marginInlineStart:10,fontSize:'12px'}} onClick={openAddEmployee}>+ הוספת עובד</button>
+        <button className="btn btn-primary" style={{marginInlineStart:8,fontSize:'12px'}} onClick={openAddEmployee}>+ עובד חדש</button>
       </div>
 
-      {/* Split layout */}
       <div style={{display:'flex',flex:1,minHeight:0,overflow:'hidden'}}>
-
-        {/* Employee list — FIRST in DOM → right side in RTL */}
-        <div style={{width:230,flexShrink:0,overflow:'auto',borderInlineEnd:'1px solid var(--glass-border)',background:'var(--glass-surface)',backdropFilter:'var(--glass-blur)',WebkitBackdropFilter:'var(--glass-blur)',padding:'6px 5px'}}>
-          {employees.length === 0 && (
-            <div style={{textAlign:'center',padding:'20px',color:'var(--ink-3)',fontSize:12}}>אין עובדים עדיין — לחצו "+ הוספת עובד" למעלה</div>
-          )}
-          {employees.map(emp => {
-            const entry = entryOf(emp.id);
-            const hasDates = entry && ((entry.unavailable||[]).length || (entry.high||[]).length || (entry.can||[]).length || (entry.vacation||[]).length);
-            const altCount = Object.keys(altRequests[emp.id]?.[month] || {}).length;
-            const fromEmployee = entry?.fromEmployee;
-            const analyzed = entry?.analyzedAt;
-            const hasText = entry?.text?.trim();
-            const isSelected = !addingNew && emp.id === selectedEmpId;
-            const lowWeekly = (prefs?.[emp.id]?.weekday_shifts_per_week ?? 2) < 2;
-            const isDragging = dragEmpId === emp.id;
-            const isDragOver = overEmpId === emp.id && dragEmpId && dragEmpId !== emp.id;
-            return (
-              <div key={emp.id} onClick={() => selectEmp(emp.id)}
-                draggable
-                onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragEmpId(emp.id); }}
-                onDragEnd={() => { setDragEmpId(null); setOverEmpId(null); }}
-                onDragOver={(e) => { if (dragEmpId) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOverEmpId(emp.id); } }}
-                onDragLeave={() => setOverEmpId(o => (o === emp.id ? null : o))}
-                onDrop={(e) => { e.preventDefault(); reorderEmpTo(emp.id); setDragEmpId(null); setOverEmpId(null); }}
-                style={{
-                display:'flex',alignItems:'center',gap:7,padding:'7px 9px',borderRadius:8,cursor:'grab',
-                background:isSelected ? 'color-mix(in oklab, var(--accent) 12%, transparent)' : 'transparent',
-                border:isSelected ? '1.5px solid color-mix(in oklab, var(--accent) 35%, transparent)' : '1.5px solid transparent',
-                borderTop:isDragOver ? '2px solid var(--accent)' : (isSelected ? '1.5px solid color-mix(in oklab, var(--accent) 35%, transparent)' : '1.5px solid transparent'),
-                opacity:isDragging ? 0.4 : 1,
-                marginBottom:2,transition:'background 0.12s',
-              }}>
-                <span title="גררו לסידור מחדש" style={{flexShrink:0,fontSize:11,color:'var(--ink-3)',cursor:'grab',lineHeight:1}}>⠿</span>
-                <window.Avatar emp={emp} size={26} />
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4}}>
-                    <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.name}</span>
-                    {entry?.managerNote && <span title={'הערה למשבץ: ' + entry.managerNote} style={{flexShrink:0}}>📌</span>}
-                    {altCount > 0 && (
-                      <span title={`העובד.ת הגיש.ה ${altCount} טיוט${altCount === 1 ? 'ה נוספת' : 'ות נוספות'} לחודש זה — בבורר הטיוטות מעל הלוח בפרטי הבקשה`}
-                        style={{flexShrink:0,fontSize:9.5,fontWeight:800,color:'var(--vacation)',background:'var(--vacation-bg)',borderRadius:999,padding:'1px 5px'}}>
-                        🔀{altCount}
-                      </span>
-                    )}
-                    {lowWeekly && <span title="מבקש פחות מ-2 משמרות/שבוע בימי חול" style={{flexShrink:0,fontSize:10,color:'var(--danger)'}}>⚠</span>}
-                    {criteriaViolationsByEmp[emp.id]?.length > 0 && (
-                      <span title={'לא עומד בקריטריוני הגשה: ' + criteriaViolationsByEmp[emp.id].join('; ')} style={{flexShrink:0,fontSize:10,color:'var(--warn)'}}>📋⚠</span>
-                    )}
+        {/* רשימת העובדים — ראשונה ב-DOM, כלומר מימין */}
+        <div className="ppl-list">
+          <div className="ppl-search">
+            <span style={{color:'var(--ink-3)',fontSize:13}}>⌕</span>
+            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="חיפוש עובד" aria-label="חיפוש עובד" />
+          </div>
+          <div className="ppl-filters">
+            {[['all','הכל'],['submitted','הגישו'],['missing','לא הגישו'],['issues','חריגות']].map(([k, l]) => (
+              <button key={k} className={'ppl-filter' + (filter === k ? ' on' : '')} onClick={() => setFilter(k)}>{l}<span className="n">{counts[k]}</span></button>
+            ))}
+          </div>
+          <div className="ppl-rows">
+            {employees.length === 0 && <div style={{textAlign:'center',padding:'20px',color:'var(--ink-3)',fontSize:12}}>אין עובדים עדיין</div>}
+            {employees.length > 0 && shown.length === 0 && <div style={{textAlign:'center',padding:'20px',color:'var(--ink-3)',fontSize:12}}>אין עובדים שמתאימים לסינון</div>}
+            {shown.map(({ emp, entry, st, alt }) => {
+              const isSelected = !addingNew && emp.id === selectedEmpId;
+              const viol = criteriaViolationsByEmp[emp.id] || [];
+              return (
+                <div key={emp.id} className={'ppl-row' + (isSelected ? ' sel' : '') + (overEmpId === emp.id && dragEmpId && dragEmpId !== emp.id ? ' drop' : '')}
+                  onClick={() => selectEmp(emp.id)}
+                  draggable={canReorder}
+                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragEmpId(emp.id); }}
+                  onDragEnd={() => { setDragEmpId(null); setOverEmpId(null); }}
+                  onDragOver={(e) => { if (dragEmpId) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOverEmpId(emp.id); } }}
+                  onDragLeave={() => setOverEmpId(o => (o === emp.id ? null : o))}
+                  onDrop={(e) => { e.preventDefault(); reorderEmpTo(emp.id); setDragEmpId(null); setOverEmpId(null); }}
+                  style={{opacity: dragEmpId === emp.id ? 0.4 : 1}}
+                  title={canReorder ? 'גררו לשינוי הסדר' : undefined}>
+                  <window.Avatar emp={emp} size={30} />
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="nm">{emp.name}</div>
+                    <div className="sub">
+                      <StatusPill st={st} />
+                      {entry?.managerNote && <span title={'הערה למשבץ: ' + entry.managerNote}>📌</span>}
+                      {alt > 0 && <span title={alt + ' אפשרויות נוספות'}>🔀{alt}</span>}
+                      {viol.length > 0 && <span style={{color:'var(--warn)'}} title={'לא עומד בקריטריוני הגשה: ' + viol.join('; ')}>⚠</span>}
+                    </div>
                   </div>
-                  {emp.role && <div style={{fontSize:10.5,color:'var(--ink-3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.role}</div>}
                 </div>
-                <div style={{flexShrink:0,textAlign:'end',minWidth:36}}>
-                  {fromEmployee && (
-                    <div title={entry?.isDraft ? 'העובד שמר טיוטה בלבד — טרם שלח את הבקשה בפועל' : 'הבקשה הוגשה ונשמרה בדאטהבייס'}
-                      style={{fontSize:9.5,fontWeight:700,color: entry?.isDraft ? 'var(--warn)' : 'var(--accent)'}}>📥</div>
-                  )}
-                  {!fromEmployee && hasDates && (
-                    <div title="נותחו תאריכים מכרטיס העובד כאן במשבץ — טרם נשלח לדאטהבייס (כפתור השליחה בכרטיס העובד)"
-                      style={{fontSize:9.5,fontWeight:700,color:'var(--ok)'}}>✓</div>
-                  )}
-                  {!fromEmployee && !hasDates && hasText && !analyzed && (
-                    <div title="יש טקסט חופשי שהוזן כאן במשבץ וטרם נותח ל-AI" style={{fontSize:9.5,color:'var(--warn)'}}>✎</div>
-                  )}
-                  {!fromEmployee && !hasDates && hasText && analyzed && (
-                    <div title="הטקסט נותח אך לא הופקו ממנו תאריכים — בדקו ידנית" style={{fontSize:9.5,color:'var(--ok)'}}>✓</div>
-                  )}
-                  {!entry && <div title="אין שום בקשה או טיוטה לחודש זה" style={{fontSize:11,color:'var(--line)'}}>—</div>}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
 
-        {/* Detail panel — SECOND in DOM → left side in RTL */}
-        <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column',minWidth:0}}>
-          {!addingNew && !selectedEmp ? (
-            employees.length === 0 ? (
-              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',gap:10,color:'var(--ink-3)'}}>
-                <div style={{fontSize:36}}>👥</div>
-                <div style={{fontSize:14,fontWeight:600}}>אין עדיין עובדים במערכת</div>
-                <button className="btn btn-primary" onClick={openAddEmployee}>+ הוספת עובד ראשון</button>
-              </div>
-            ) : (
-              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',gap:10,color:'var(--ink-3)'}}>
-                <div style={{fontSize:36}}>👈</div>
-                <div style={{fontSize:14,fontWeight:600}}>בחרו עובד מהרשימה</div>
-                <div style={{fontSize:12}}>לצפייה ועריכת בקשות, או לעריכת פרטיו</div>
-              </div>
-            )
+        {/* אזור העובד הנבחר */}
+        <div className="emp-ws">
+          {addingNew ? (
+            <EmployeeProfileForm emp={null} prefs={prefs} requestCriteria={requestCriteria} adminKey={adminKey} isNew
+              vacationDates={[]} onSave={saveEmployee} onCancel={() => setAddingNew(false)} onDelete={deleteEmployee} />
+          ) : !selectedEmp ? (
+            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',gap:10,color:'var(--ink-3)'}}>
+              <div style={{fontSize:15,fontWeight:700,color:'var(--ink-2)'}}>{employees.length ? 'בחרו עובד מהרשימה' : 'אין עדיין עובדים במערכת'}</div>
+              <div style={{fontSize:12.5}}>{employees.length ? 'תראו את האפליקציה שלו בדיוק כמו אצלו, ואת ההגדרות שרק המשבץ קובע' : ''}</div>
+              {!employees.length && <button className="btn btn-primary" onClick={openAddEmployee}>+ עובד ראשון</button>}
+            </div>
           ) : (
             <>
-              <div style={{display:'flex',gap:6,padding:'10px 14px 0',flexShrink:0}}>
-                <button className={'btn' + (tab === 'requests' ? ' btn-primary' : '')} style={{fontSize:12.5,padding:'6px 14px'}}
-                  disabled={addingNew} onClick={() => setTab('requests')}>📋 בקשות</button>
-                <button className={'btn' + (tab === 'profile' ? ' btn-primary' : '')} style={{fontSize:12.5,padding:'6px 14px'}}
-                  onClick={() => setTab('profile')}>⚙ פרטי עובד</button>
+              <EmployeeHeader emp={selectedEmp} entry={entryOf(selectedEmp.id)} pref={prefs?.[selectedEmp.id]}
+                altCount={Object.keys(altRequests[selectedEmp.id]?.[month] || {}).length}
+                violations={criteriaViolationsByEmp[selectedEmp.id] || []}
+                vacationThisYear={vacationDatesFor(selectedEmp.id).filter(d => d.startsWith(thisYear)).length}
+                monthLabel={SD.monthLabel(month)} />
+              <div style={{display:'flex',alignItems:'center',gap:4,padding:'8px 16px',borderBottom:'1px solid var(--line)',flexShrink:0}} className="emp-tabs">
+                <button className={'emp-tab' + (detailTab === 'overview' ? ' on' : '')} onClick={() => setDetailTab('overview')}>אפליקציה והגדרות</button>
+                <button className={'emp-tab' + (detailTab === 'requests' ? ' on' : '')} onClick={() => setDetailTab('requests')}>עריכת בקשות בשם העובד · AI</button>
               </div>
-              {tab === 'requests' && !addingNew && selectedEmp ? (
+              {detailTab === 'overview' ? (
+                <div className="emp-body">
+                  <WorkerPhone emp={selectedEmp} />
+                  <EmployeeProfileForm emp={selectedEmp} prefs={prefs} requestCriteria={requestCriteria} adminKey={adminKey} isNew={false}
+                    vacationDates={vacationDatesFor(selectedEmp.id)} onSave={saveEmployee} onCancel={() => {}} onDelete={deleteEmployee} />
+                </div>
+              ) : (
                 <RequestDetailPanel
                   emp={selectedEmp}
                   entry={entryOf(selectedEmp.id)}
@@ -5965,23 +6204,10 @@ ${shiftsDesc}
                   sendOk={!!sendOk[selectedEmp.id]}
                   error={errors[selectedEmp.id] || null}
                 />
-              ) : (
-                <EmployeeProfileForm
-                  emp={addingNew ? null : selectedEmp}
-                  prefs={prefs}
-                  requestCriteria={requestCriteria}
-                  adminKey={adminKey}
-                  isNew={addingNew}
-                  vacationDates={!addingNew && selectedEmp ? vacationDatesFor(selectedEmp.id) : []}
-                  onSave={saveEmployee}
-                  onCancel={() => setAddingNew(false)}
-                  onDelete={deleteEmployee}
-                />
               )}
             </>
           )}
         </div>
-
       </div>
     </div>
   );
@@ -8453,7 +8679,8 @@ ${JSON.stringify(emptySlots, null, 2)}
         </div>
       )}
 
-      {screen === 'requests' && (
+      {/* עובדים חדשים שממתינים לאישור — מוצג רק כשיש כאלה (או שגיאה), כדי לא לתפוס מקום במסך העובדים */}
+      {screen === 'requests' && ((pendingEmps || []).length > 0 || pendingEmpsErr) && (
         <div style={{padding:'12px 28px 0',flexShrink:0}}>
           <div style={{background:'#fffbe6',border:'2px solid #f0b429',borderRadius:10,overflow:'hidden',marginBottom:4}}>
             <div style={{padding:'10px 14px',fontWeight:700,fontSize:'13px',borderBottom:'1px solid #e8d5a0',display:'flex',alignItems:'center',gap:8,background:'#fffbe6'}}>

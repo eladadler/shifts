@@ -756,7 +756,36 @@
   [data-radius="round"] { --r: 16px; }
   [data-radius="round"] .btn { border-radius: 999px; }
   [data-radius="round"] .mgr-sec, [data-radius="round"] .emp-msg { border-radius: 22px; }
-  .app { zoom: var(--ui-zoom, 1); height: calc(100vh / var(--ui-zoom, 1)); }
+  /* גודל ממשק = בחירת המשתמש (Tweaks) × התאמה אוטומטית לרוחב המסך (--auto-zoom, למטה) */
+  .app { zoom: calc(var(--ui-zoom, 1) * var(--auto-zoom, 1)); height: calc(100vh / (var(--ui-zoom, 1) * var(--auto-zoom, 1))); }
+  /* --- מסכי דסקטופ קטנים יותר: מקטינים מעט את כל הממשק ומצמצמים רווחים, כדי שהלוח לא יידחס --- */
+  .slot-placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .emp-head-top { flex-wrap: wrap; }
+  @media (max-width: 1440px) {
+    .side-panel { width: 262px; }
+    .ppl-list { width: 244px; }
+  }
+  @media (max-width: 1366px) {
+    :root { --auto-zoom: .92; }
+    .board { padding: 12px; }
+    .month-grid, .month-header-row { gap: 5px; }
+    .topbar { gap: 12px; padding: 8px 14px; }
+    .topbar-actions { gap: 6px; }
+    .topbar-actions .btn { padding-inline: 10px; }
+    .brand .brand-name { font-size: 20px; }
+    .month-nav.big .month-title { font-size: 26px; min-width: 165px; }
+    .mgr-panel, .emp-col .emp-head { padding-inline: 18px; }
+  }
+  @media (max-width: 1200px) {
+    :root { --auto-zoom: .85; }
+    .side-panel { width: 240px; }
+    .set-nav { width: 214px; }
+    .slot-placeholder .ph-txt { display: none; }
+    .slot-hours { font-size: 9.5px; text-overflow: ellipsis; }
+  }
+  @media (max-width: 1050px) {
+    :root { --auto-zoom: .78; }
+  }
   /* במרכז התחתית — בפינה הוא הסתיר את הסרגל התחתון של הטלפון (שמוצג משמאל כברירת מחדל) */
   .twk-launch { position: fixed; left: 50%; transform: translateX(-50%); bottom: 12px; opacity: .85; z-index: 2147483000; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 700; box-shadow: var(--shadow); cursor: pointer; }
   .twk-launch:hover { color: var(--accent); border-color: var(--accent); opacity: 1; }
@@ -796,6 +825,20 @@
   .set-inline .right-drawer-tabs { padding: 0 0 14px; border-bottom: none; }
   .set-inline .modal-body { padding: 0 0 12px; }
   .set-inline .modal-foot { padding: 0; border: none; }
+  /* --- לוגו --- */
+  .brand { gap: 10px; }
+  .brand-badge { width: 36px; height: 36px; border-radius: 11px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 21px; font-weight: 900; background: linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 45%, oklch(0.5 0.2 300))); box-shadow: 0 3px 10px color-mix(in oklab, var(--accent) 40%, transparent), inset 0 1px 0 rgba(255,255,255,.3); }
+  .brand .brand-name { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; white-space: nowrap; }
+  .brand-accent { background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 40%, oklch(0.55 0.22 330))); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  /* --- ראש הטיוטה --- */
+  .board-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0 2px 14px; }
+  .month-nav.big { gap: 6px; }
+  .month-nav.big .month-title { font-size: 30px; font-weight: 900; letter-spacing: -0.02em; min-width: 190px; text-align: center; }
+  .month-nav.big .month-nav-btn { font-size: 26px; width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); display: flex; align-items: center; justify-content: center; padding: 0; }
+  .month-nav.big .month-nav-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .bh-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .bh-draft { font-size: 15px; font-weight: 800; color: var(--ink-2); }
+  .published-chip { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 10px; background: var(--ok-bg); color: var(--ok); font-weight: 800; font-size: 13px; white-space: nowrap; }
   .rule-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); font-size: 12.5px; }
   .rule-row.iron { background: color-mix(in oklab, oklch(0.45 0.18 300) 9%, transparent); border-color: color-mix(in oklab, oklch(0.45 0.18 300) 35%, transparent); }
   .rule-row .act { margin-inline-start: auto; display: flex; gap: 2px; }
@@ -3127,7 +3170,7 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
       </div>
       {emps.length === 0 ? (
         <div className="slot-placeholder">
-          <span className="slot-missing">חסר {required}</span> {editable ? 'גררו עובד לכאן' : 'לא מאויש'}
+          <span className="slot-missing">חסר {required}</span> <span className="ph-txt">{editable ? 'גררו עובד לכאן' : 'לא מאויש'}</span>
         </div>
       ) : (
         <div className="slot-chips">
@@ -7018,16 +7061,21 @@ function App({ auth }) {
     const num = drafts.filter(d => d.month === currentMonth).length + 1;
     const dates = AE.listDates(opts.startDate, opts.endDate).filter(d => !opts.excluded.includes(d));
     const schedule = AE.applyFixed(dates, AD.FIXED_SHIFTS, shiftSettings);
-    setDrafts(ds => [...ds, {
+    // כל טיוטה חדשה פתוחה מיד להגשת בקשות (העובדים מגישים לטווח שלה), ונסגרת כשהסידור מתפרסם.
+    // אם כבר יש לחודש סידור שפורסם — לא פותחים, כדי לא להחליף אותו אצל העובדים
+    const hasFinal = drafts.some(d => d.month === currentMonth && d.status === 'final');
+    const nd = {
       id, name: `טיוטה ${num}`,
       month: currentMonth,
-      status: 'draft',
+      status: hasFinal ? 'draft' : 'open',
       range: { start: opts.startDate, end: opts.endDate },
       excluded: opts.excluded,
       schedule, log: [],
       createdAt: Date.now(),
-    }]);
+    };
+    setDrafts(ds => [...ds, nd]);
     setActiveDraftId(id);
+    if (!hasFinal && dbAvailable.current && window.__db.publishSchedule) window.__db.publishSchedule(openRowFor(nd));
   };
 
   // בנה סיכום שיבוץ חכם לאחר הרצה
@@ -7803,21 +7851,13 @@ ${JSON.stringify(emptySlots, null, 2)}
     const d = drafts.find(x => x.id === id); if (!d) return;
     setConfirmBox({ title: 'פתיחת הגשת בקשות לעובדים', label: 'פתיחה להגשה', run: () => openForRequests(id), body: <>
       <div>העובדים יוכלו לסמן בקשות ל{AD.monthLabel(d.month)} באפליקציה שלהם, לימים {rangeLabel(d)} — לפי הטווח של <DraftName d={d} />.</div>
-      <div style={{ color: 'var(--ink-3)' }}>בלי השלב הזה אפליקציית העובדים לא מאפשרת להגיש בקשות לחודש. בזמן שההגשה פתוחה אפשר להמשיך לשבץ ולערוך.</div>
       {liveWarning(d, 'הפתיחה')}
-    </> });
-  };
-  const requestCloseSubmissions = (id) => {
-    const d = drafts.find(x => x.id === id); if (!d) return;
-    setConfirmBox({ title: 'סגירת הגשת הבקשות', label: 'סגירת ההגשה', run: () => unpublishDraft(id), body: <>
-      <div>העובדים לא יוכלו יותר להגיש או לשנות בקשות ל{AD.monthLabel(d.month)}. בקשות שכבר הוגשו נשמרות.</div>
-      <div style={{ color: 'var(--ink-3)' }}>לרוב אין צורך בזה — "אישור ופרסום" סוגר את ההגשה ממילא.</div>
     </> });
   };
   const requestUnpublish = (id) => {
     const d = drafts.find(x => x.id === id); if (!d) return;
-    setConfirmBox({ title: 'ביטול הפרסום', label: 'ביטול הפרסום', danger: true, run: () => unpublishDraft(id), body: <>
-      <div>הסידור <DraftName d={d} /> יוסר מאפליקציית העובדים ויחזור להיות טיוטה.</div>
+    setConfirmBox({ title: 'ביטול הפרסום', label: 'ביטול הפרסום', danger: true, run: () => openForRequests(id), body: <>
+      <div>הסידור <DraftName d={d} /> יוסר מאפליקציית העובדים ויחזור להיות טיוטה פתוחה להגשת בקשות.</div>
     </> });
   };
   const requestNewDraft = () => {
@@ -8019,29 +8059,11 @@ ${JSON.stringify(emptySlots, null, 2)}
     <div className="app" dir="rtl">
       <header className="topbar">
         <HamburgerMenu screen={screen} onNavigate={setScreen} />
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">⧉</span>
-          <span className="brand-name">משמרות</span>
+        <div className="brand" aria-label="משמרות המהפכה">
+          <span className="brand-badge" aria-hidden="true">מ</span>
+          <span className="brand-name">משמרות <span className="brand-accent">המהפכה</span></span>
         </div>
-        {screen === 'calendar' && (
-          <div className="topbar-center">
-            <div className="month-nav">
-              <button className="month-nav-btn" onClick={() => navigateMonth(-1)} title="חודש קודם">‹</button>
-              <h1 className="month-title">{AD.monthLabel(currentMonth)}</h1>
-              <button className="month-nav-btn" onClick={() => navigateMonth(1)} title="חודש הבא">›</button>
-            </div>
-            <span className={'status-chip ' + st.cls}>{st.label}</span>
-            {conflictCount > 0 && status !== 'preview' && (
-              <span className="conflict-count">{conflictCount} קונפליקטים</span>
-            )}
-            {draftHasAssignments && openSlotCount > 0 && (
-              <button className="open-count" onClick={jumpToNextOpenSlot} title="לחיצה קופצת למשמרת הפתוחה הבאה בלוח">
-                ⚠ {openSlotCount} חסרות
-              </button>
-            )}
-          </div>
-        )}
-        {screen !== 'calendar' && <div style={{flex:1}} />}
+        <div style={{flex:1}} />
         <div className="topbar-actions">
           {syncStatus === 'loading' && <span className="sync-badge sync-loading"><span className="spin">↻</span> טוען…</span>}
           {syncStatus === 'saving'  && <span className="sync-badge sync-saving"><span className="spin">↻</span> שומר…</span>}
@@ -8104,6 +8126,11 @@ ${JSON.stringify(emptySlots, null, 2)}
                   </div>
                 </>)}
               </div>
+              {status === 'final' && (<>
+                {vapidPublicKey && <button className="btn" onClick={() => setSendRemindersOpen(true)}>🔔 תזכורות</button>}
+                <button className="btn" onClick={() => requestUnpublish(activeDraftId)} title="מסיר את הסידור מאפליקציית העובדים ומחזיר אותו לטיוטה פתוחה לבקשות">ביטול פרסום</button>
+                <span className="published-chip">✓ פורסם לעובדים</span>
+              </>)}
               {(status === 'draft' || status === 'open') && (<>
                 <button className="btn btn-smart" onClick={runAlgo} disabled={isGenerating} title="אלגוריתם בלבד — משבצות בלי מועמד מתאים נשארות פתוחות">⚙ שיבוץ</button>
                 {/* הקצה השמאלי — הפעולה האחרונה בתהליך. עם כמה טיוטות, שם הטיוטה כתוב על הכפתור */}
@@ -8125,31 +8152,6 @@ ${JSON.stringify(emptySlots, null, 2)}
               onSelect={selectDraft} onRename={renameDraft} onDelete={deleteDraft} />
           ))}
           <button className="draft-add" onClick={requestNewDraft} disabled={isGenerating} title="סידור חלופי נפרד לאותו חודש">＋ טיוטה נוספת</button>
-          <span style={{flex:1}} />
-          {currentDraft && (
-            <>
-              <button className="draft-range" disabled={isGenerating || status === 'final'}
-                onClick={() => { setModalMode('edit'); setModalOpen(true); }}
-                title={status === 'final' ? 'הטווח של סידור שפורסם לא משתנה' : 'שינוי טווח התאריכים של הטיוטה'}>
-                📅 {rangeLabel(currentDraft)}{status !== 'final' ? ' ✎' : ''}
-              </button>
-              <div className="draft-stage">
-                {status === 'draft' && <>
-                  <span>העובדים <b>עוד לא יכולים להגיש</b> בקשות</span>
-                  <button className="btn" onClick={() => requestOpen(activeDraftId)}>📤 פתיחת הגשת בקשות</button>
-                </>}
-                {status === 'open' && <>
-                  <span>📤 <b>פתוח להגשת בקשות</b></span>
-                  <button className="btn" onClick={() => requestCloseSubmissions(activeDraftId)}>סגירת ההגשה</button>
-                </>}
-                {status === 'final' && <>
-                  <span>✓ <b>פורסם לעובדים</b></span>
-                  {vapidPublicKey && <button className="btn" onClick={() => setSendRemindersOpen(true)}>🔔 תזכורות</button>}
-                  <button className="btn" onClick={() => requestUnpublish(activeDraftId)}>ביטול פרסום</button>
-                </>}
-              </div>
-            </>
-          )}
         </div>
       )}
       {screen === 'calendar' && monthDrafts.length > 1 && currentDraft && (
@@ -8159,11 +8161,6 @@ ${JSON.stringify(emptySlots, null, 2)}
         </div>
       )}
 
-      {screen === 'calendar' && status === 'open' && (
-        <div className="final-banner" style={{background:'color-mix(in oklab, oklch(0.65 0.15 200) 10%, var(--bg))'}}>
-          הגשת הבקשות פתוחה — העובדים מסמנים בקשות באפליקציה שלהם, ואפשר להמשיך לשבץ ולערוך. "אישור ופרסום" סוגר את ההגשה ומפרסם את הסידור.
-        </div>
-      )}
       {screen === 'calendar' && status === 'final' && (
         <div className="final-banner">הסידור סופי ופורסם לעובדים. אפשר עדיין לערוך אותו — כל שינוי מתעדכן אצל העובדים אוטומטית.</div>
       )}
@@ -8249,6 +8246,39 @@ ${JSON.stringify(emptySlots, null, 2)}
               responses={Object.fromEntries(employees.map(e => [e.id, scheduleResponses[e.id]?.[currentMonth]]).filter(([, r]) => r))}
               prefs={prefs} />
             <section className="board">
+              {/* ראש הטיוטה: החודש בגדול, ולידו הטיוטה, הסטטוס והטווח */}
+              <div className="board-head">
+                <div className="month-nav big">
+                  <button className="month-nav-btn" onClick={() => navigateMonth(-1)} title="חודש קודם" aria-label="חודש קודם">‹</button>
+                  <h1 className="month-title">{AD.monthLabel(currentMonth)}</h1>
+                  <button className="month-nav-btn" onClick={() => navigateMonth(1)} title="חודש הבא" aria-label="חודש הבא">›</button>
+                </div>
+                {currentDraft && (
+                  <div className="bh-meta">
+                    <span className="bh-draft">{currentDraft.name}</span>
+                    <span className={'status-chip ' + st.cls}>{st.label}</span>
+                    {currentDraft.range?.start && (
+                      <button className="draft-range" disabled={isGenerating || status === 'final'}
+                        onClick={() => { setModalMode('edit'); setModalOpen(true); }}
+                        title={status === 'final' ? 'הטווח של סידור שפורסם לא משתנה' : 'שינוי טווח התאריכים של הטיוטה (גם לעובדים, כשהיא פתוחה לבקשות)'}>
+                        📅 {rangeLabel(currentDraft)}{status !== 'final' ? ' ✎' : ''}
+                      </button>
+                    )}
+                    {status === 'draft' && !monthDrafts.some(d => d.status === 'final') && (
+                      <button className="draft-range" onClick={() => requestOpen(activeDraftId)}>📤 פתיחה לבקשות</button>
+                    )}
+                  </div>
+                )}
+                <span style={{flex:1}} />
+                {conflictCount > 0 && status !== 'preview' && (
+                  <span className="conflict-count">{conflictCount} קונפליקטים</span>
+                )}
+                {draftHasAssignments && openSlotCount > 0 && (
+                  <button className="open-count" onClick={jumpToNextOpenSlot} title="לחיצה קופצת למשמרת הפתוחה הבאה בלוח">
+                    ⚠ {openSlotCount} חסרות
+                  </button>
+                )}
+              </div>
               {!currentDraft ? (
                 <div className="empty-state">
                   <div className="empty-card">

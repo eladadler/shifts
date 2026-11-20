@@ -687,6 +687,80 @@
   .mgr-sec-body { padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
   .mgr-sec.muted .mgr-sec-head { font-size: 13px; color: var(--ink-2); }
   .mgr-savebar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-top: 6px; background: color-mix(in oklab, var(--accent) 10%, var(--surface)); border: 1px solid color-mix(in oklab, var(--accent) 35%, transparent); border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+  /* --- הגשה בולטת --- */
+  .st-pill.solid { color: #fff !important; padding: 3px 10px; font-size: 11.5px; box-shadow: 0 1px 3px color-mix(in oklab, var(--ok) 40%, transparent); }
+  .st-pill.solid::before { content: '✓'; width: auto; height: auto; background: none; font-size: 11px; }
+  .ppl-row.is-sub { background: color-mix(in oklab, var(--ok) 7%, transparent); box-shadow: inset -4px 0 0 var(--ok); }
+  .ppl-row.is-sub.sel { background: color-mix(in oklab, var(--ok) 13%, transparent); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
+  .ppl-row.not-sub .nm { color: var(--ink-2); font-weight: 600; }
+  .ppl-av { position: relative; flex-shrink: 0; }
+  .ppl-av .ok-badge { position: absolute; bottom: -2px; left: -3px; width: 16px; height: 16px; border-radius: 50%; background: var(--ok); color: #fff; font-size: 10px; font-weight: 900; display: flex; align-items: center; justify-content: center; border: 2px solid var(--surface); }
+  .ppl-msg { display: inline-flex; align-items: center; gap: 3px; background: oklch(0.55 0.17 300); color: #fff; border-radius: 999px; padding: 1px 7px 1px 6px; font-size: 10.5px; font-weight: 800; }
+  .ppl-group { font-size: 11px; font-weight: 800; color: var(--ink-3); padding: 10px 8px 4px; display: flex; gap: 6px; align-items: center; }
+  .ppl-group .n { background: color-mix(in oklab, var(--ink) 8%, transparent); border-radius: 999px; padding: 0 7px; }
+  [data-ppl-list="dense"] .ppl-row { padding: 4px 8px; }
+  [data-ppl-list="dense"] .ppl-row .sub { display: none; }
+  .emp-status { display: flex; align-items: center; gap: 12px; border-radius: 12px; padding: 10px 14px; font-size: 14px; }
+  .emp-status .big { font-size: 17px; font-weight: 900; }
+  .emp-status.submitted { background: color-mix(in oklab, var(--ok) 14%, var(--surface)); border: 1.5px solid color-mix(in oklab, var(--ok) 45%, transparent); color: color-mix(in oklab, var(--ok) 70%, var(--ink)); }
+  .emp-status.submitted .ic { background: var(--ok); }
+  .emp-status.draft { background: var(--warn-bg); border: 1.5px solid color-mix(in oklab, var(--warn) 45%, transparent); color: color-mix(in oklab, var(--warn) 75%, var(--ink)); }
+  .emp-status.draft .ic { background: var(--warn); }
+  .emp-status.none, .emp-status.manager { background: color-mix(in oklab, var(--ink) 5%, var(--surface)); border: 1.5px dashed var(--line); color: var(--ink-2); }
+  .emp-status.none .ic, .emp-status.manager .ic { background: var(--ink-3); }
+  .emp-status .ic { width: 30px; height: 30px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 900; flex-shrink: 0; }
+  .emp-status .meta { font-size: 12.5px; opacity: .85; }
+  .emp-msg { position: relative; display: flex; gap: 14px; align-items: flex-start; border-radius: 14px; padding: 14px 18px; background: color-mix(in oklab, oklch(0.55 0.17 300) 10%, var(--surface)); border: 1.5px solid color-mix(in oklab, oklch(0.55 0.17 300) 40%, transparent); box-shadow: 0 4px 16px color-mix(in oklab, oklch(0.55 0.17 300) 14%, transparent); }
+  .emp-msg .ic { width: 38px; height: 38px; border-radius: 12px; background: oklch(0.55 0.17 300); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 19px; flex-shrink: 0; }
+  .emp-msg .who { font-size: 12px; font-weight: 800; color: oklch(0.5 0.17 300); letter-spacing: .02em; margin-bottom: 3px; }
+  [data-theme="dark"] .emp-msg .who { color: oklch(0.8 0.12 300); }
+  .emp-msg .txt { font-size: 16.5px; font-weight: 600; line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
+  [data-ppl-header="compact"] .emp-chips { display: none; }
+  [data-ppl-header="compact"] .emp-head { gap: 6px; padding-top: 8px; padding-bottom: 8px; }
+  [data-ppl-phone-side="left"] .emp-body { flex-direction: row-reverse; }
+  [data-ppl-phone-side="left"] .wk-phone-col { border-inline-end: none; border-inline-start: 1px solid var(--line); }
+  .wk-phone-col.big { overflow-y: auto; }
+  .wk-phone-col.big .wk-phone-box { flex: none; }
+  /* --- חלקים מקופלים: גדולים ונקיים --- */
+  .mgr-panel { padding: 20px 26px 90px; }
+  .mgr-panel-title { font-size: 12.5px; margin-bottom: 12px; }
+  .mgr-sec { border-radius: 16px; margin-bottom: 12px; transition: box-shadow .15s, border-color .15s; }
+  .mgr-sec:hover { border-color: color-mix(in oklab, var(--accent) 30%, var(--line)); box-shadow: 0 2px 10px rgba(0,0,0,.05); }
+  .mgr-sec.open { box-shadow: 0 4px 18px rgba(0,0,0,.06); border-color: color-mix(in oklab, var(--accent) 25%, var(--line)); }
+  .mgr-sec-head { gap: 14px; padding: 16px 18px; font-size: 16px; }
+  .mgr-sec.muted .mgr-sec-head { font-size: 16px; color: var(--ink); }
+  .mgr-sec-head .sic { width: 38px; height: 38px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 19px; background: color-mix(in oklab, var(--accent) 10%, var(--surface-2)); flex-shrink: 0; }
+  .mgr-sec-head .ttl { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .mgr-sec-head .ttl small { font-size: 12px; font-weight: 500; color: var(--ink-3); }
+  .mgr-sec-head .sum { font-size: 12.5px; font-weight: 700; color: var(--ink-2); background: color-mix(in oklab, var(--ink) 6%, transparent); border-radius: 999px; padding: 4px 11px; }
+  .mgr-sec-head .caret { font-size: 14px; width: 16px; transition: transform .18s; }
+  .mgr-sec.open .mgr-sec-head .caret { transform: rotate(-90deg); }
+  .mgr-sec-hint { padding: 0 18px 8px 18px; padding-inline-start: 70px; margin-top: -6px; }
+  .mgr-sec-body { padding: 6px 18px 18px; padding-inline-start: 70px; }
+  @media (max-width: 1100px) { .mgr-sec-body, .mgr-sec-hint { padding-inline-start: 18px; } }
+  /* --- Tweaks: צבעים וניגודיות לכל האפליקציה --- */
+  [data-theme="light"][data-tint="neutral"] { --bg: oklch(0.965 0 0); --surface: oklch(0.995 0 0); --surface-2: oklch(0.975 0 0); --ink: oklch(0.24 0 0); --ink-2: oklch(0.48 0 0); --ink-3: oklch(0.62 0 0); --line: oklch(0.89 0 0); --line-soft: oklch(0.93 0 0); }
+  [data-theme="light"][data-tint="warm"] { --bg: oklch(0.965 0.012 75); --surface: oklch(0.995 0.004 75); --surface-2: oklch(0.973 0.01 75); --ink: oklch(0.25 0.015 60); --ink-2: oklch(0.48 0.02 60); --ink-3: oklch(0.62 0.018 60); --line: oklch(0.89 0.014 75); --line-soft: oklch(0.93 0.01 75); }
+  [data-theme="light"][data-tint="mint"] { --bg: oklch(0.965 0.012 170); --surface: oklch(0.995 0.004 170); --surface-2: oklch(0.973 0.01 170); --ink: oklch(0.25 0.015 190); --ink-2: oklch(0.47 0.02 190); --ink-3: oklch(0.61 0.018 190); --line: oklch(0.89 0.014 170); --line-soft: oklch(0.93 0.01 170); }
+  [data-theme="dark"][data-tint="neutral"] { --bg: oklch(0.2 0 0); --surface: oklch(0.25 0 0); --surface-2: oklch(0.29 0 0); --ink: oklch(0.93 0 0); --ink-2: oklch(0.72 0 0); --ink-3: oklch(0.58 0 0); --line: oklch(0.35 0 0); --line-soft: oklch(0.31 0 0); }
+  [data-theme="dark"][data-tint="warm"] { --bg: oklch(0.21 0.012 60); --surface: oklch(0.26 0.012 60); --surface-2: oklch(0.3 0.012 60); --ink: oklch(0.93 0.008 75); --ink-2: oklch(0.73 0.015 70); --ink-3: oklch(0.59 0.015 70); --line: oklch(0.37 0.012 60); --line-soft: oklch(0.32 0.012 60); }
+  [data-theme="dark"][data-tint="mint"] { --bg: oklch(0.21 0.012 190); --surface: oklch(0.26 0.012 190); --surface-2: oklch(0.3 0.012 190); --ink: oklch(0.93 0.008 170); --ink-2: oklch(0.73 0.015 175); --ink-3: oklch(0.59 0.015 175); --line: oklch(0.37 0.012 190); --line-soft: oklch(0.32 0.012 190); }
+  [data-contrast="high"] { --glass-surface: var(--surface); --glass-blur: none; }
+  [data-theme="light"][data-contrast="high"] { --ink: oklch(0.15 0.01 255); --ink-2: oklch(0.32 0.015 255); --ink-3: oklch(0.42 0.015 255); --line: oklch(0.72 0.01 250); --line-soft: oklch(0.82 0.008 250); --ok: oklch(0.48 0.14 155); --warn: oklch(0.55 0.14 60); --danger: oklch(0.48 0.18 27); }
+  [data-theme="dark"][data-contrast="high"] { --bg: oklch(0.13 0.01 255); --surface: oklch(0.19 0.01 255); --surface-2: oklch(0.23 0.01 255); --ink: oklch(0.99 0 0); --ink-2: oklch(0.88 0.01 255); --ink-3: oklch(0.78 0.01 255); --line: oklch(0.5 0.01 255); --line-soft: oklch(0.4 0.01 255); --ok: oklch(0.75 0.15 155); --warn: oklch(0.8 0.14 70); --danger: oklch(0.72 0.17 27); }
+  [data-theme="light"][data-contrast="soft"] { --ink: oklch(0.32 0.012 255); --ink-2: oklch(0.55 0.015 255); --ink-3: oklch(0.68 0.012 255); --line: oklch(0.92 0.006 250); --line-soft: oklch(0.95 0.005 250); }
+  [data-theme="dark"][data-contrast="soft"] { --ink: oklch(0.85 0.005 255); --ink-2: oklch(0.66 0.01 255); --ink-3: oklch(0.54 0.01 255); --line: oklch(0.32 0.012 255); --line-soft: oklch(0.29 0.012 255); }
+  [data-glass="off"] { --glass-surface: var(--surface); --glass-blur: none; }
+  [data-bg="plain"] body { background: var(--bg); }
+  [data-bg="vivid"] body { background: linear-gradient(155deg, color-mix(in oklab, var(--accent) 22%, var(--bg)) 0%, var(--bg) 50%, color-mix(in oklab, var(--accent) 12%, oklch(0.9 0.06 330)) 100%); background-attachment: fixed; }
+  [data-radius="sharp"] { --r: 4px; }
+  [data-radius="sharp"] .btn, [data-radius="sharp"] .mgr-sec, [data-radius="sharp"] .ppl-row, [data-radius="sharp"] .day-cell, [data-radius="sharp"] .emp-msg, [data-radius="sharp"] .emp-status { border-radius: 5px; }
+  [data-radius="round"] { --r: 16px; }
+  [data-radius="round"] .btn { border-radius: 999px; }
+  [data-radius="round"] .mgr-sec, [data-radius="round"] .emp-msg { border-radius: 22px; }
+  .app { zoom: var(--ui-zoom, 1); height: calc(100vh / var(--ui-zoom, 1)); }
+  .twk-launch { position: fixed; left: 14px; bottom: 14px; z-index: 2147483000; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 700; box-shadow: var(--shadow); cursor: pointer; }
+  .twk-launch:hover { color: var(--accent); border-color: var(--accent); }
   .rule-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); font-size: 12.5px; }
   .rule-row.iron { background: color-mix(in oklab, oklch(0.45 0.18 300) 9%, transparent); border-color: color-mix(in oklab, oklch(0.45 0.18 300) 35%, transparent); }
   .rule-row .act { margin-inline-start: auto; display: flex; gap: 2px; }
@@ -2558,7 +2632,7 @@ const __TWEAKS_STYLE = `
     background:rgba(0,0,0,.06);user-select:none}
   .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
     background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
-    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+    transition:inset-inline-start .15s cubic-bezier(.3,.7,.4,1),width .15s}
   .twk-seg.dragging .twk-seg-thumb{transition:none}
   .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
     background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
@@ -2585,12 +2659,20 @@ const __TWEAKS_STYLE = `
     filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}
 `;
 
+// הבחירות נשמרות בדפדפן (תצוגה אישית של המשבץ — לא במסד)
+const __TWEAKS_KEY = 'mishmarot-tweaks';
 function useTweaks(defaults) {
-  const [values, setValues] = React.useState(defaults);
+  const [values, setValues] = React.useState(() => {
+    try { return { ...defaults, ...(JSON.parse(localStorage.getItem(__TWEAKS_KEY)) || {}) }; } catch (_) { return defaults; }
+  });
   const setTweak = React.useCallback((keyOrEdits, val) => {
     const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
       ? keyOrEdits : { [keyOrEdits]: val };
-    setValues((prev) => ({ ...prev, ...edits }));
+    setValues((prev) => {
+      const next = { ...prev, ...edits };
+      try { localStorage.setItem(__TWEAKS_KEY, JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
     window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
     window.dispatchEvent(new CustomEvent('tweakchange', { detail: edits }));
   }, []);
@@ -2600,7 +2682,8 @@ function useTweaks(defaults) {
 function TweaksPanel({ title = 'Tweaks', children }) {
   const [open, setOpen] = React.useState(false);
   const dragRef = React.useRef(null);
-  const offsetRef = React.useRef({ x: 16, y: 16 });
+  // נפתח בצד שמאל, ליד הכפתור (ההיצמדות לחלון מגבילה את x) — כדי לא לכסות את רשימת העובדים שמימין
+  const offsetRef = React.useRef({ x: 99999, y: 16 });
   const PAD = 16;
 
   const clampToViewport = React.useCallback(() => {
@@ -2667,7 +2750,7 @@ function TweaksPanel({ title = 'Tweaks', children }) {
     window.addEventListener('mouseup', up);
   };
 
-  if (!open) return null;
+  if (!open) return <button className="twk-launch" onClick={() => setOpen(true)} title="צבעים, ניגודיות ועימוד">🎨 Tweaks</button>;
   return (
     <>
       <style>{__TWEAKS_STYLE}</style>
@@ -2747,7 +2830,9 @@ function TweakRadio({ label, value, options, onChange }) {
   const segAt = (clientX) => {
     const r = trackRef.current.getBoundingClientRect();
     const inner = r.width - 4;
-    const i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    let i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    // בעמוד RTL הכפתורים מסודרים מימין לשמאל — הראשון הוא הימני
+    if (getComputedStyle(trackRef.current).direction === 'rtl') i = n - 1 - i;
     return opts[Math.max(0, Math.min(n - 1, i))].value;
   };
 
@@ -2774,7 +2859,7 @@ function TweakRadio({ label, value, options, onChange }) {
       <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
            className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
         <div className="twk-seg-thumb"
-             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+             style={{ insetInlineStart: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
                       width: `calc((100% - 4px) / ${n})` }} />
         {opts.map((o) => (
           <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
@@ -5052,29 +5137,26 @@ function EmployeeProfileForm({ emp, prefs, requestCriteria, adminKey, isNew, vac
       {isNew ? (
         <>
           <div className="mgr-panel-title">עובד חדש</div>
-          <MgrSection title="פרטים וחשבון">{identity}</MgrSection>
-          <MgrSection title="שיבוץ">{scheduling}</MgrSection>
-          <MgrSection title="העדפות העובד" hint="ברירת המחדל לעובד חדש. אחר כך העובד יעדכן אותן בעצמו באפליקציה." defaultOpen={false}>{workerPrefs}</MgrSection>
+          <MgrSection icon="👤" title="פרטים וחשבון" sub="שם, תפקיד ואימייל להתחברות" defaultOpen>{identity}</MgrSection>
+          <MgrSection icon="📅" title="שיבוץ" sub="מכסה חודשית ומשמרות קבועות">{scheduling}</MgrSection>
+          <MgrSection icon="⚙" title="העדפות העובד" sub="ברירת המחדל לעובד חדש — אחר כך העובד מעדכן בעצמו">{workerPrefs}</MgrSection>
         </>
       ) : (
         <>
           <div className="mgr-panel-title">ניהול המשבץ — הגדרות שאין לעובד</div>
-          <MgrSection title="שיבוץ" summary={`מכסה ${draft.max}`}>{scheduling}</MgrSection>
-          <MgrSection title="שבתות וסוף שבוע" summary={`שבת כל ~${draft.shabbatFrequencyDays || 45} יום`}>{shabbat}</MgrSection>
-          <MgrSection title="העדפות העובד" muted defaultOpen={false}
-            summary={`${draft.weekdayShiftsPerWeek} בשבוע${draft.noWeekdayNights ? ' · בלי לילות' : ''}${draft.wantsShabbatLong ? '' : ' · בלי שבת ארוכה'}`}
-            hint="העובד קובע אותן בעצמו במסך ההגדרות שלו (בטלפון מימין). כאן אפשר לתקן במקומו.">{workerPrefs}</MgrSection>
-          <MgrSection title="פרטים וחשבון" muted defaultOpen={false} summary={draft.email || 'בלי אימייל'}>{identity}</MgrSection>
-          <MgrSection title="קריטריוני הגשה אישיים" muted defaultOpen={false} summary={customCriteria ? `${customCriteria} מותאמים` : 'לפי ההגדרה הכללית'}
-            hint="ריק = לפי ההגדרה הכללית (⚙ הגדרות).">{criteria}</MgrSection>
-          <MgrSection title="חופשות" muted defaultOpen={false} summary={`${vacNow} ימים השנה`}>
+          <MgrSection icon="📅" title="שיבוץ" sub="מכסה חודשית ומשמרות קבועות" summary={`מכסה ${draft.max}`}>{scheduling}</MgrSection>
+          <MgrSection icon="🕯️" title="שבתות וסוף שבוע" sub="תדירות שבת ארוכה, שישי ושבת קצרה" summary={`שבת כל ~${draft.shabbatFrequencyDays || 45} יום`}>{shabbat}</MgrSection>
+          <MgrSection icon="🎚" title="העדפות העובד" sub="העובד עורך אותן בעצמו בטלפון — כאן לתיקון במקומו" muted
+            summary={`${draft.weekdayShiftsPerWeek} בשבוע${draft.noWeekdayNights ? ' · בלי לילות' : ''}${draft.wantsShabbatLong ? '' : ' · בלי שבת ארוכה'}`}>{workerPrefs}</MgrSection>
+          <MgrSection icon="👤" title="פרטים וחשבון" sub="שם, תפקיד ואימייל להתחברות" muted summary={draft.email || 'בלי אימייל'}>{identity}</MgrSection>
+          <MgrSection icon="✅" title="קריטריוני הגשה אישיים" sub="ריק = לפי ההגדרה הכללית (⚙ הגדרות)" muted summary={customCriteria ? `${customCriteria} מותאמים` : 'כללי'}>{criteria}</MgrSection>
+          <MgrSection icon="🏖️" title="חופשות" sub="ימים שהעובד סימן כחופשה, לפי שנה" muted summary={`${vacNow} ימים השנה`}>
             <div style={{display:'flex',flexDirection:'column',gap:2}}>
               {vacationByYear.map(([y, cnt]) => (
                 <div key={y} style={{display:'flex',justifyContent:'space-between',fontSize:'13px',padding:'3px 2px'}}>
                   <span style={{color:'var(--ink-2)'}}>{y}</span><span style={{fontWeight:700}}>{cnt} ימים</span>
                 </div>
               ))}
-              <span className="field-hint">נספר מהימים שהעובד מסמן כחופשה באפליקציה שלו</span>
             </div>
           </MgrSection>
           <div style={{display:'flex',justifyContent:'flex-end',marginTop:14}}>
@@ -5644,13 +5726,15 @@ function empMonthStatus(entry) {
   return { key: 'none', label: 'לא הגיש', fg: 'var(--ink-3)', bg: 'color-mix(in oklab, var(--ink-3) 11%, transparent)' };
 }
 function StatusPill({ st }) {
+  // "הוגש" — מלא וירוק (הדבר שהמשבץ מחפש); השאר עדינים
+  if (st.key === 'submitted') return <span className="st-pill solid" style={{ background: 'var(--ok)' }}>{st.label}</span>;
   return <span className="st-pill" style={{ color: st.fg, background: st.bg }}>{st.label}</span>;
 }
 
 // "הטלפון של העובד": אפליקציית העובדים עצמה, פתוחה כעובד (impersonate) במצב מוטמע — לא חיקוי,
 // כך שכל שינוי באפליקציית העובדים מופיע כאן אוטומטית. הלשוניות מעל הטלפון מחליפות מסך ב-postMessage.
 const WORKER_TABS = [['home', 'בית'], ['schedule', 'הסידור'], ['requests', 'בקשות'], ['swaps', 'חילופים'], ['settings', 'הגדרות']];
-function WorkerPhone({ emp }) {
+function WorkerPhone({ emp, size = 'fit' }) {
   const W = 390, H = 780, BEZEL = 12;
   const [tab, setTab] = React.useState('home');
   const [loaded, setLoaded] = React.useState(false);
@@ -5670,21 +5754,22 @@ function WorkerPhone({ emp }) {
     if (!el || !window.ResizeObserver) return;
     const ro = new ResizeObserver(() => {
       const h = el.clientHeight, w = el.clientWidth;
-      setScale(Math.max(0.5, Math.min(1, h / (H + BEZEL * 2))));
+      const fit = Math.max(0.5, Math.min(1, h / (H + BEZEL * 2)));
+      setScale(size === 'big' ? 1 : size === 'small' ? Math.min(fit, 0.62) : fit);
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [size]);
   const go = (t) => { setTab(t); try { frameRef.current?.contentWindow?.postMessage({ type: 'mishmarot:setTab', tab: t }, '*'); } catch (_) {} };
   const PW = W + BEZEL * 2, PH = H + BEZEL * 2;
   return (
-    <div className="wk-phone-col" style={{ width: Math.max(340, PW * scale + 40) }}>
+    <div className={'wk-phone-col' + (size === 'big' ? ' big' : '')} style={{ width: Math.max(340, PW * scale + 40) }}>
       <div className="wk-phone-tabs" role="tablist" aria-label="מסכים באפליקציית העובד">
         {WORKER_TABS.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={'wk-tab' + (tab === id ? ' on' : '')} onClick={() => go(id)}>{label}</button>
         ))}
       </div>
-      <div ref={boxRef} className="wk-phone-box">
+      <div ref={boxRef} className="wk-phone-box" style={size === 'big' ? { height: PH } : null}>
         <div className="wk-phone-scale" style={{ width: PW * scale, height: PH * scale }}>
           <div className="wk-phone" style={{ width: PW, height: PH, transform: `scale(${scale})` }}>
             {!loaded && <div className="wk-phone-loading">טוען את האפליקציה של {emp.name}…</div>}
@@ -5702,21 +5787,38 @@ function WorkerPhone({ emp }) {
 function EmployeeHeader({ emp, entry, pref, altCount, violations, vacationThisYear, monthLabel }) {
   const st = empMonthStatus(entry);
   const weekly = pref?.weekday_shifts_per_week ?? 2;
+  const first = (emp.name || '').split(' ')[0];
+  const when = entry?.employeeUpdatedAt ? new Date(entry.employeeUpdatedAt).toLocaleDateString('he-IL') : '';
+  const STATUS_TEXT = {
+    submitted: { ic: '✓', big: `הבקשות ל${monthLabel} הוגשו`, meta: when ? 'נשלחו ב-' + when : '' },
+    draft:     { ic: '…', big: 'יש טיוטה — עדיין לא נשלחה', meta: when ? 'עודכנה ב-' + when : 'שמורה באפליקציה של העובד' },
+    manager:   { ic: '✎', big: `הבקשות ל${monthLabel} הוזנו במשבץ`, meta: 'לא הוגשו מהאפליקציה' },
+    none:      { ic: '–', big: `עדיין לא הוגשו בקשות ל${monthLabel}`, meta: 'בלי הגשה אין שיבוץ אוטומטי' },
+  }[st.key];
   return (
     <div className="emp-head">
       <div className="emp-head-top">
         <window.Avatar emp={emp} size={46} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <h2>{emp.name}</h2>
-            <StatusPill st={st} />
-            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>בקשות ל{monthLabel}{entry?.employeeUpdatedAt ? ' · ' + new Date(entry.employeeUpdatedAt).toLocaleDateString('he-IL') : ''}</span>
-          </div>
+          <h2>{emp.name}</h2>
           {emp.role && <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 2 }}>{emp.role}</div>}
+        </div>
+        <div className={'emp-status ' + st.key} style={{ marginInlineStart: 'auto' }}>
+          <span className="ic">{STATUS_TEXT.ic}</span>
+          <div>
+            <div className="big">{STATUS_TEXT.big}</div>
+            {STATUS_TEXT.meta && <div className="meta">{STATUS_TEXT.meta}</div>}
+          </div>
         </div>
       </div>
       {entry?.managerNote && (
-        <div className="emp-callout"><span>📌</span><span><b>הערה מהעובד למשבץ:</b> {entry.managerNote}</span></div>
+        <div className="emp-msg" role="note">
+          <span className="ic" aria-hidden="true">💬</span>
+          <div style={{ minWidth: 0 }}>
+            <div className="who">הודעה מ{first} למשבץ</div>
+            <div className="txt">{entry.managerNote}</div>
+          </div>
+        </div>
       )}
       <div className="emp-chips">
         <span className={'emp-chip' + (weekly < 2 ? ' warn' : '')}>יעד {weekly} משמרות חול בשבוע</span>
@@ -5795,14 +5897,16 @@ function StandingRulesCard({ emp }) {
   );
 }
 
-function MgrSection({ title, summary, hint, defaultOpen = true, muted, children }) {
+// חלק מקופל בפאנל המשבץ — מגיע סגור כברירת מחדל, עם אייקון, תיאור קצר ושורת סיכום
+function MgrSection({ title, icon, sub, summary, hint, defaultOpen = false, muted, children }) {
   const [open, setOpen] = React.useState(defaultOpen);
   return (
-    <div className={'mgr-sec' + (muted ? ' muted' : '')}>
+    <div className={'mgr-sec' + (muted ? ' muted' : '') + (open ? ' open' : '')}>
       <button className="mgr-sec-head" onClick={() => setOpen(o => !o)} aria-expanded={open}>
-        <span className="caret">{open ? '▾' : '◂'}</span>
-        <span>{title}</span>
+        {icon && <span className="sic" aria-hidden="true">{icon}</span>}
+        <span className="ttl"><span>{title}</span>{sub && <small>{sub}</small>}</span>
         {summary && <span className="sum">{summary}</span>}
+        <span className="caret" style={summary ? null : { marginInlineStart: 'auto' }}>◂</span>
       </button>
       {open && hint && <div className="mgr-sec-hint">{hint}</div>}
       {open && <div className="mgr-sec-body">{children}</div>}
@@ -5810,7 +5914,7 @@ function MgrSection({ title, summary, hint, defaultOpen = true, muted, children 
   );
 }
 
-function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, altRequests, scheduleResponses, initialMonth, aiOn, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria }) {
+function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange, altRequests, scheduleResponses, initialMonth, aiOn, onRefresh, openRangeByMonth, adminKey, prefs, onSavePref, requestCriteria, layout }) {
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
   const [refreshing, setRefreshing] = React.useState(false);
   const refresh = async () => {
@@ -6124,11 +6228,18 @@ ${shiftsDesc}
           <div className="ppl-rows">
             {employees.length === 0 && <div style={{textAlign:'center',padding:'20px',color:'var(--ink-3)',fontSize:12}}>אין עובדים עדיין</div>}
             {employees.length > 0 && shown.length === 0 && <div style={{textAlign:'center',padding:'20px',color:'var(--ink-3)',fontSize:12}}>אין עובדים שמתאימים לסינון</div>}
-            {shown.map(({ emp, entry, st, alt }) => {
+            {(layout?.pplGroup
+              ? [['הגישו', shown.filter(r => r.st.key === 'submitted')], ['טרם הגישו', shown.filter(r => r.st.key !== 'submitted')]]
+              : [[null, shown]]
+            ).map(([groupLabel, list]) => (
+              <React.Fragment key={groupLabel || 'all'}>
+                {groupLabel && list.length > 0 && <div className="ppl-group">{groupLabel}<span className="n">{list.length}</span></div>}
+                {list.map(({ emp, entry, st, alt }) => {
               const isSelected = !addingNew && emp.id === selectedEmpId;
               const viol = criteriaViolationsByEmp[emp.id] || [];
+              const isSub = st.key === 'submitted';
               return (
-                <div key={emp.id} className={'ppl-row' + (isSelected ? ' sel' : '') + (overEmpId === emp.id && dragEmpId && dragEmpId !== emp.id ? ' drop' : '')}
+                <div key={emp.id} className={'ppl-row' + (isSub ? ' is-sub' : ' not-sub') + (isSelected ? ' sel' : '') + (overEmpId === emp.id && dragEmpId && dragEmpId !== emp.id ? ' drop' : '')}
                   onClick={() => selectEmp(emp.id)}
                   draggable={canReorder}
                   onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragEmpId(emp.id); }}
@@ -6138,19 +6249,24 @@ ${shiftsDesc}
                   onDrop={(e) => { e.preventDefault(); reorderEmpTo(emp.id); setDragEmpId(null); setOverEmpId(null); }}
                   style={{opacity: dragEmpId === emp.id ? 0.4 : 1}}
                   title={canReorder ? 'גררו לשינוי הסדר' : undefined}>
-                  <window.Avatar emp={emp} size={30} />
+                  <span className="ppl-av">
+                    <window.Avatar emp={emp} size={30} />
+                    {isSub && <span className="ok-badge" aria-label="הוגש">✓</span>}
+                  </span>
                   <div style={{flex:1,minWidth:0}}>
                     <div className="nm">{emp.name}</div>
                     <div className="sub">
                       <StatusPill st={st} />
-                      {entry?.managerNote && <span title={'הערה למשבץ: ' + entry.managerNote}>📌</span>}
                       {alt > 0 && <span title={alt + ' אפשרויות נוספות'}>🔀{alt}</span>}
                       {viol.length > 0 && <span style={{color:'var(--warn)'}} title={'לא עומד בקריטריוני הגשה: ' + viol.join('; ')}>⚠</span>}
                     </div>
                   </div>
+                  {entry?.managerNote && <span className="ppl-msg" title={'הודעה למשבץ: ' + entry.managerNote}>💬 הודעה</span>}
                 </div>
               );
-            })}
+                })}
+              </React.Fragment>
+            ))}
           </div>
         </div>
 
@@ -6178,9 +6294,9 @@ ${shiftsDesc}
               </div>
               {detailTab === 'overview' ? (
                 <div className="emp-body">
-                  <WorkerPhone emp={selectedEmp} />
-                  <EmployeeProfileForm emp={selectedEmp} prefs={prefs} requestCriteria={requestCriteria} adminKey={adminKey} isNew={false}
-                    vacationDates={vacationDatesFor(selectedEmp.id)} onSave={saveEmployee} onCancel={() => {}} onDelete={deleteEmployee} />
+                  {layout?.pplView !== 'הגדרות בלבד' && <WorkerPhone emp={selectedEmp} size={{ 'גדול': 'big', 'קטן': 'small' }[layout?.pplPhone] || 'fit'} />}
+                  {layout?.pplView === 'טלפון בלבד' ? <div style={{flex:1}} /> : <EmployeeProfileForm key={selectedEmp.id} emp={selectedEmp} prefs={prefs} requestCriteria={requestCriteria} adminKey={adminKey} isNew={false}
+                    vacationDates={vacationDatesFor(selectedEmp.id)} onSave={saveEmployee} onCancel={() => {}} onDelete={deleteEmployee} />}
                 </div>
               ) : (
                 <RequestDetailPanel
@@ -7046,7 +7162,14 @@ const STATUS_META = {
   final:      { label: 'סידור סופי',       cls: 'st-final' },
 };
 
-const TWEAK_DEFAULTS = { accent: '#3D63C9', density: 'רגילה', dark: false };
+const TWEAK_DEFAULTS = {
+  accent: '#3D63C9', density: 'רגילה', dark: false,
+  // כל האפליקציה
+  tint: 'קר', contrast: 'רגילה', bg: 'גרדיאנט', glass: true, radius: 'רגיל', uiSize: 'רגיל',
+  // מסך העובדים
+  pplView: 'טלפון והגדרות', pplPhone: 'מותאם', pplPhoneSide: 'ימין', pplList: 'רגילה', pplGroup: false, pplHeader: 'מלא',
+};
+const TWEAK_ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2', '#B8326E', '#3A3F4B'];
 
 // עובדי הדמו ההיסטוריים — מנוקים מכל state שמור כדי שלא יחזרו אחרי המחיקה
 const DEMO_EMP_IDS = new Set(['yossi','dana','danny','noa','avi','michal','omer','tamar','itay','shira','roni','lior','hila','alon']);
@@ -7504,7 +7627,16 @@ function App({ auth }) {
     root.dataset.theme = t.dark ? 'dark' : 'light';
     root.dataset.density = t.density === 'קומפקטית' ? 'compact' : 'regular';
     root.style.setProperty('--accent', t.accent);
-  }, [t.dark, t.density, t.accent]);
+    root.dataset.tint = { 'ניטרלי': 'neutral', 'חם': 'warm', 'מנטה': 'mint' }[t.tint] || 'cool';
+    root.dataset.contrast = { 'רכה': 'soft', 'גבוהה': 'high' }[t.contrast] || 'normal';
+    root.dataset.bg = { 'אחיד': 'plain', 'צבעוני': 'vivid' }[t.bg] || 'gradient';
+    root.dataset.glass = t.glass === false ? 'off' : 'on';
+    root.dataset.radius = { 'חד': 'sharp', 'עגול': 'round' }[t.radius] || 'regular';
+    root.style.setProperty('--ui-zoom', String({ 'קטן': 0.92, 'גדול': 1.08, 'גדול מאוד': 1.16 }[t.uiSize] || 1));
+    root.dataset.pplList = t.pplList === 'צפופה' ? 'dense' : 'regular';
+    root.dataset.pplHeader = t.pplHeader === 'קומפקטי' ? 'compact' : 'full';
+    root.dataset.pplPhoneSide = t.pplPhoneSide === 'שמאל' ? 'left' : 'right';
+  }, [t.dark, t.density, t.accent, t.tint, t.contrast, t.bg, t.glass, t.radius, t.uiSize, t.pplList, t.pplHeader, t.pplPhoneSide]);
 
   // בחירת טיוטה אחרונה בעת מעבר חודש
   React.useEffect(() => {
@@ -8717,7 +8849,7 @@ ${JSON.stringify(emptySlots, null, 2)}
         {screen === 'requests' && <PeopleScreen employees={employees} onEmployeesChange={setEmployees}
           requests={requests} onRequestsChange={setRequests} altRequests={altRequests} scheduleResponses={scheduleResponses}
           initialMonth={currentMonth} aiOn={aiOn} onRefresh={refreshEmployeeRequests} openRangeByMonth={openRangeByMonth}
-          adminKey={adminKey} requestCriteria={requestCriteria}
+          adminKey={adminKey} requestCriteria={requestCriteria} layout={t}
           prefs={prefs} onSavePref={(empId, patch) => {
             setPrefs(p => ({ ...p, [empId]: { ...(p[empId] || {}), ...patch, updated_at: new Date().toISOString() } }));
             window.__db.saveEmployeePref?.(empId, patch);
@@ -8851,13 +8983,27 @@ ${JSON.stringify(emptySlots, null, 2)}
       )}
 
       <TweaksPanel>
-        <TweakSection label="צבע" />
-        <TweakColor label="צבע ראשי" value={t.accent} options={['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E']}
-          onChange={v => setTweak('accent', v)} />
-        <TweakSection label="תצוגה" />
-        <TweakRadio label="צפיפות הלוח" value={t.density} options={['רגילה', 'קומפקטית']}
-          onChange={v => setTweak('density', v)} />
+        <TweakSection label="צבעים — כל האפליקציה" />
+        <TweakColor label="צבע ראשי" value={t.accent} options={TWEAK_ACCENTS} onChange={v => setTweak('accent', v)} />
+        <TweakColor label="צבע מותאם" value={t.accent} onChange={v => setTweak('accent', v)} />
+        <TweakRadio label="גוון רקע" value={t.tint} options={['קר', 'ניטרלי', 'חם', 'מנטה']} onChange={v => setTweak('tint', v)} />
+        <TweakRadio label="רקע" value={t.bg} options={['גרדיאנט', 'אחיד', 'צבעוני']} onChange={v => setTweak('bg', v)} />
         <TweakToggle label="מצב כהה" value={t.dark} onChange={v => setTweak('dark', v)} />
+        <TweakSection label="ניגודיות וקריאות" />
+        <TweakRadio label="ניגודיות" value={t.contrast} options={['רכה', 'רגילה', 'גבוהה']} onChange={v => setTweak('contrast', v)} />
+        <TweakRadio label="גודל ממשק" value={t.uiSize} options={['קטן', 'רגיל', 'גדול', 'גדול מאוד']} onChange={v => setTweak('uiSize', v)} />
+        <TweakToggle label="אפקט זכוכית" value={t.glass !== false} onChange={v => setTweak('glass', v)} />
+        <TweakRadio label="פינות" value={t.radius} options={['חד', 'רגיל', 'עגול']} onChange={v => setTweak('radius', v)} />
+        <TweakRadio label="צפיפות הלוח" value={t.density} options={['רגילה', 'קומפקטית']} onChange={v => setTweak('density', v)} />
+        <TweakSection label="עימוד — מסך העובדים" />
+        <TweakRadio label="מה מוצג" value={t.pplView} options={['טלפון והגדרות', 'טלפון בלבד', 'הגדרות בלבד']} onChange={v => setTweak('pplView', v)} />
+        <TweakRadio label="גודל הטלפון" value={t.pplPhone} options={['קטן', 'מותאם', 'גדול']} onChange={v => setTweak('pplPhone', v)} />
+        <TweakRadio label="מיקום הטלפון" value={t.pplPhoneSide} options={['ימין', 'שמאל']} onChange={v => setTweak('pplPhoneSide', v)} />
+        <TweakRadio label="רשימת העובדים" value={t.pplList} options={['רגילה', 'צפופה']} onChange={v => setTweak('pplList', v)} />
+        <TweakToggle label="קיבוץ: הגישו / טרם הגישו" value={!!t.pplGroup} onChange={v => setTweak('pplGroup', v)} />
+        <TweakRadio label="כותרת העובד" value={t.pplHeader} options={['מלא', 'קומפקטי']} onChange={v => setTweak('pplHeader', v)} />
+        <button type="button" className="twk-field" style={{cursor:'pointer',marginTop:4}}
+          onClick={() => setTweak(TWEAK_DEFAULTS)}>↺ איפוס לברירת המחדל</button>
       </TweaksPanel>
     </div>
   );

@@ -108,7 +108,7 @@
   .st-draft { background: color-mix(in oklab, var(--accent) 12%, transparent); color: var(--accent); }
   .st-final { background: var(--ok-bg); color: var(--ok); }
   .st-open  { background: color-mix(in oklab, oklch(0.65 0.15 200) 12%, transparent); color: oklch(0.38 0.14 200); }
-  .app-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 400; max-width: min(560px, calc(100vw - 32px)); background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 10px; font-size: 13px; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,0.25); cursor: pointer; }
+  .app-toast { position: fixed; bottom: 62px; /* מעל כפתור 🎨 Tweaks */  left: 50%; transform: translateX(-50%); z-index: 400; max-width: min(560px, calc(100vw - 32px)); background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 10px; font-size: 13px; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,0.25); cursor: pointer; }
   .conflict-count { font-size: 12px; font-weight: 600; color: var(--danger); background: var(--danger-bg); padding: 3px 10px; border-radius: 999px; }
   .topbar-actions { display: flex; align-items: center; gap: 8px; }
 
@@ -270,7 +270,7 @@
     background: var(--glass-surface);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
-    border-inline-start: 1px solid var(--glass-border);
+    border-inline-end: 1px solid var(--glass-border); /* מימין ללוח — כמו רשימת העובדים במסך "עובדים" */
     display: flex; flex-direction: column;
     min-height: 0;
   }
@@ -760,6 +760,42 @@
   /* במרכז התחתית — בפינה הוא הסתיר את הסרגל התחתון של הטלפון (שמוצג משמאל כברירת מחדל) */
   .twk-launch { position: fixed; left: 50%; transform: translateX(-50%); bottom: 12px; opacity: .85; z-index: 2147483000; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 700; box-shadow: var(--shadow); cursor: pointer; }
   .twk-launch:hover { color: var(--accent); border-color: var(--accent); opacity: 1; }
+  /* --- סרגל הטיוטות: איזו טיוטה פעילה, באיזה שלב, ומה הפעולה הבאה --- */
+  .drafts-bar { align-items: center; gap: 6px; padding: 6px 14px; min-height: 48px; }
+  .draft-tab { border: 1.5px solid transparent; border-radius: 10px; padding: 6px 12px; }
+  .draft-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 2px 8px color-mix(in oklab, var(--accent) 35%, transparent); }
+  .draft-tab.active .status-chip { background: rgba(255,255,255,.22) !important; color: #fff !important; }
+  .draft-tab.active .draft-tab-del { color: rgba(255,255,255,.8); }
+  .draft-tab:not(.active) { border-color: var(--line); }
+  .draft-add { border: 1.5px dashed var(--line); background: transparent; color: var(--ink-3); border-radius: 10px; padding: 6px 11px; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .draft-add:hover { color: var(--accent); border-color: var(--accent); }
+  .draft-range { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 4px 11px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .draft-range:hover { border-color: var(--accent); color: var(--accent); }
+  .draft-stage { display: flex; align-items: center; gap: 8px; white-space: nowrap; font-size: 12.5px; color: var(--ink-2); padding-inline-start: 10px; border-inline-start: 1px solid var(--line); }
+  .draft-stage b { color: var(--ink); }
+  .draft-stage .btn { font-size: 12px; padding: 4px 11px; }
+  .drafts-multi { display: flex; align-items: center; gap: 8px; padding: 7px 18px; font-size: 13px; background: color-mix(in oklab, var(--accent) 12%, var(--surface)); border-bottom: 1px solid color-mix(in oklab, var(--accent) 30%, transparent); color: var(--ink); flex-shrink: 0; }
+  .drafts-multi b { color: var(--accent); }
+  .confirm-draft { display: inline-block; background: var(--accent); color: #fff; border-radius: 7px; padding: 1px 9px; font-weight: 800; }
+  /* --- מסך הגדרות --- */
+  .set-screen { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+  .set-nav { width: 250px; flex-shrink: 0; padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; border-inline-end: 1px solid var(--glass-border); background: var(--glass-surface); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
+  .set-nav h2 { font-size: 20px; font-weight: 800; margin: 0 8px 12px; }
+  .set-nav-item { display: flex; gap: 11px; align-items: center; text-align: start; border: 1.5px solid transparent; background: transparent; border-radius: 12px; padding: 10px 11px; font: inherit; color: var(--ink); cursor: pointer; }
+  .set-nav-item:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
+  .set-nav-item.on { background: color-mix(in oklab, var(--accent) 12%, transparent); border-color: color-mix(in oklab, var(--accent) 35%, transparent); }
+  .set-nav-item .ic { width: 34px; height: 34px; border-radius: 10px; background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .set-nav-item b { display: block; font-size: 14.5px; }
+  .set-nav-item small { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+  .set-main { flex: 1; min-width: 0; overflow: auto; padding: 22px 28px 60px; }
+  .set-pane { max-width: 860px; margin: 0 auto; }
+  .set-pane > h3 { font-size: 22px; font-weight: 800; margin: 0 0 4px; }
+  .set-pane > p { margin: 0 0 16px; color: var(--ink-3); font-size: 13px; }
+  .set-inline { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: 0 2px 10px rgba(0,0,0,.04); }
+  .set-inline .right-drawer-body { overflow: visible; padding: 0; }
+  .set-inline .right-drawer-tabs { padding: 0 0 14px; border-bottom: none; }
+  .set-inline .modal-body { padding: 0 0 12px; }
+  .set-inline .modal-foot { padding: 0; border: none; }
   .rule-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); font-size: 12.5px; }
   .rule-row.iron { background: color-mix(in oklab, oklch(0.45 0.18 300) 9%, transparent); border-color: color-mix(in oklab, oklch(0.45 0.18 300) 35%, transparent); }
   .rule-row .act { margin-inline-start: auto; display: flex; gap: 2px; }
@@ -3970,7 +4006,8 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
   };
 
   const list = React.useMemo(() => {
-    let emps = employees;
+    // לפי א״ב של השם הפרטי (כמו במסך "עובדים"); בלשונית "זמינים ליום" — לפי זמינות, ובשוויון לפי א״ב
+    let emps = [...employees].sort(window.byFirstName);
     if (tab === 'available' && selectedDate) {
       emps = emps.filter(e => PD.availabilityOn(e.id, selectedDate) !== 'unavailable');
       if (shiftFilter !== 'all') {
@@ -4208,7 +4245,7 @@ function ApplySetDialog({ set, special, onConfirm, onCancel }) {
   );
 }
 
-function ShiftsDrawer({ open, onClose, settings, onChange, onRepublish }) {
+function ShiftsDrawer({ open, onClose, settings, onChange, onRepublish, inline }) {
   const [tab, setTab] = React.useState('regular');
   // מאיזה תאריך חל שינוי במשמרות הקבועות (ברירת מחדל: היום) — מה שלפניו נשאר עם ההגדרה הקודמת
   const [effFrom, setEffFrom] = React.useState(() => SD.dateStr(new Date()));
@@ -4319,12 +4356,17 @@ function ShiftsDrawer({ open, onClose, settings, onChange, onRepublish }) {
       <ApplySetDialog set={applyingSet} special={special}
         onConfirm={applySet} onCancel={() => setApplyingSet(null)} />
     )}
+    {/* inline = חלק ממסך ההגדרות; אחרת מגירה */}
+    {((inner) => inline ? <div className="set-inline">{inner}</div> : (
     <div className="right-drawer-backdrop" onClick={onClose}>
       <aside className="right-drawer" onClick={(e) => e.stopPropagation()}>
         <div className="right-drawer-head">
           <h2 className="right-drawer-title">🗓 משמרות</h2>
           <button className="icon-btn" onClick={onClose} aria-label="סגירה">×</button>
         </div>
+        {inner}
+      </aside>
+    </div>))(<>
         <div className="right-drawer-tabs">
           <button className={'right-drawer-tab' + (tab === 'regular' ? ' on' : '')} onClick={() => setTab('regular')}>קבועות</button>
           <button className={'right-drawer-tab' + (tab === 'sets' ? ' on' : '')} onClick={() => setTab('sets')}>סטים</button>
@@ -4492,8 +4534,7 @@ function ShiftsDrawer({ open, onClose, settings, onChange, onRepublish }) {
             </div>
           )}
         </div>
-      </aside>
-    </div>
+    </>)}
     </>
   );
 }
@@ -4565,9 +4606,8 @@ function ShabbatHistoryEditor({ entries, employees, onSave }) {
   );
 }
 
-function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange, hiddenButtons, onHiddenButtonsChange, toolbarButtonDefs }) {
+function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, adminKey, onAdminKeyChange, admins, onAdminsChange, vapidPublicKey, onVapidKeysGenerated, swapSettings, onSwapSettingsChange, requestCriteria, onRequestCriteriaChange, hiddenButtons, onHiddenButtonsChange, toolbarButtonDefs, inline }) {
   if (!open) return null;
-  const ACCENTS = ['#3D63C9', '#1F8A5B', '#7A5AE0', '#B5512E', '#C9393D', '#0891B2'];
   const [showAdminKey, setShowAdminKey] = React.useState(false);
   const [adminDraft, setAdminDraft] = React.useState(adminKey || '');
   const [adminSaved, setAdminSaved] = React.useState(false);
@@ -4581,48 +4621,18 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, adminKey, 
     setTimeout(() => setAdminSaved(false), 2500);
   };
 
-  return (
+  return ((inner) => inline ? <div className="set-inline">{inner}</div> : (
     <div className="right-drawer-backdrop" onClick={onClose}>
       <aside className="right-drawer" style={{maxWidth:340}} onClick={(e) => e.stopPropagation()}>
         <div className="right-drawer-head">
-          <h2 className="right-drawer-title">⚙ הגדרות תצוגה</h2>
+          <h2 className="right-drawer-title">⚙ הגדרות</h2>
           <button className="icon-btn" onClick={onClose} aria-label="סגירה">×</button>
         </div>
+        {inner}
+      </aside>
+    </div>))(<>
         <div className="right-drawer-body">
           <div style={{display:'flex',flexDirection:'column',gap:20}}>
-            <div>
-              <div className="settings-sec-title">מצב תצוגה</div>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10,padding:'0 2px'}}>
-                <span style={{fontSize:'13px'}}>מצב כהה</span>
-                <label className="toggle-switch">
-                  <input type="checkbox" checked={!!tweaks.dark} onChange={(e) => onTweakChange('dark', e.target.checked)} />
-                  <span className="toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-            <div>
-              <div className="settings-sec-title">צפיפות לוח</div>
-              <div style={{display:'flex',gap:8,marginTop:10}}>
-                {['רגילה', 'קומפקטית'].map((d) => (
-                  <button key={d} className={'btn' + (tweaks.density === d ? ' btn-primary' : '')}
-                    style={{flex:1,fontSize:'12px'}}
-                    onClick={() => onTweakChange('density', d)}>{d}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="settings-sec-title">צבע ראשי</div>
-              <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
-                {ACCENTS.map((c) => (
-                  <button key={c} onClick={() => onTweakChange('accent', c)}
-                    style={{
-                      width:36,height:36,borderRadius:8,background:c,border:'none',cursor:'pointer',
-                      boxShadow: tweaks.accent === c ? `0 0 0 2.5px var(--surface), 0 0 0 4.5px ${c}` : 'none',
-                      transition:'box-shadow 0.15s'
-                    }} title={c} />
-                ))}
-              </div>
-            </div>
             <div>
               <div className="settings-sec-title">✦ AI וחשבון משבץ</div>
               <div style={{marginTop:10,fontSize:'12px',color:'var(--ink-3)',lineHeight:1.6}}>
@@ -4801,9 +4811,7 @@ function SettingsDrawer({ open, onClose, tweaks, onTweakChange, auth, adminKey, 
             </div>
           </div>
         </div>
-      </aside>
-    </div>
-  );
+  </>);
 }
 
 // ---- ApprovePendingModal ----
@@ -5397,22 +5405,6 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
     return out;
   }, [employees, month, openRange, requestCriteria, shiftSettings, requests]);
   const [selectedEmpId, setSelectedEmpId] = React.useState(null);
-  // גרירת עובד בסרגל הצד לסידור מחדש
-  const [dragEmpId, setDragEmpId] = React.useState(null);
-  const [overEmpId, setOverEmpId] = React.useState(null);
-  const reorderEmpTo = (targetId) => {
-    if (!dragEmpId || dragEmpId === targetId) return;
-    onEmployeesChange(prev => {
-      const ids = prev.map(e => e.id);
-      const from = ids.indexOf(dragEmpId), to = ids.indexOf(targetId);
-      if (from < 0 || to < 0) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
-  };
-
   const navMonth = (dir) => {
     const [y, m] = month.split('-').map(Number);
     const nd = new Date(y, m - 1 + dir, 1);
@@ -5448,7 +5440,7 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
   // --- רשימה: חיפוש + סינון לפי מצב החודש ---
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState('all'); // all | submitted | missing | issues
-  const rows = employees.map(emp => {
+  const rows = [...employees].sort(window.byFirstName).map(emp => {
     const entry = entryOf(emp.id);
     const st = empMonthStatus(entry);
     const issues = (criteriaViolationsByEmp[emp.id] || []).length > 0 || (prefs?.[emp.id]?.weekday_shifts_per_week ?? 2) < 2;
@@ -5463,7 +5455,6 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
   const q = query.trim();
   const shown = rows.filter(r => (!q || (r.emp.name || '').includes(q) || (r.emp.role || '').includes(q))
     && (filter === 'all' || (filter === 'submitted' ? r.st.key === 'submitted' : filter === 'missing' ? r.st.key !== 'submitted' : r.issues)));
-  const canReorder = !q && filter === 'all';
   const thisYear = String(new Date().getFullYear());
 
   return (
@@ -5513,16 +5504,8 @@ function PeopleScreen({ employees, onEmployeesChange, requests, onRequestsChange
               const viol = criteriaViolationsByEmp[emp.id] || [];
               const isSub = st.key === 'submitted';
               return (
-                <div key={emp.id} className={'ppl-row' + (isSub ? ' is-sub' : ' not-sub') + (isSelected ? ' sel' : '') + (overEmpId === emp.id && dragEmpId && dragEmpId !== emp.id ? ' drop' : '')}
-                  onClick={() => selectEmp(emp.id)}
-                  draggable={canReorder}
-                  onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragEmpId(emp.id); }}
-                  onDragEnd={() => { setDragEmpId(null); setOverEmpId(null); }}
-                  onDragOver={(e) => { if (dragEmpId) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOverEmpId(emp.id); } }}
-                  onDragLeave={() => setOverEmpId(o => (o === emp.id ? null : o))}
-                  onDrop={(e) => { e.preventDefault(); reorderEmpTo(emp.id); setDragEmpId(null); setOverEmpId(null); }}
-                  style={{opacity: dragEmpId === emp.id ? 0.4 : 1}}
-                  title={canReorder ? 'גררו לשינוי הסדר' : undefined}>
+                <div key={emp.id} className={'ppl-row' + (isSub ? ' is-sub' : ' not-sub') + (isSelected ? ' sel' : '')}
+                  onClick={() => selectEmp(emp.id)}>
                   <span className="ppl-av">
                     <window.Avatar emp={emp} size={30} />
                     {isSub && <span className="ok-badge" aria-label="הוגש">✓</span>}
@@ -5606,6 +5589,10 @@ function HamburgerMenu({ screen, onNavigate }) {
           <button className={'ham-item' + (screen === 'shabbat' ? ' active' : '')} onClick={() => nav('shabbat')}>
             🕯️ שבתות
           </button>
+          <div style={{height:1,background:'var(--line)',margin:'4px 6px'}} />
+          <button className={'ham-item' + (screen === 'settings' ? ' active' : '')} onClick={() => nav('settings')}>
+            ⚙ הגדרות
+          </button>
         </div>
       )}
     </div>
@@ -5613,7 +5600,7 @@ function HamburgerMenu({ screen, onNavigate }) {
 }
 
 // ---- ScriptRunnerModal ----
-function ScriptRunnerModal({ open, onClose }) {
+function ScriptRunnerModal({ open, onClose, inline }) {
   const [code, setCode] = React.useState('');
   const [output, setOutput] = React.useState('');
   const [running, setRunning] = React.useState(false);
@@ -5642,13 +5629,16 @@ function ScriptRunnerModal({ open, onClose }) {
   };
 
   if (!open) return null;
-  return (
+  return ((inner) => inline ? <div className="set-inline">{inner}</div> : (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" style={{maxWidth:680,width:'95vw'}} onClick={e=>e.stopPropagation()}>
         <div className="modal-head">
           <h2 className="modal-title">⚡ הרצת סקריפטים</h2>
           <button className="icon-btn" onClick={onClose}>×</button>
         </div>
+        {inner}
+      </div>
+    </div>))(<>
         <div className="modal-body" style={{display:'flex',flexDirection:'column',gap:10}}>
           <div style={{fontSize:'12px',color:'var(--ink-3)'}}>הדבק קוד JavaScript — הקוד רץ בדף עם גישה מלאה ל-<code>window.__db</code></div>
           <textarea value={code} onChange={e=>setCode(e.target.value)} rows={14}
@@ -5666,15 +5656,13 @@ function ScriptRunnerModal({ open, onClose }) {
         <div className="modal-foot">
           <button className="btn" style={{fontSize:'12px',color:'var(--ink-3)'}} onClick={()=>{setCode('');setOutput('');}}>נקה</button>
           <div className="modal-actions">
-            <button className="btn" onClick={onClose}>סגירה</button>
+            {!inline && <button className="btn" onClick={onClose}>סגירה</button>}
             <button className="btn btn-primary" disabled={running||!code.trim()} onClick={run}>
               {running ? <><span className="spin">↻</span> מריץ…</> : '▶ הרץ'}
             </button>
           </div>
         </div>
-      </div>
-    </div>
-  );
+  </>);
 }
 
 // ---- מודאל סיכום שיבוץ חכם ----
@@ -6112,7 +6100,64 @@ function ShabbatScreen({ employees, prefs, drafts, initialMonth, history, onSave
   );
 }
 
-Object.assign(window, { ShiftsDrawer, SettingsDrawer, PeopleScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal, CriteriaGateModal, SchedulingRulesScreen, ShabbatScreen });
+// ---- SettingsScreen ----
+// מסך הגדרות מלא (מהתפריט ≡): משמרות, הגדרות כלליות וסקריפטים — במקום מגירות וחלונות שקופצים מעל הסידור
+const SETTINGS_SECTIONS = [
+  { id: 'shifts',  icon: '🗓', title: 'משמרות',   sub: 'שעות, סטים ומשמרות מיוחדות' },
+  { id: 'general', icon: '⚙', title: 'כללי',     sub: 'AI, אדמינים, חילופים וקריטריונים' },
+  { id: 'scripts', icon: '⚡', title: 'סקריפטים', sub: 'הרצת קוד מול הנתונים' },
+];
+function SettingsScreen({ section, onSection, shiftsProps, generalProps }) {
+  const cur = SETTINGS_SECTIONS.find(x => x.id === section) || SETTINGS_SECTIONS[0];
+  return (
+    <div className="set-screen">
+      <nav className="set-nav" aria-label="הגדרות">
+        <h2>הגדרות</h2>
+        {SETTINGS_SECTIONS.map(x => (
+          <button key={x.id} className={'set-nav-item' + (x.id === cur.id ? ' on' : '')} onClick={() => onSection(x.id)}>
+            <span className="ic" aria-hidden="true">{x.icon}</span>
+            <span><b>{x.title}</b><small>{x.sub}</small></span>
+          </button>
+        ))}
+      </nav>
+      <div className="set-main">
+        <div className="set-pane">
+          <h3>{cur.icon} {cur.title}</h3>
+          <p>{cur.sub}</p>
+          {cur.id === 'shifts'  && <ShiftsDrawer open inline {...shiftsProps} />}
+          {cur.id === 'general' && <SettingsDrawer open inline {...generalProps} />}
+          {cur.id === 'scripts' && <ScriptRunnerModal open inline />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// חלון אישור כללי לפעולות שיוצאות החוצה (פרסום, פתיחה לבקשות, טיוטה נוספת)
+function ConfirmModal({ title, children, confirmLabel, danger, onConfirm, onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 520, width: '94vw' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2 className="modal-title">{title}</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="סגירה">×</button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 14, lineHeight: 1.6 }}>{children}</div>
+        <div className="modal-foot">
+          <span />
+          <div className="modal-actions">
+            <button className="btn" onClick={onClose}>ביטול</button>
+            <button className={'btn ' + (danger ? '' : 'btn-primary')} autoFocus
+              style={danger ? { background: 'var(--danger)', borderColor: 'var(--danger)', color: '#fff' } : null}
+              onClick={() => { onClose(); onConfirm(); }}>{confirmLabel}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { SettingsScreen, ConfirmModal, ShiftsDrawer, SettingsDrawer, PeopleScreen, HamburgerMenu, ScriptRunnerModal, SmartSummaryModal, CriteriaGateModal, SchedulingRulesScreen, ShabbatScreen });
 </script>
 
 <!-- ============ GenerateDraftModal + לוג AI ============ -->
@@ -6400,6 +6445,9 @@ const STORAGE_KEY = 'mishmarot-state-v6';
 const ShiftSettingsCtx = window.ShiftSettingsCtx;
 const DEFAULT_SHIFT_SETTINGS = window.DEFAULT_SHIFT_SETTINGS;
 
+// מיון עובדים לפי א״ב של השם הפרטי (השם המלא מתחיל בו, כך שבשוויון ממשיכים לשם המשפחה)
+window.byFirstName = (a, b) => (a.name || '').trim().localeCompare((b.name || '').trim(), 'he');
+
 const STATUS_META = {
   preview:    { label: 'טרם נוצרה טיוטה', cls: 'st-preview' },
   generating: { label: 'ה־AI משבץ…',      cls: 'st-generating' },
@@ -6599,10 +6647,8 @@ function App({ auth }) {
     { id: 'runSmart', label: '✦⚙ השיבוץ החכם (אלגוריתם + AI)' },
     { id: 'runAI', label: '✦ שבץ AI' },
     { id: 'runShabbatOnly', label: '🕯️ שבץ שבתות בלבד' },
-    { id: 'editRange', label: '✎ ערוך טווח' },
     { id: 'swaps', label: '⇄ חילופים' },
     { id: 'aiLog', label: 'לוג AI' },
-    { id: 'scripts', label: '⚡ סקריפטים' },
     { id: 'sidebarRequests', label: '📋 לשונית "בקשות" ברשימת העובדים' },
   ];
   // כפתורים שהוסתרו כברירת מחדל בגרסה 2 — מוסתרים פעם אחת גם אצל מי שכבר שמר רשימה (הסימון __v2
@@ -6625,9 +6671,10 @@ function App({ auth }) {
   const [logOpen, setLogOpen] = React.useState(false);
   const [exportMenuOpen, setExportMenuOpen] = React.useState(false);
   const [screen, setScreen] = React.useState('calendar');
-  const [shiftsDrawerOpen, setShiftsDrawerOpen] = React.useState(false);
-  const [settingsDrawerOpen, setSettingsDrawerOpen] = React.useState(false);
-  const [scriptRunnerOpen, setScriptRunnerOpen] = React.useState(false);
+  // הגדרות = מסך מלא (≡ → ⚙ הגדרות): משמרות / כללי / סקריפטים
+  const [settingsSection, setSettingsSection] = React.useState('shifts');
+  // חלון אישור לפעולות שיוצאות לעובדים (פרסום, פתיחה לבקשות...) — { title, body, label, danger, run } | null
+  const [confirmBox, setConfirmBox] = React.useState(null);
   const [smartSummary, setSmartSummary] = React.useState(null);
   const [syncStatus, setSyncStatus] = React.useState('loading'); // loading | saving | saved | error | idle
   const [pendingEmps, setPendingEmps] = React.useState(null); // null = לא נטען עדיין
@@ -7535,7 +7582,7 @@ ${JSON.stringify(emptySlots, null, 2)}
     }
     if (!aiOn) {
       alert('שיבוץ AI זמין רק למשבץ מחובר, אחרי שהוגדר מפתח ה-AI בשרת.\nפרטים בהגדרות (⚙) → "AI וחשבון משבץ".');
-      setSettingsDrawerOpen(true);
+      setSettingsSection('general'); setScreen('settings');
       return;
     }
     const id = activeDraftId;
@@ -7680,8 +7727,12 @@ ${JSON.stringify(emptySlots, null, 2)}
       published_at: new Date().toISOString(),
     };
   };
+  // טיוטה אחרת של אותו חודש שכבר פורסמה/פתוחה לבקשות — לעובדים יש שורה אחת לחודש, ולכן היא מוחלפת
+  // אצלם וחוזרת להיות טיוטה (כדי שלא יהיו שתי טיוטות "סופיות" לאותו חודש)
+  const demoteOtherLive = (d) => d && setDrafts(prev => prev.map(x => x.id !== d.id && x.month === d.month && (x.status === 'final' || x.status === 'open') ? { ...x, status: 'draft' } : x));
   const publishDraft = (id) => {
     const d = drafts.find(x => x.id === id);
+    demoteOtherLive(d);
     setDraftStatus(id, 'final');
     if (d && dbAvailable.current && window.__db.publishSchedule) {
       window.__db.publishSchedule(publishRowFor(d));
@@ -7723,8 +7774,65 @@ ${JSON.stringify(emptySlots, null, 2)}
   });
   const openForRequests = (id) => {
     const d = drafts.find(x => x.id === id);
+    demoteOtherLive(d);
     setDraftStatus(id, 'open');
     if (d && dbAvailable.current && window.__db.publishSchedule) window.__db.publishSchedule(openRowFor(d));
+  };
+
+  // ---- פעולות על הטיוטה, עם אישור שמראה בדיוק על איזו טיוטה מדובר ----
+  const rangeLabel = (d) => d?.range?.start ? `${AD.shortDate(d.range.start)}–${AD.shortDate(d.range.end)}` : '';
+  const DraftName = ({ d }) => <span className="confirm-draft">{d?.name || 'טיוטה'}</span>;
+  const otherLive = (d) => drafts.filter(x => x.id !== d.id && x.month === d.month && (x.status === 'final' || x.status === 'open'));
+  const liveWarning = (d, verb) => otherLive(d).map(x => (
+    <div key={x.id} style={{ color: 'var(--danger)', fontWeight: 700 }}>
+      ⚠ «{x.name}» {x.status === 'final' ? 'כבר מפורסמת לעובדים' : 'פתוחה כרגע לבקשות'} — {verb} תחליף אותה אצל העובדים, והיא תחזור להיות טיוטה.
+    </div>
+  ));
+  const requestPublish = (id) => {
+    const d = drafts.find(x => x.id === id); if (!d) return;
+    const rest = drafts.filter(x => x.id !== id && x.month === d.month && !otherLive(d).includes(x));
+    setConfirmBox({ title: 'פרסום הסידור לעובדים', label: `פרסום «${d.name}»`, run: () => publishDraft(id), body: <>
+      <div>שימו לב — הולכים לפרסם את <DraftName d={d} /> ({AD.monthLabel(d.month)}, {rangeLabel(d)}) לכל העובדים.</div>
+      <div>הסידור הופך לסופי ומופיע מיד באפליקציה שלהם. אפשר להמשיך לערוך אותו גם אחר כך — כל שינוי מתעדכן אצלם.</div>
+      {d.id === activeDraftId && openSlotCount > 0 && <div style={{ color: 'var(--warn)', fontWeight: 700 }}>⚠ {openSlotCount} משמרות עדיין חסרות בטיוטה הזו.</div>}
+      {liveWarning(d, 'הפרסום')}
+      {rest.length > 0 && <div style={{ color: 'var(--ink-3)' }}>{rest.map(x => '«' + x.name + '»').join(', ')} — לא {rest.length > 1 ? 'יפורסמו' : 'תפורסם'}.</div>}
+    </> });
+  };
+  const requestOpen = (id) => {
+    const d = drafts.find(x => x.id === id); if (!d) return;
+    setConfirmBox({ title: 'פתיחת הגשת בקשות לעובדים', label: 'פתיחה להגשה', run: () => openForRequests(id), body: <>
+      <div>העובדים יוכלו לסמן בקשות ל{AD.monthLabel(d.month)} באפליקציה שלהם, לימים {rangeLabel(d)} — לפי הטווח של <DraftName d={d} />.</div>
+      <div style={{ color: 'var(--ink-3)' }}>בלי השלב הזה אפליקציית העובדים לא מאפשרת להגיש בקשות לחודש. בזמן שההגשה פתוחה אפשר להמשיך לשבץ ולערוך.</div>
+      {liveWarning(d, 'הפתיחה')}
+    </> });
+  };
+  const requestCloseSubmissions = (id) => {
+    const d = drafts.find(x => x.id === id); if (!d) return;
+    setConfirmBox({ title: 'סגירת הגשת הבקשות', label: 'סגירת ההגשה', run: () => unpublishDraft(id), body: <>
+      <div>העובדים לא יוכלו יותר להגיש או לשנות בקשות ל{AD.monthLabel(d.month)}. בקשות שכבר הוגשו נשמרות.</div>
+      <div style={{ color: 'var(--ink-3)' }}>לרוב אין צורך בזה — "אישור ופרסום" סוגר את ההגשה ממילא.</div>
+    </> });
+  };
+  const requestUnpublish = (id) => {
+    const d = drafts.find(x => x.id === id); if (!d) return;
+    setConfirmBox({ title: 'ביטול הפרסום', label: 'ביטול הפרסום', danger: true, run: () => unpublishDraft(id), body: <>
+      <div>הסידור <DraftName d={d} /> יוסר מאפליקציית העובדים ויחזור להיות טיוטה.</div>
+    </> });
+  };
+  const requestNewDraft = () => {
+    const open = () => { setModalMode('create'); setModalOpen(true); };
+    if (!monthDrafts.length) return open();
+    setConfirmBox({ title: `טיוטה נוספת ל${AD.monthLabel(currentMonth)}`, label: 'יצירת טיוטה נוספת', run: open, body: <>
+      <div>כבר יש {monthDrafts.length === 1 ? 'טיוטה' : monthDrafts.length + ' טיוטות'} לחודש: {monthDrafts.map(x => '«' + x.name + '»').join(', ')}.</div>
+      <div>טיוטה נוספת היא סידור חלופי נפרד, ובסוף מפרסמים רק אחת. השיבוץ, הייצוא והפרסום תמיד חלים על הטיוטה המסומנת בסרגל הטיוטות.</div>
+    </> });
+  };
+  const selectDraft = (id) => {
+    if (id === activeDraftId) return;
+    setActiveDraftId(id);
+    const d = drafts.find(x => x.id === id);
+    if (d && monthDrafts.length > 1) setToast(`עכשיו עובדים על «${d.name}» — שיבוץ, ייצוא ופרסום חלים עליה`);
   };
 
   // שינוי במסך המשמרות (שעות/משמרות) — מפרסמים מחדש כל חודש שכבר פורסם (סופי) או פתוח לבקשות, כדי
@@ -7939,38 +8047,48 @@ ${JSON.stringify(emptySlots, null, 2)}
           {syncStatus === 'saving'  && <span className="sync-badge sync-saving"><span className="spin">↻</span> שומר…</span>}
           {syncStatus === 'saved'   && <span className="sync-badge sync-saved">✓ נשמר</span>}
           {syncStatus === 'error'   && <span className="sync-badge sync-error" title="שגיאת סנכרון עם מסד הנתונים">⚠ שגיאת שמירה</span>}
-          <button className={'topbar-nav-btn' + (shiftsDrawerOpen ? ' active' : '')}
-            onClick={() => { setShiftsDrawerOpen(o => !o); setSettingsDrawerOpen(false); }}>
-            🗓 משמרות
-          </button>
-          <button className={'topbar-nav-btn' + (settingsDrawerOpen ? ' active' : '')}
-            onClick={() => { setSettingsDrawerOpen(o => !o); setShiftsDrawerOpen(false); }}>
-            ⚙ הגדרות
-          </button>
-          {!hiddenButtons.includes('scripts') && (
-            <button className="topbar-nav-btn" onClick={() => setScriptRunnerOpen(true)} title="הרצת סקריפטים">
-              ⚡ סקריפטים
-            </button>
-          )}
           {!hiddenButtons.includes('swaps') && (
             <button className="topbar-nav-btn" onClick={() => setSwapDrawerOpen(true)} title="בקשות חילוף הממתינות לאישור">
               ⇄ חילופים{swapQueue.length > 0 && <span className="btn-badge">{swapQueue.length}</span>}
             </button>
           )}
-          {screen === 'calendar' && (
+          {/* סרגל הסידור: רק מה שצריך לשיבוץ. סדר מימין לשמאל — עזרים, ייצוא, שיבוץ, ופרסום בקצה השמאלי.
+              משמרות/הגדרות/סקריפטים עברו למסך ההגדרות (≡); טיוטה, טווח ושלב הטיוטה — לסרגל הטיוטות */}
+          {screen === 'calendar' && currentDraft && (
             <>
               {!hiddenButtons.includes('aiLog') && (
-                <button className="btn" onClick={() => setLogOpen(true)} disabled={!currentDraft}>
+                <button className="btn" onClick={() => setLogOpen(true)}>
                   לוג AI{dilemmaCount > 0 && <span className="btn-badge">{dilemmaCount}</span>}
+                </button>
+              )}
+              {(status === 'draft' || status === 'open') && (<>
+                {!hiddenButtons.includes('runShabbatOnly') && (
+                  <button className="btn" onClick={runShabbatOnly} disabled={isGenerating}
+                    title='משבץ רק את משמרות "שבת ארוכה" ועוצר שם — כדי לבדוק/לתקן ידנית את הרוטציה לפני שממשיכים. שאר הכפתורים לא ידרסו שיבוצי שבת שכבר קיימים, רק ימלאו את מה שנשאר ריק.'>
+                    🕯️ שיבוץ שבתות בלבד
+                  </button>
+                )}
+                {!hiddenButtons.includes('runSmart') && (
+                  <button className="btn btn-smart" onClick={runSmart} disabled={isGenerating} title="אלגוריתם + AI שממלא את המשבצות שנשארו פתוחות (הצעות AI שמפרות תנאי שיבוץ נדחות)">✦⚙ השיבוץ החכם</button>
+                )}
+                {!hiddenButtons.includes('runAI') && (
+                  <button className="btn btn-ai" onClick={runAI} disabled={isGenerating} title="AI בלבד">✦ שבץ AI</button>
+                )}
+              </>)}
+              {editable && (
+                <button className="btn" onClick={() => setFreeAssignMode(v => !v)}
+                  style={freeAssignMode ? {background:'var(--danger)',borderColor:'var(--danger)',color:'#FFF'} : {}}
+                  title='שיבוץ ידני (גרירה / צ&quot;אט AI) יתעלם מ"לא יכול" של העובד, בלי לשנות את הבקשה שהוגש — כבו כשסיימתם'>
+                  {freeAssignMode ? '🔓 שיבוץ חופשי — דלוק' : '🔒 שיבוץ חופשי'}
                 </button>
               )}
               <div style={{position:'relative'}}>
                 {/* "ייצוא" = הסידור בתבנית ה-PDF; ▾ = עוד פורמטים (CSV) */}
                 <div style={{display:'flex'}}>
-                  <button className="btn" onClick={exportPdfTemplate} disabled={!currentDraft || isGenerating}
+                  <button className="btn" onClick={exportPdfTemplate} disabled={isGenerating}
                     title="הסידור שבטיוטה בתבנית ה-PDF (שבוע לעמוד) — נפתח בחלון חדש, ושם בוחרים 'שמירה כ-PDF'"
                     style={{borderStartEndRadius:0,borderEndEndRadius:0}}>ייצוא</button>
-                  <button className="btn" onClick={() => setExportMenuOpen(o => !o)} disabled={!currentDraft || isGenerating}
+                  <button className="btn" onClick={() => setExportMenuOpen(o => !o)} disabled={isGenerating}
                     title="פורמטים נוספים" style={{borderStartStartRadius:0,borderEndStartRadius:0,borderInlineStart:'none',padding:'0 7px'}}>▾</button>
                 </div>
                 {exportMenuOpen && (<>
@@ -7987,67 +8105,63 @@ ${JSON.stringify(emptySlots, null, 2)}
                 </>)}
               </div>
               {(status === 'draft' || status === 'open') && (<>
-                {!hiddenButtons.includes('runShabbatOnly') && (
-                  <button className="btn" onClick={runShabbatOnly} disabled={isGenerating}
-                    title='משבץ רק את משמרות "שבת ארוכה" ועוצר שם — כדי לבדוק/לתקן ידנית את הרוטציה לפני שממשיכים. שאר הכפתורים לא ידרסו שיבוצי שבת שכבר קיימים, רק ימלאו את מה שנשאר ריק.'>
-                    🕯️ שבץ שבתות בלבד
-                  </button>
-                )}
-                {!hiddenButtons.includes('runSmart') && (
-                  <button className="btn btn-smart" onClick={runSmart} disabled={isGenerating} title="אלגוריתם + AI שממלא את המשבצות שנשארו פתוחות (הצעות AI שמפרות תנאי שיבוץ נדחות)">✦⚙ השיבוץ החכם</button>
-                )}
-                {!hiddenButtons.includes('runAI') && (
-                  <button className="btn btn-ai" onClick={runAI} disabled={isGenerating} title="AI בלבד">✦ שבץ AI</button>
-                )}
-                <button className="btn" onClick={() => setFreeAssignMode(v => !v)}
-                  style={freeAssignMode ? {background:'var(--danger)',borderColor:'var(--danger)',color:'#FFF'} : {}}
-                  title='שיבוץ ידני (גרירה / צ&quot;אט AI) יתעלם מ"לא יכול" של העובד, בלי לשנות את הבקשה שהוגש — כבו כשסיימתם'>
-                  {freeAssignMode ? '🔓 שיבוץ חופשי — דלוק' : '🔒 שיבוץ חופשי'}
+                <button className="btn btn-smart" onClick={runAlgo} disabled={isGenerating} title="אלגוריתם בלבד — משבצות בלי מועמד מתאים נשארות פתוחות">⚙ שיבוץ</button>
+                {/* הקצה השמאלי — הפעולה האחרונה בתהליך. עם כמה טיוטות, שם הטיוטה כתוב על הכפתור */}
+                <button className="btn btn-final" onClick={() => requestPublish(activeDraftId)} disabled={isGenerating}
+                  title="הסידור הופך מיד לסופי ומתפרסם לאפליקציית העובדים. אפשר להמשיך לערוך אותו — השינויים יתעדכנו אצל העובדים">
+                  אישור ופרסום{monthDrafts.length > 1 ? ` · ${currentDraft.name}` : ''}
                 </button>
               </>)}
-              {(status === 'draft' || status === 'open') && !hiddenButtons.includes('editRange') && (
-                <button className="btn" onClick={() => { setModalMode('edit'); setModalOpen(true); }} disabled={isGenerating}
-                  title="הוספה/הסרה של ימים בתחילת או בסוף הטווח">✎ ערוך טווח</button>
-              )}
-              {status === 'draft' && (
-                <button className="btn" style={{borderColor:'oklch(0.38 0.14 200)',color:'oklch(0.38 0.14 200)'}} onClick={() => openForRequests(activeDraftId)}>📤 פתח לבקשות</button>
-              )}
-              {(status === 'draft' || status === 'open') && (
-                <button className="btn btn-final" onClick={() => publishDraft(activeDraftId)}
-                  title="הסידור הופך מיד לסופי ומתפרסם לאפליקציית העובדים. אפשר להמשיך לערוך אותו — השינויים יתעדכנו אצל העובדים">אישור ופרסום</button>
-              )}
-              {status === 'final' && vapidPublicKey && (
-                <button className="btn" style={{borderColor:'oklch(0.55 0.18 300)',color:'oklch(0.45 0.18 300)'}}
-                  onClick={() => setSendRemindersOpen(true)}>🔔 שלח תזכורות</button>
-              )}
-              {(status === 'final' || status === 'open') && (
-                <button className="btn" onClick={() => unpublishDraft(activeDraftId)}
-                  title={status === 'final' ? 'מסיר את הסידור מאפליקציית העובדים ומחזיר אותו לטיוטה' : undefined}>{status === 'final' ? 'ביטול פרסום' : 'חזרה לעריכה'}</button>
-              )}
-              <button className="btn btn-primary" onClick={() => { setModalMode('create'); setModalOpen(true); }} disabled={isGenerating}>
-                ✦ צור טיוטה
-              </button>
-              {/* "שיבוץ" (אלגוריתם בלבד) — הכפתור הראשי, בקצה השמאלי של הסרגל */}
-              {(status === 'draft' || status === 'open') && (
-                <button className="btn btn-smart" onClick={runAlgo} disabled={isGenerating} title="אלגוריתם בלבד — משבצות בלי מועמד מתאים נשארות פתוחות">⚙ שיבוץ</button>
-              )}
             </>
           )}
         </div>
       </header>
 
+      {/* סרגל הטיוטות: הטיוטות של החודש (הפעילה צבועה), טיוטה נוספת, הטווח, והשלב של הטיוטה הפעילה */}
       {screen === 'calendar' && monthDrafts.length > 0 && (
         <div className="drafts-bar">
           {monthDrafts.map(d => (
             <DraftTab key={d.id} draft={d} isActive={d.id === activeDraftId}
-              onSelect={setActiveDraftId} onRename={renameDraft} onDelete={deleteDraft} />
+              onSelect={selectDraft} onRename={renameDraft} onDelete={deleteDraft} />
           ))}
+          <button className="draft-add" onClick={requestNewDraft} disabled={isGenerating} title="סידור חלופי נפרד לאותו חודש">＋ טיוטה נוספת</button>
+          <span style={{flex:1}} />
+          {currentDraft && (
+            <>
+              <button className="draft-range" disabled={isGenerating || status === 'final'}
+                onClick={() => { setModalMode('edit'); setModalOpen(true); }}
+                title={status === 'final' ? 'הטווח של סידור שפורסם לא משתנה' : 'שינוי טווח התאריכים של הטיוטה'}>
+                📅 {rangeLabel(currentDraft)}{status !== 'final' ? ' ✎' : ''}
+              </button>
+              <div className="draft-stage">
+                {status === 'draft' && <>
+                  <span>העובדים <b>עוד לא יכולים להגיש</b> בקשות</span>
+                  <button className="btn" onClick={() => requestOpen(activeDraftId)}>📤 פתיחת הגשת בקשות</button>
+                </>}
+                {status === 'open' && <>
+                  <span>📤 <b>פתוח להגשת בקשות</b></span>
+                  <button className="btn" onClick={() => requestCloseSubmissions(activeDraftId)}>סגירת ההגשה</button>
+                </>}
+                {status === 'final' && <>
+                  <span>✓ <b>פורסם לעובדים</b></span>
+                  {vapidPublicKey && <button className="btn" onClick={() => setSendRemindersOpen(true)}>🔔 תזכורות</button>}
+                  <button className="btn" onClick={() => requestUnpublish(activeDraftId)}>ביטול פרסום</button>
+                </>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {screen === 'calendar' && monthDrafts.length > 1 && currentDraft && (
+        <div className="drafts-multi" role="status">
+          <span>🗂</span>
+          <span>יש {monthDrafts.length} טיוטות ל{AD.monthLabel(currentMonth)}. שיבוץ, ייצוא ופרסום חלים רק על הטיוטה הפעילה: <b>«{currentDraft.name}»</b></span>
         </div>
       )}
 
       {screen === 'calendar' && status === 'open' && (
         <div className="final-banner" style={{background:'color-mix(in oklab, oklch(0.65 0.15 200) 10%, var(--bg))'}}>
-          הטיוטה פתוחה לבקשות עובדים — עובדים יכולים לסמן בקשות ביומן שלהם. ניתן להמשיך לערוך את השיבוץ. לחצו ״חזרה לעריכה״ לסגירה, או ״אישור ופרסום״ לנעילת הסידור.
+          הגשת הבקשות פתוחה — העובדים מסמנים בקשות באפליקציה שלהם, ואפשר להמשיך לשבץ ולערוך. "אישור ופרסום" סוגר את ההגשה ומפרסם את הסידור.
         </div>
       )}
       {screen === 'calendar' && status === 'final' && (
@@ -8106,10 +8220,34 @@ ${JSON.stringify(emptySlots, null, 2)}
           requireSubmission={ruleToggles.requireSubmission !== false}
           isSubmitted={(empId, month) => { const r = (requests[empId] || {})[month]; return (!!r && !r.isDraft) || allRecurring.some(x => x.emp_id === empId && x.active); }}
           history={shabbatHistory} onSaveHistory={saveShabbatHistory} />}
+        {screen === 'settings'  && <SettingsScreen section={settingsSection} onSection={setSettingsSection}
+          shiftsProps={{
+            settings: shiftSettings, onClose: () => {},
+            onChange: (s) => { settingsEditedRef.current = true; setShiftSettings(s); },
+            onRepublish: () => { const n = republishAllPublished(); setToast(n ? `השעות עודכנו אצל העובדים ב-${n} סידורים שפורסמו` : 'אין סידורים שפורסמו לעדכן'); },
+          }}
+          generalProps={{
+            onClose: () => {}, tweaks: t, onTweakChange: setTweak, auth, adminKey,
+            onAdminKeyChange: key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } },
+            admins, onAdminsChange: setAdmins, vapidPublicKey, onVapidKeysGenerated: setVapidPublicKey,
+            swapSettings, onSwapSettingsChange: setSwapSettings, requestCriteria, onRequestCriteriaChange: setRequestCriteria,
+            hiddenButtons, onHiddenButtonsChange: setHiddenButtons, toolbarButtonDefs: TOOLBAR_BUTTON_DEFS,
+          }} />}
         {screen === 'rules'     && <SchedulingRulesScreen ruleToggles={ruleToggles}
           onToggle={(key, val) => setRuleToggles(t => ({ ...t, [key]: val }))} />}
         {screen === 'calendar'  && (
           <main className="layout">
+            {/* רשימת העובדים מימין — כמו במסך "עובדים" */}
+            <EmployeesSidePanel
+              schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
+              onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
+              aiOn={aiOn} employees={employees} onEmployeesChange={setEmployees}
+              onAssign={assign} onRemove={remove} onAdjustShifts={adjustEmpShifts} draftDates={currentDraft ? datesForDraft(currentDraft) : []}
+              focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift}
+              hideRequests={hiddenButtons.includes('sidebarRequests')}
+              managerNotes={Object.fromEntries(employees.map(e => [e.id, requests[e.id]?.[currentMonth]?.managerNote || '']).filter(([, n]) => n))}
+              responses={Object.fromEntries(employees.map(e => [e.id, scheduleResponses[e.id]?.[currentMonth]]).filter(([, r]) => r))}
+              prefs={prefs} />
             <section className="board">
               {!currentDraft ? (
                 <div className="empty-state">
@@ -8144,17 +8282,6 @@ ${JSON.stringify(emptySlots, null, 2)}
                 </div>
               )}
             </section>
-
-            <EmployeesSidePanel
-              schedule={currentDraft?.schedule || {}} selectedDate={selectedDate} draggingEmp={draggingEmp}
-              onDragEmpStart={setDraggingEmp} onDragEnd={() => setDraggingEmp(null)} editable={editable}
-              aiOn={aiOn} employees={employees} onEmployeesChange={setEmployees}
-              onAssign={assign} onRemove={remove} onAdjustShifts={adjustEmpShifts} draftDates={currentDraft ? datesForDraft(currentDraft) : []}
-              focusedEmpId={focusedEmpId} onFocusEmpChange={setFocusedEmpId} focusShift={selectedShift}
-              hideRequests={hiddenButtons.includes('sidebarRequests')}
-              managerNotes={Object.fromEntries(employees.map(e => [e.id, requests[e.id]?.[currentMonth]?.managerNote || '']).filter(([, n]) => n))}
-              responses={Object.fromEntries(employees.map(e => [e.id, scheduleResponses[e.id]?.[currentMonth]]).filter(([, r]) => r))}
-              prefs={prefs} />
           </main>
         )}
       </ShiftSettingsCtx.Provider>
@@ -8163,21 +8290,6 @@ ${JSON.stringify(emptySlots, null, 2)}
         <ShiftTimesDialog ctx={editTimes} settings={shiftSettings} schedule={currentDraft?.schedule || {}}
           onUpdate={updateOverride} onClose={() => setEditTimes(null)} />
       )}
-
-      <ShiftsDrawer open={shiftsDrawerOpen} onClose={() => setShiftsDrawerOpen(false)}
-        settings={shiftSettings} onChange={(s) => { settingsEditedRef.current = true; setShiftSettings(s); }}
-        onRepublish={() => { const n = republishAllPublished(); setToast(n ? `השעות עודכנו אצל העובדים ב-${n} סידורים שפורסמו` : 'אין סידורים שפורסמו לעדכן'); }} />
-      <SettingsDrawer open={settingsDrawerOpen} onClose={() => setSettingsDrawerOpen(false)}
-        tweaks={t} onTweakChange={setTweak}
-        auth={auth}
-        adminKey={adminKey}
-        onAdminKeyChange={key => { setAdminKey(key); try { localStorage.setItem('supabase-admin-key', key); } catch (e) { console.warn('שמירת מפתח אדמין נכשלה:', e.message); } }}
-        admins={admins} onAdminsChange={setAdmins}
-        vapidPublicKey={vapidPublicKey}
-        onVapidKeysGenerated={setVapidPublicKey}
-        swapSettings={swapSettings} onSwapSettingsChange={setSwapSettings}
-        requestCriteria={requestCriteria} onRequestCriteriaChange={setRequestCriteria}
-        hiddenButtons={hiddenButtons} onHiddenButtonsChange={setHiddenButtons} toolbarButtonDefs={TOOLBAR_BUTTON_DEFS} />
 
       <GenerateDraftModal open={modalOpen} onClose={() => setModalOpen(false)}
         onGenerate={(opts) => { (modalMode === 'edit' ? editDraftRange : createDraft)(opts); setModalOpen(false); }}
@@ -8205,7 +8317,10 @@ ${JSON.stringify(emptySlots, null, 2)}
         }} />
       <window.SendRemindersModal open={sendRemindersOpen} onClose={() => setSendRemindersOpen(false)}
         draft={currentDraft} employees={employees} currentMonth={currentMonth} />
-      <window.ScriptRunnerModal open={scriptRunnerOpen} onClose={() => setScriptRunnerOpen(false)} />
+      {confirmBox && (
+        <ConfirmModal title={confirmBox.title} confirmLabel={confirmBox.label} danger={confirmBox.danger}
+          onConfirm={confirmBox.run} onClose={() => setConfirmBox(null)}>{confirmBox.body}</ConfirmModal>
+      )}
       <window.SmartSummaryModal summary={smartSummary} onClose={() => setSmartSummary(null)} />
       <window.CriteriaGateModal gate={criteriaGate}
         onCancel={() => setCriteriaGate(null)}

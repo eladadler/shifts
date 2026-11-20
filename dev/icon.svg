@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <circle cx="100" cy="100" r="100" fill="white"/>
+  <!-- Teal petal - top-left -->
+  <ellipse cx="72" cy="72" rx="46" ry="26" fill="#41ABC3" transform="rotate(45 72 72)"/>
+  <!-- Pink petal - top-right -->
+  <ellipse cx="128" cy="72" rx="46" ry="26" fill="#E8345D" transform="rotate(-45 128 72)"/>
+  <!-- Pink petal - bottom-left -->
+  <ellipse cx="72" cy="128" rx="46" ry="26" fill="#E8345D" transform="rotate(-45 72 128)"/>
+  <!-- Teal petal - bottom-right -->
+  <ellipse cx="128" cy="128" rx="46" ry="26" fill="#41ABC3" transform="rotate(45 128 128)"/>
+  <!-- Pink center circle -->
+  <circle cx="100" cy="100" r="15" fill="#E8345D"/>
+</svg>

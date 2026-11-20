@@ -1,0 +1,21 @@
+{
+  "name": "משמרות — פיתוח",
+  "short_name": "משמרות פיתוח",
+  "description": "צפייה בסידורים ובקשת זמינות",
+  "start_url": "./עובד.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E9E7E2",
+  "theme_color": "#41ABC3",
+  "dir": "rtl",
+  "lang": "he",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

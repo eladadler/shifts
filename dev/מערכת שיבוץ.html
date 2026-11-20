@@ -839,6 +839,15 @@
   .bh-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .bh-draft { font-size: 15px; font-weight: 800; color: var(--ink-2); }
   .published-chip { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 10px; background: var(--ok-bg); color: var(--ok); font-weight: 800; font-size: 13px; white-space: nowrap; }
+  /* --- הודעת עובד קופצת (מסך הסידור) --- */
+  .note-pop { position: fixed; top: 96px; left: 50%; transform: translateX(-50%); z-index: 500; width: min(620px, calc(100vw - 40px)); display: flex; gap: 14px; align-items: flex-start; direction: rtl; font-family: 'IBM Plex Sans Hebrew', 'Heebo', sans-serif; background: color-mix(in oklab, oklch(0.55 0.17 300) 9%, var(--surface)); border: 2px solid oklch(0.55 0.17 300); border-radius: 18px; padding: 18px 20px; box-shadow: 0 18px 50px rgba(30, 10, 60, .28); animation: note-pop-in .22s cubic-bezier(.2,.9,.3,1.2); }
+  @keyframes note-pop-in { from { opacity: 0; transform: translate(-50%, -10px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+  .note-pop .ic { width: 44px; height: 44px; border-radius: 13px; background: oklch(0.55 0.17 300); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+  .note-pop .who { font-size: 13px; font-weight: 800; color: oklch(0.5 0.17 300); margin-bottom: 4px; }
+  [data-theme="dark"] .note-pop .who { color: oklch(0.8 0.12 300); }
+  .note-pop .txt { font-size: 18px; font-weight: 600; line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
+  .note-pop .x { border: none; background: transparent; font-size: 24px; line-height: 1; color: var(--ink-3); cursor: pointer; padding: 0 4px; }
+  .note-pop .x:hover { color: var(--ink); }
   .rule-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); font-size: 12.5px; }
   .rule-row.iron { background: color-mix(in oklab, oklch(0.45 0.18 300) 9%, transparent); border-color: color-mix(in oklab, oklch(0.45 0.18 300) 35%, transparent); }
   .rule-row .act { margin-inline-start: auto; display: flex; gap: 2px; }
@@ -3411,11 +3420,12 @@ function DayCard({ dStr, inMonth, excluded, schedule, conflicts, editable, dragg
   } else if (focusedEmpId) {
     const daySchedule = schedule[dStr] || {};
     const assignedHere = Object.values(daySchedule).some(arr => (arr || []).includes(focusedEmpId));
-    const dayAv = D.availabilityOn(focusedEmpId, dStr);
-    if (!assignedHere) {
-      if (dayAv === 'high' || dayAv === 'can') availCls = ' day-glow';
-      else availCls = ' day-dim';
-    }
+    // יום שלם, או לפחות משמרת אחת ביום (למשל רק "יום" או רק "לילה") שסומנה "מעדיף"/"יכול" — היום זמין,
+    // והמשבצות עצמן מסומנות אחת-אחת ב-ShiftSlot (slot-focus-option / slot-focus-other)
+    const ok = (av) => av === 'high' || av === 'can';
+    const dayOpen = ok(D.availabilityOn(focusedEmpId, dStr))
+      || dayShifts.some(s => !s.continuation && ok(D.availabilityOn(focusedEmpId, dStr, s.id)));
+    if (!assignedHere) availCls = dayOpen ? ' day-glow' : ' day-dim';
   }
 
   if (excluded) {
@@ -3953,6 +3963,15 @@ ${editable ? '' : 'שים לב: הסידור נעול כרגע לעריכה — 
 function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStart, onDragEnd, editable, aiOn, employees, onEmployeesChange, onAssign, onRemove, onAdjustShifts, draftDates, focusedEmpId, onFocusEmpChange, focusShift, managerNotes, responses, prefs, hideRequests }) {
   const [nav, setNav] = React.useState('employees');
   const [tab, setTab] = React.useState('all');
+  // הודעת העובד למשבץ (managerNote) שמוצגת כרגע כחלון קופץ — מזהה עובד או null
+  const [noteFor, setNoteFor] = React.useState(null);
+  React.useEffect(() => {
+    if (!noteFor) return;
+    const onKey = (e) => { if (e.key === 'Escape') setNoteFor(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [noteFor]);
+  const noteEmp = noteFor && managerNotes?.[noteFor] ? employees.find(e => e.id === noteFor) : null;
   const [shiftFilter, setShiftFilter] = React.useState('all');
   const shiftSettings = React.useContext(window.ShiftSettingsCtx);
 
@@ -4128,7 +4147,10 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
                           השבוע {wl.n}/{wl.target}
                         </span>
                       )}
-                      {managerNotes?.[emp.id] && <span title={'הערה למשבץ: ' + managerNotes[emp.id]} style={{fontSize:11}}>📌</span>}
+                      {managerNotes?.[emp.id] && (
+                        <button className="ppl-msg" style={{border:'none',cursor:'pointer',font:'inherit',fontSize:10.5,fontWeight:800,whiteSpace:'nowrap',flexShrink:0}}
+                          title="הצגת ההודעה" onClick={(e) => { e.stopPropagation(); setNoteFor(emp.id); }}>💬 הודעה</button>
+                      )}
                       {responses?.[emp.id]?.approved && (
                         <span title={'אישר.ה את הסידור' + (responses[emp.id].respondedAt ? (' · ' + new Date(responses[emp.id].respondedAt).toLocaleString('he-IL')) : '')}
                           style={{fontSize:11,color:'var(--ok)',fontWeight:800}}>✓ אישר.ה</span>
@@ -4141,7 +4163,12 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
                       )}
                     </>}
                     focused={focusedEmpId === emp.id}
-                    onFocus={(id) => onFocusEmpChange && onFocusEmpChange(focusedEmpId === id ? null : id)}
+                    onFocus={(id) => {
+                      const on = focusedEmpId !== id;
+                      onFocusEmpChange && onFocusEmpChange(on ? id : null);
+                      // לחיצה על עובד שהשאיר הודעה למשבץ — ההודעה קופצת בגדול
+                      setNoteFor(on && managerNotes?.[id] ? id : null);
+                    }}
                     onAdjustShifts={editable && onAdjustShifts ? onAdjustShifts : null} draftDates={draftDates} />
                 </div>
               );
@@ -4155,6 +4182,16 @@ function EmployeesSidePanel({ schedule, selectedDate, draggingEmp, onDragEmpStar
 
       <AIChat schedule={schedule} selectedDate={selectedDate} aiOn={aiOn} employees={employees} onEmployeesChange={onEmployeesChange}
         onAssign={onAssign} onRemove={onRemove} editable={editable} />
+      {/* חלון ההודעה — דרך portal, כי ל-.side-panel יש backdrop-filter שכולא position:fixed בתוכו */}
+      {noteEmp && ReactDOM.createPortal(
+        <div className="note-pop" role="dialog" aria-label={'הודעה מ' + noteEmp.name}>
+          <span className="ic" aria-hidden="true">💬</span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="who">הודעה מ{noteEmp.name} למשבץ</div>
+            <div className="txt">{managerNotes[noteEmp.id]}</div>
+          </div>
+          <button className="x" onClick={() => setNoteFor(null)} aria-label="סגירה">×</button>
+        </div>, document.body)}
     </aside>
   );
 }

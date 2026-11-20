@@ -355,6 +355,10 @@ const MARK_STATUS = {
 };
 // מזהה עובד להתחזות (אדמין בלבד) — מוגדר כ-URL param ?impersonate=<id>
 const IMPERSONATE_ID = new URLSearchParams(window.location.search).get('impersonate') || null;
+// מצב מוטמע (אדמין בלבד, יחד עם impersonate): האפליקציה מוצגת בתוך "טלפון" במסך העובדים של המשבץ —
+// בלי פס האדמין, עם לשונית פתיחה מ-?tab=, והמשבץ מעביר לשוניות ב-postMessage ({ type: 'mishmarot:setTab', tab })
+const EMBED = !!IMPERSONATE_ID && new URLSearchParams(window.location.search).get('embed') === '1';
+const EMBED_TABS = ['home', 'schedule', 'swaps', 'requests', 'settings'];
 
 // טיוטות בקשות שעוד לא נשלחו (סימונים + הערות) — נשמרות בדפדפן בנפרד לכל עובד
 const LEGACY_DRAFTS_KEY = 'mishmarot-draft-requests';
@@ -963,7 +967,23 @@ function App() {
   const [myPrefs, setMyPrefs] = React.useState(null);          // employee_prefs שלי — יעד משמרות/שבוע, שישי/שבת
   const [detail, setDetail] = React.useState(null);          // { ym, ds, shiftId } — מסך פרטי משמרת
   const [recurringOpen, setRecurringOpen] = React.useState(false); // מסך ניהול בקשות קבועות
-  const [tab, setTab] = React.useState('home');
+  const [tab, setTab] = React.useState(() => {
+    const t = EMBED ? new URLSearchParams(window.location.search).get('tab') : null;
+    return EMBED_TABS.includes(t) ? t : 'home';
+  });
+  // מצב מוטמע: המשבץ מחליף לשונית, והאפליקציה מדווחת לו על הלשונית הנוכחית
+  React.useEffect(() => {
+    if (!EMBED) return;
+    const onMsg = (e) => {
+      if (e.source !== window.parent || e.data?.type !== 'mishmarot:setTab' || !EMBED_TABS.includes(e.data.tab)) return;
+      setDetail(null); setRecurringOpen(false); setTab(e.data.tab);
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+  React.useEffect(() => {
+    if (EMBED) try { window.parent.postMessage({ type: 'mishmarot:tab', tab }, '*'); } catch (_) {}
+  }, [tab]);
   const [toast, setToast] = React.useState(null);
 
   const TM = thisMonth();
@@ -1292,7 +1312,8 @@ function App() {
   const firstName = (me.name || '').split(' ')[0];
   const emailForOps = IMPERSONATE_ID ? 'admin' : (session?.user?.email || '');
   const sessionEmail = (session?.user?.email || '').toLowerCase();
-  const isAdmin = sessionEmail === 'eladadler@gmail.com' || adminEmails.includes(sessionEmail);
+  // במצב מוטמע (בתוך מסך העובדים של המשבץ) מציגים בדיוק מה שהעובד רואה — בלי כלי העריכה של האדמין
+  const isAdmin = !EMBED && (sessionEmail === 'eladadler@gmail.com' || adminEmails.includes(sessionEmail));
   const toggleReqUiPart = async (id) => {
     const prev = reqUiHidden;
     const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
@@ -1303,7 +1324,7 @@ function App() {
   const reqUi = { hidden: reqUiHidden, edit: isAdmin && reqUiEdit, isAdmin, toggle: toggleReqUiPart, setEdit: setReqUiEdit, editOn: reqUiEdit };
 
   return frame(<>
-    {IMPERSONATE_ID && (
+    {IMPERSONATE_ID && !EMBED && (
       <div style={{ background: 'oklch(0.5 0.18 25)', color: '#FFF', padding: '8px 16px', fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <span>🔑 מצב אדמין · צופה בתור {me.name}</span>
         <span onClick={() => window.close()} style={{ cursor: 'pointer', fontSize: 18, fontWeight: 900, lineHeight: 1, opacity: 0.85 }}>×</span>

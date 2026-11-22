@@ -845,6 +845,8 @@
   .note-pop .txt { font-size: 18px; font-weight: 600; line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
   .note-pop .x { border: none; background: transparent; font-size: 24px; line-height: 1; color: var(--ink-3); cursor: pointer; padding: 0 4px; }
   .note-pop .x:hover { color: var(--ink); }
+  .chip-ghost { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 3px 8px; border-radius: 999px; border: 1.5px dashed var(--danger); color: var(--danger); background: var(--danger-bg); font-size: 11px; font-weight: 700; }
+  .chip-ghost button { border: none; background: transparent; color: inherit; font-size: 14px; line-height: 1; cursor: pointer; padding: 0 2px; }
   .rule-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); font-size: 12.5px; }
   .rule-row.iron { background: color-mix(in oklab, oklch(0.45 0.18 300) 9%, transparent); border-color: color-mix(in oklab, oklch(0.45 0.18 300) 35%, transparent); }
   .rule-row .act { margin-inline-start: auto; display: flex; gap: 2px; }
@@ -3064,7 +3066,7 @@ function ShiftChip({ emp, dStr, shiftId, shift, conflicts, editable, onRemove, o
       title={issues.length ? undefined : emp.name}
     >
       <Avatar emp={emp} size={20} />
-      <span className="chip-name">{emp.name}</span>
+      <span className="chip-name">{emp.name || '(עובד ללא שם)'}</span>
       {own && (
         <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in oklab, var(--accent) 12%, transparent)',
           borderRadius: 999, padding: '1px 6px', flexShrink: 0, whiteSpace: 'nowrap', direction: 'ltr' }}>
@@ -3100,9 +3102,13 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
   const [over, setOver] = React.useState(false);
   const hasConflict = emps.some((id) => (conflicts[`${dStr}|${shift.id}|${id}`] || []).length);
   const required = shift.required || 1;
-  const stateCls = hasConflict ? 'slot-conflict' : emps.length === 0 ? 'slot-empty' : emps.length < required ? 'slot-partial' : 'slot-ok';
+  // מזהה בסידור שלא שייך לאף עובד קיים (עובד שנמחק / שהמזהה שלו השתנה) לא תופס מקום — קודם הוא
+  // נספר כ"משובץ" בלי להופיע, המשבצת נראתה מלאה וגרירה אליה נחסמה
+  const ghosts = emps.filter((id) => !D.empById(id));
+  const filled = emps.length - ghosts.length;
+  const stateCls = hasConflict ? 'slot-conflict' : filled === 0 ? 'slot-empty' : filled < required ? 'slot-partial' : 'slot-ok';
 
-  const atCapacity = emps.length >= required;
+  const atCapacity = filled >= required;
   // גרירת משמרת (סידור מחדש) פעילה בתא הזה
   const slotDragActive = slotDragKey != null;
   const isBeingDragged = slotDragKey === slotKey;
@@ -3190,7 +3196,13 @@ function ShiftSlot({ dStr, shift, emps, conflicts, editable, draggingEmp, focuse
                 onSwap={onSwapChips} onReplace={onReplaceChip} />
             );
           })}
-          {!atCapacity && <div className="slot-placeholder"><span className="slot-missing">חסר {required - emps.length}</span></div>}
+          {ghosts.map((id) => (
+            <div key={id} className="chip-ghost" title={'מזהה ' + id + ' לא שייך לאף עובד קיים — לא נחשב כשיבוץ'}>
+              <span>⚠ עובד שלא קיים</span>
+              {editable && <button onClick={(e) => { e.stopPropagation(); onRemove(dStr, shift.id, id); }} aria-label="הסרה" title="הסרה מהמשמרת">×</button>}
+            </div>
+          ))}
+          {!atCapacity && <div className="slot-placeholder"><span className="slot-missing">חסר {required - filled}</span></div>}
         </div>
       )}
     </div>
@@ -7271,12 +7283,24 @@ function App({ auth }) {
   // משמרות שלא אוישו במלואן — מוצגות בולט בלוח ובצ'יפ בכותרת (רק אחרי שהתחיל שיבוץ בטיוטה)
   const draftHasAssignments = !!currentDraft && Object.values(currentDraft.schedule || {})
     .some((day) => Object.values(day || {}).some((ids) => (ids || []).length));
+  // מזהים בסידור שלא שייכים לאף עובד קיים (עובד שנמחק / שהמזהה שלו השתנה): לא נספרים כמשובצים,
+  // לא נשלחים למנוע (אחרת הוא רואה את המשמרת כמלאה ולא משבץ אליה), ואפשר לנקות אותם בלחיצה
+  const empIdSet = React.useMemo(() => new Set(employees.map(e => e.id)), [employees]);
+  const knownIn = (ids) => (ids || []).filter(id => empIdSet.has(id));
+  const knownOnly = (sch) => Object.fromEntries(Object.entries(sch || {}).map(([d, day]) =>
+    [d, Object.fromEntries(Object.entries(day || {}).map(([sid, ids]) => [sid, knownIn(ids)]))]));
+  const ghostCount = React.useMemo(() => {
+    let n = 0;
+    Object.values(currentDraft?.schedule || {}).forEach(day => Object.values(day || {}).forEach(ids => { n += (ids || []).length - knownIn(ids).length; }));
+    return n;
+  }, [currentDraft, employees]);
+  const cleanGhosts = () => activeDraftId && updateDraft(activeDraftId, d => ({ schedule: knownOnly(d.schedule) }));
   const openSlotCount = React.useMemo(() => {
     if (!currentDraft) return 0;
     let n = 0;
     datesForDraft(currentDraft).forEach((d) => AD.shiftTypesFor(d, shiftSettings).forEach((s) => {
       if (s.continuation) return;
-      if ((currentDraft.schedule?.[d]?.[s.id] || []).length < (s.required || 1)) n++;
+      if (knownIn(currentDraft.schedule?.[d]?.[s.id]).length < (s.required || 1)) n++;
     }));
     return n;
   }, [currentDraft, shiftSettings]);
@@ -7365,7 +7389,7 @@ function App({ auth }) {
     setGeneratingId(id);
     const result = AE.generate({
       startDate: currentDraft.range.start, endDate: currentDraft.range.end,
-      excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
+      excluded: currentDraft.excluded || [], existingSchedule: knownOnly(currentDraft.schedule), shiftSettings,
       initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(currentDraft), initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
       submitted: submittedForDraft(currentDraft), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
@@ -7388,7 +7412,7 @@ function App({ auth }) {
     setGeneratingId(id);
     const result = AE.generate({
       startDate: currentDraft.range.start, endDate: currentDraft.range.end,
-      excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule, shiftSettings,
+      excluded: currentDraft.excluded || [], existingSchedule: knownOnly(currentDraft.schedule), shiftSettings,
       initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(currentDraft), initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
       submitted: submittedForDraft(currentDraft), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
@@ -7412,7 +7436,7 @@ function App({ auth }) {
     proposals.sort((a, b) => a.dStr.localeCompare(b.dStr));
     const res = AE.generate({
       startDate: draft.range.start, endDate: draft.range.end, excluded: draft.excluded || [],
-      existingSchedule: baseSchedule, shiftSettings, initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(draft),
+      existingSchedule: knownOnly(baseSchedule), shiftSettings, initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(draft),
       initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
       proposals, submitted: submittedForDraft(draft), ...extra,
     });
@@ -7533,7 +7557,7 @@ function App({ auth }) {
 
       const algoResult = AE.generate({
         startDate: currentDraft.range.start, endDate: currentDraft.range.end,
-        excluded: currentDraft.excluded || [], existingSchedule: currentDraft.schedule,
+        excluded: currentDraft.excluded || [], existingSchedule: knownOnly(currentDraft.schedule),
         shiftSettings, initialCounts: histCounts, initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(currentDraft),
         initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(currentDraft)),
@@ -7749,7 +7773,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       // השלמה: כל משמרת שקיבלה פחות עובדים מהנדרש — תמולא ע"י האלגוריתם
       const topUp = AE.generate({
         startDate: snap.range.start, endDate: snap.range.end,
-        excluded: snap.excluded, existingSchedule: mergedSchedule, shiftSettings,
+        excluded: snap.excluded, existingSchedule: knownOnly(mergedSchedule), shiftSettings,
         initialLastEnd: carryOverEnds, contextSchedule: contextScheduleFor(snap), initialLastShabbat: calcLastShabbatDates(), initialLastWeekendShort: calcLastWeekendShortDates(), ruleToggles,
         ironAssignments: computeIronAssignments(datesForDraft(snap)),
         submitted: submittedForDraft(snap), shabbatMonthly: shabbatMonthlyIds(), initialShabbatCounts: calcShabbatCounts(),
@@ -7961,7 +7985,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       const cur = day[shiftId] || [];
       if (cur.includes(empId)) return {};
       const capacity = AD.shiftDef(dStr, shiftId, shiftSettings)?.required ?? Infinity;
-      if (cur.length >= capacity) return {};
+      if (knownIn(cur).length >= capacity) return {};
       day[shiftId] = [...cur, empId];
       return { schedule: { ...d.schedule, [dStr]: day } };
     });
@@ -7984,7 +8008,7 @@ ${JSON.stringify(emptySlots, null, 2)}
       const toCur = toDay[to.shiftId] || [];
       if (toCur.includes(empId)) return {};
       const capacity = AD.shiftDef(to.dStr, to.shiftId, shiftSettings)?.required ?? Infinity;
-      if (toCur.length >= capacity) return {};
+      if (knownIn(toCur).length >= capacity) return {};
       const next = { ...d.schedule };
       if (!copy) {
         const fromDay = { ...(next[from.dStr] || {}) };
@@ -8197,6 +8221,12 @@ ${JSON.stringify(emptySlots, null, 2)}
 
       {screen === 'calendar' && status === 'final' && (
         <div className="final-banner">הסידור סופי ופורסם לעובדים. אפשר עדיין לערוך אותו — כל שינוי מתעדכן אצל העובדים אוטומטית.</div>
+      )}
+      {screen === 'calendar' && currentDraft && ghostCount > 0 && (
+        <div className="final-banner" style={{background:'var(--danger-bg)',color:'var(--danger)',fontWeight:700,display:'flex',alignItems:'center',gap:12,justifyContent:'center',flexWrap:'wrap'}}>
+          <span>⚠ בטיוטה יש {ghostCount} שיבוצים של עובד שכבר לא קיים במערכת (נמחק, או שהמזהה שלו השתנה). הם לא נספרים, והמשבצות שלהם פתוחות לשיבוץ.</span>
+          {editable && <button className="btn" style={{fontSize:12,padding:'3px 12px'}} onClick={cleanGhosts}>ניקוי מהטיוטה</button>}
+        </div>
       )}
       {screen === 'calendar' && freeAssignMode && (
         <div className="final-banner" style={{background:'var(--danger-bg)',color:'var(--danger)',fontWeight:700}}>
